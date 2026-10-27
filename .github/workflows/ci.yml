@@ -5,7 +5,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore: ['odd/**', 'README.md', 'CHANGELOG.md', 'cli/README.md', 'cli/CHANGELOG.md']
+    paths-ignore: ['README.md', 'CHANGELOG.md', 'cli/README.md', 'cli/CHANGELOG.md']
   workflow_dispatch:
 
 permissions:
