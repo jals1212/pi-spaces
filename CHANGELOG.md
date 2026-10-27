@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.1.1
+
+### Changed
+
+- The `pi-space` command moved to its own package, `@jals1212/pi-spaces-cli`, so each one is installed and updated on its own; this package is now only the Pi extension.
+
+### Fixed
+
+- The README, the `pi-space --help` text and the examples name no particular
+  program that runs Pi; they use a generic `my-launcher`. 0.1.0 is withdrawn
+  from npm: use 0.1.1.
+
 ## 0.1.0
 
 ### Added

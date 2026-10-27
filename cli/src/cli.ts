@@ -3,7 +3,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
-import { BASE, type Env, listSpaces, spacesDir, validateName } from "./spaces.ts";
+import { BASE, type Env, listSpaces, spacesDir, validateName } from "@jals1212/pi-spaces/spaces";
 
 export const USAGE = `Usage: pi-space [<name> [pi args...] | list | --help]
   pi-space              pick a space and start Pi in it
