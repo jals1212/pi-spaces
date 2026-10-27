@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SpaceError } from "../src/spaces.ts";
-import { filterArgs, relaunchCommand, relaunchEnv, resolveSwitch } from "../src/relaunch.ts";
+import { filterArgs, parseSpaceFlag, planStartup, relaunchCommand, relaunchEnv, resolveSwitch, runNow } from "../src/relaunch.ts";
 
 test("filterArgs keeps options and drops the prompt, @files, session options and everything after --", () => {
 	assert.deepEqual(filterArgs([]), []);
@@ -57,6 +57,7 @@ test("relaunchEnv points Pi at the target and rewrites every variable inside the
 			PWD: "/h/agent/proj",
 			OLDPWD: "/h/agent",
 			UNRELATED: "/elsewhere",
+			LIST: "/usr/bin:/h/agent/bin:/h/agent-other/bin",
 			PI_SPACE: "old",
 		},
 		{ currentHome: "/h/agent", targetHome: "/s/work", baseHome: "/h/agent", space: "work" },
@@ -69,6 +70,7 @@ test("relaunchEnv points Pi at the target and rewrites every variable inside the
 		PWD: "/h/agent/proj",
 		OLDPWD: "/h/agent",
 		UNRELATED: "/elsewhere",
+		LIST: "/usr/bin:/s/work/bin:/h/agent-other/bin",
 		PI_SPACE: "work",
 		PI_SPACES_BASE_HOME: "/h/agent",
 	});
@@ -103,4 +105,51 @@ test("scheduleRelaunch runs the command with inherited stdio when the process ex
 	const result = spawnSync(process.execPath, [parent], { encoding: "utf8" });
 	assert.equal(result.stdout, "parent exiting\nrelaunched work a b\n");
 	assert.equal(result.status, 7);
+});
+
+test("parseSpaceFlag takes --space <name> or --space=<name> and leaves everything else", () => {
+	assert.deepEqual(parseSpaceFlag(["--model", "m", "hi"]), { name: undefined, rest: ["--model", "m", "hi"] });
+	assert.deepEqual(parseSpaceFlag(["--space", "work", "-c", "hi"]), { name: "work", rest: ["-c", "hi"] });
+	assert.deepEqual(parseSpaceFlag(["-c", "--space=work"]), { name: "work", rest: ["-c"] });
+	assert.deepEqual(parseSpaceFlag(["--", "--space", "work"]), { name: undefined, rest: ["--", "--space", "work"] });
+	for (const args of [["--space"], ["--space", "-c"], ["--space="]]) {
+		assert.deepEqual(parseSpaceFlag(args), { error: "--space needs a space name: pi --space <name>." }, args.join(" "));
+	}
+});
+
+test("planStartup relaunches in the space with every other argument, prompt and session options included", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "work"), { recursive: true });
+	const base = join(root, "agent");
+	const proc = (args: string[]) => ({ execPath: "/n/node", execArgv: [], argv: ["/n/node", "/p/cli.js", ...args] });
+
+	assert.deepEqual(planStartup({ proc: proc(["hi"]), dir, currentHome: base, env: {} }), { kind: "none" });
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work", "-c", "fix it"]), dir, currentHome: base, env: { PI_CODING_AGENT_DIR: base } }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js", "-c", "fix it"] },
+		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base },
+	});
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work"]), dir, currentHome: join(dir, "work"), env: { PI_SPACES_BASE_HOME: base } }), { kind: "none" });
+	assert.deepEqual(planStartup({ proc: proc(["--space", "base"]), dir, currentHome: base, env: {} }), { kind: "none" });
+	assert.deepEqual(planStartup({ proc: proc(["--space", "ghost"]), dir, currentHome: base, env: {} }), { kind: "error", message: 'Space "ghost" does not exist.' });
+	assert.deepEqual(planStartup({ proc: proc(["--space"]), dir, currentHome: base, env: {} }), { kind: "error", message: "--space needs a space name: pi --space <name>." });
+});
+
+test("runNow runs the command with inherited stdio and returns its exit code", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const child = join(root, "child.mjs");
+	writeFileSync(child, 'console.log("child", process.env.PI_SPACE); process.exit(3);\n');
+	const parent = join(root, "parent.ts");
+	const module = fileURLToPath(new URL("../src/relaunch.ts", import.meta.url));
+	writeFileSync(
+		parent,
+		`import { runNow } from ${JSON.stringify(module)};\n` +
+			`const code = runNow({ command: process.execPath, args: [${JSON.stringify(child)}] }, { ...process.env, PI_SPACE: "work" });\n` +
+			`console.log("code", code);\n` +
+			`console.log("missing", runNow({ command: "/nonexistent/pi", args: [] }, process.env));\n`,
+	);
+	const result = spawnSync(process.execPath, [parent], { encoding: "utf8" });
+	assert.equal(result.stdout, "child work\ncode 3\nmissing 1\n");
+	assert.match(result.stderr, /pi-spaces: could not start Pi again: .*ENOENT/);
 });

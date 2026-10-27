@@ -1,10 +1,10 @@
 // The /space command, kept apart from Pi's extension API so it can be tested directly.
 import { join } from "node:path";
 import { type Command, relaunchEnv, resolveSwitch } from "./relaunch.ts";
-import { activeSpace, BASE, checkRemovable, createSpace, type Env, listSpaces, type PackageDeclaration, removeSpace, SpaceError } from "./spaces.ts";
+import { activeSpace, BASE, checkRemovable, createSpace, type Env, listSpaces, type PackageDeclaration, removeSpace, renameSpace, SpaceError } from "./spaces.ts";
 
-export const USAGE = "Usage: /space [list | new <name> | remove <name> | switch <name>]";
-const SUBCOMMANDS = ["list", "new", "remove", "switch"];
+export const USAGE = "Usage: /space [list | new <name> | remove <name> | rename <old> <new> | switch [<name>]]";
+const SUBCOMMANDS = ["list", "new", "remove", "rename", "switch"];
 
 export interface SpaceCommandContext {
 	mode: string;
@@ -12,6 +12,7 @@ export interface SpaceCommandContext {
 	ui: {
 		notify(message: string, type?: "info" | "warning" | "error"): void;
 		confirm(title: string, message: string): Promise<boolean>;
+		select(title: string, options: string[]): Promise<string | undefined>;
 	};
 	shutdown(): void;
 }
@@ -44,6 +45,12 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 		if (sub === "remove" && (rest.length === 1 || (rest.length === 2 && rest[1] === "--yes"))) {
 			return await remove(rest[0], rest[1] === "--yes", deps);
 		}
+		if (sub === "rename" && rest.length === 2) {
+			renameSpace(deps.dir, rest[0], rest[1], deps.currentHome(), protectedHomes(deps));
+			ctx.ui.notify(`Renamed space "${rest[0]}" to "${rest[1]}".`, "info");
+			return;
+		}
+		if (sub === "switch" && rest.length === 0) return await pickAndSwitch(deps);
 		if (sub === "switch" && rest.length === 1) return switchTo(rest[0], deps);
 		ctx.ui.notify(USAGE, "error");
 	} catch (error) {
@@ -66,7 +73,7 @@ async function remove(name: string, yes: boolean, deps: SpaceCommandDeps): Promi
 	if (!yes) {
 		if (!ctx.hasUI) throw new SpaceError(`Removing a space needs confirmation; run /space remove ${name} --yes.`);
 		// Fail before asking when the space cannot be removed anyway.
-		checkRemovable(deps.dir, name, deps.currentHome());
+		checkRemovable(deps.dir, name, deps.currentHome(), protectedHomes(deps));
 		const ok = await ctx.ui.confirm(
 			`Remove space "${name}"?`,
 			`This deletes ${join(deps.dir, name)} and everything in it: sign-ins, packages, settings and sessions.`,
@@ -76,8 +83,23 @@ async function remove(name: string, yes: boolean, deps: SpaceCommandDeps): Promi
 			return;
 		}
 	}
-	removeSpace(deps.dir, name, deps.currentHome());
+	removeSpace(deps.dir, name, deps.currentHome(), protectedHomes(deps));
 	ctx.ui.notify(`Removed space "${name}".`, "info");
+}
+
+function protectedHomes(deps: SpaceCommandDeps): string[] {
+	return deps.env.PI_SPACES_BASE_HOME ? [deps.env.PI_SPACES_BASE_HOME] : [];
+}
+
+async function pickAndSwitch(deps: SpaceCommandDeps): Promise<void> {
+	const { ctx } = deps;
+	if (ctx.mode !== "tui") throw new SpaceError("/space switch needs the interactive terminal.");
+	const active = activeSpace(deps.dir, deps.currentHome());
+	const options = [BASE, ...listSpaces(deps.dir)].filter((name) => (active === undefined ? name !== BASE : name !== active));
+	if (options.length === 0) throw new SpaceError("No other space to switch to. Create one with /space new <name>.");
+	const picked = await ctx.ui.select("Switch to space", options);
+	if (picked === undefined) return;
+	switchTo(picked, deps);
 }
 
 function switchTo(name: string, deps: SpaceCommandDeps): void {
@@ -105,7 +127,7 @@ export function completeSpaceArgs(prefix: string, dir: string): { value: string;
 		const items = SUBCOMMANDS.filter((sub) => sub.startsWith(words[0])).map((sub) => ({ value: sub, label: sub }));
 		return items.length > 0 ? items : null;
 	}
-	if (words.length !== 2 || (words[0] !== "remove" && words[0] !== "switch")) return null;
+	if (words.length !== 2 || (words[0] !== "remove" && words[0] !== "rename" && words[0] !== "switch")) return null;
 	const names = words[0] === "switch" ? [BASE, ...listSpaces(dir)] : listSpaces(dir);
 	const items = names.filter((name) => name.startsWith(words[1])).map((name) => ({ value: `${words[0]} ${name}`, label: name }));
 	return items.length > 0 ? items : null;

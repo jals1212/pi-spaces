@@ -9,6 +9,7 @@ import {
 	findOwnDeclaration,
 	listSpaces,
 	removeSpace,
+	renameSpace,
 	SpaceError,
 	spacesDir,
 	validateName,
@@ -22,6 +23,7 @@ test("spacesDir uses PI_SPACES_DIR, else ~/.pi/spaces", () => {
 	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces" }, "/home/u"), "/x/spaces");
 	assert.equal(spacesDir({}, "/home/u"), join("/home/u", ".pi", "spaces"));
 	assert.equal(spacesDir({ PI_SPACES_DIR: "~/s" }, "/home/u"), join("/home/u", "s"));
+	assert.equal(spacesDir({ PI_SPACES_DIR: "rel/s" }, "/home/u"), join("/home/u", "rel", "s"));
 });
 
 test("validateName accepts the documented names and rejects the rest", () => {
@@ -130,6 +132,27 @@ test("removeSpace refuses when the spaces folder is the agent home or inside it"
 	assert.ok(existsSync(join(agent, "nested", "x")));
 });
 
+test("removeSpace refuses a spaces folder that is the filesystem root or the user's home", () => {
+	const unsafe = (dir: string) => new SpaceError(`The spaces folder ${dir} is not a dedicated folder; set PI_SPACES_DIR to one.`);
+	const root = scratch();
+	const home = join(root, "home");
+	mkdirSync(join(home, "docs"), { recursive: true });
+	assert.throws(() => removeSpace(home, "docs", join(root, "agent"), [], home), unsafe(home));
+	assert.throws(() => removeSpace("/", "tmp", join(root, "agent"), [], home), unsafe("/"));
+	assert.ok(existsSync(join(home, "docs")));
+});
+
+test("removeSpace refuses a space that is or contains the base home", () => {
+	const root = scratch();
+	const dir = join(root, "pi");
+	mkdirSync(join(dir, "agent"), { recursive: true });
+	mkdirSync(join(dir, "work"));
+	const base = join(dir, "agent");
+	const message = new SpaceError(`Space "agent" holds the base home ${base}; it cannot be removed.`);
+	assert.throws(() => removeSpace(dir, "agent", join(dir, "work"), [base]), message);
+	assert.ok(existsSync(base));
+});
+
 test("findOwnDeclaration copies this package's entry from the current settings", () => {
 	const root = scratch();
 	const agent = join(root, "agent");
@@ -164,4 +187,57 @@ test("findOwnDeclaration falls back to the package folder when no entry matches"
 	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), "/opt/pkg");
 	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:@jals1212/pi-spaces-extra"] }));
 	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), "/opt/pkg");
+});
+
+test("renameSpace moves the folder and keeps its contents", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	createSpace(dir, "a", "x");
+	createSpace(dir, "keep", "x");
+	writeFileSync(join(dir, "a", "auth.json"), "secret");
+	renameSpace(dir, "a", "b", join(root, "agent"));
+	assert.equal(existsSync(join(dir, "a")), false);
+	assert.equal(readFileSync(join(dir, "b", "auth.json"), "utf8"), "secret");
+	assert.deepEqual(listSpaces(dir), ["b", "keep"]);
+});
+
+test("renameSpace refuses base on either side, invalid, missing, existing and same names, leaving folders unchanged", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	const agent = join(root, "agent");
+	createSpace(dir, "a", "x");
+	createSpace(dir, "b", "x");
+	assert.throws(() => renameSpace(dir, "base", "c", agent), new SpaceError('"base" is reserved for the home Pi started with.'));
+	assert.throws(() => renameSpace(dir, "a", "base", agent), new SpaceError('"base" is reserved for the home Pi started with.'));
+	assert.throws(() => renameSpace(dir, "a", "Bad", agent), /Invalid space name "Bad"/);
+	assert.throws(() => renameSpace(dir, "ghost", "c", agent), new SpaceError('Space "ghost" does not exist.'));
+	assert.throws(() => renameSpace(dir, "a", "b", agent), new SpaceError('Space "b" already exists.'));
+	assert.throws(() => renameSpace(dir, "a", "a", agent), new SpaceError('Space "a" already exists.'));
+	assert.deepEqual(listSpaces(dir), ["a", "b"]);
+	assert.equal(existsSync(join(dir, "c")), false);
+});
+
+test("renameSpace refuses the active space, symlinks and a space holding the current or base home", () => {
+	const root = scratch();
+	const dir = join(root, "pi");
+	createSpace(dir, "work", "x");
+	mkdirSync(join(dir, "agent"));
+	assert.throws(
+		() => renameSpace(dir, "work", "z", join(dir, "work")),
+		new SpaceError('Space "work" is active; switch to another space before renaming it.'),
+	);
+	const base = join(dir, "agent");
+	assert.throws(
+		() => renameSpace(dir, "agent", "z", join(dir, "work"), [base]),
+		new SpaceError(`Space "agent" holds the base home ${base}; it cannot be renamed.`),
+	);
+	mkdirSync(join(root, "precious"));
+	symlinkSync(join(root, "precious"), join(dir, "link"));
+	assert.throws(
+		() => renameSpace(dir, "link", "z", join(root, "agent")),
+		new SpaceError(`Space "link" is not a folder inside ${dir}; rename it by hand.`),
+	);
+	assert.deepEqual(listSpaces(dir), ["agent", "work"]);
+	assert.equal(existsSync(join(dir, "z")), false);
+	assert.ok(existsSync(join(root, "precious")));
 });
