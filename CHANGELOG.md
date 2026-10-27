@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `/space list`, `/space new <name>`, `/space remove <name>` and `/space switch <name>`: named Pi agent homes in `~/.pi/spaces` (or `PI_SPACES_DIR`).
+- `/space list`, `/space new <name>`, `/space remove <name>` and `/space switch <name>`: named Pi agent homes in a `spaces` folder next to the home Pi starts with (`~/.pi/spaces` for `~/.pi/agent`), or `PI_SPACES_DIR`.
 - The active space shows in the status line.
 - `/space switch` with no name opens a picker; `/space rename <old> <new>` renames a space.
 - `pi --space <name>` starts Pi directly in a space.

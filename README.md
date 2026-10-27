@@ -50,10 +50,11 @@ npm i -g @jals1212/pi-spaces            # until it is published: npm i -g github
 | `pi-space <name> [pi args...]` | Starts Pi in that space (`base` for the home Pi starts with). |
 | `pi-space list` | Lists the spaces. A space named `list` can still be opened from the picker. |
 
-`pi-space` runs `pi --space <name>`, so the extension must be installed in the home the command opens. To start Pi through another program that runs it, set `PI_SPACES_COMMAND` once in your shell profile; its words come before `--space`:
+`pi-space` runs `pi --space <name>`, so the extension must be installed in the home the command opens. To start Pi through another program that runs it, set `PI_SPACES_COMMAND` once in your shell profile; its words come before `--space`. Such a program usually has its own home, so point `PI_SPACES_DIR` at its spaces folder too, so `pi-space` lists and validates the same spaces:
 
 ```bash
-export PI_SPACES_COMMAND="my-launcher --"   # pi-space work → my-launcher -- --space work
+export PI_SPACES_COMMAND="my-launcher --"        # pi-space work → my-launcher -- --space work
+export PI_SPACES_DIR=~/.my-launcher/spaces       # the spaces next to that program's home
 ```
 
 The CLI needs Node 22.18 or newer.
@@ -64,7 +65,9 @@ Lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most
 
 ### Where spaces live
 
-Every space is a folder in `~/.pi/spaces/<name>/`. Set `PI_SPACES_DIR` to use another folder; a relative value is taken from your home folder.
+Spaces live in a `spaces` folder next to the home Pi starts with: `~/.pi/agent` keeps its spaces in `~/.pi/spaces/<name>/`. A program that runs Pi with its own home (through `PI_CODING_AGENT_DIR`) therefore gets its own spaces folder too, for example `~/.tool/agent` → `~/.tool/spaces`. The folder stays the same while you switch between spaces.
+
+Set `PI_SPACES_DIR` to use one folder for everything; a relative value is taken from your home folder.
 
 A new space starts empty except for a `settings.json` that declares this package, so `/space` is available inside it. Sign in and install packages there as you would in a fresh Pi.
 

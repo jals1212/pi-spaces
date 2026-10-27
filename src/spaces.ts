@@ -23,11 +23,18 @@ function expandTilde(path: string, home: string): string {
 	return path;
 }
 
-/** The folder that holds every space: PI_SPACES_DIR, else ~/.pi/spaces. */
+/**
+ * The folder that holds every space: PI_SPACES_DIR, else a `spaces` folder next to the base home
+ * (~/.pi/agent gives ~/.pi/spaces), so every program that runs Pi with its own home keeps its own spaces.
+ * The base home is the one Pi started with (PI_SPACES_BASE_HOME inside a space), else Pi's agent home.
+ */
 export function spacesDir(env: Env = process.env, home: string = osHomedir()): string {
 	const fromEnv = env.PI_SPACES_DIR;
 	// A relative value resolves against the user's home, never the working directory.
-	return fromEnv ? resolve(home, expandTilde(fromEnv, home)) : join(home, ".pi", "spaces");
+	if (fromEnv) return resolve(home, expandTilde(fromEnv, home));
+	const agentHome = env.PI_CODING_AGENT_DIR ? expandTilde(env.PI_CODING_AGENT_DIR, home) : join(home, ".pi", "agent");
+	const baseHome = env.PI_SPACES_BASE_HOME || agentHome;
+	return join(dirname(resolve(baseHome)), "spaces");
 }
 
 /** Returns the error message for an unusable name, or undefined when the name is valid. */

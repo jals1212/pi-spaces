@@ -19,9 +19,14 @@ function scratch(): string {
 	return realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
 }
 
-test("spacesDir uses PI_SPACES_DIR, else ~/.pi/spaces", () => {
-	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces" }, "/home/u"), "/x/spaces");
+test("spacesDir sits next to the base home unless PI_SPACES_DIR is set", () => {
+	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces", PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), "/x/spaces");
 	assert.equal(spacesDir({}, "/home/u"), join("/home/u", ".pi", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), join("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent/" }, "/home/u"), join("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "~/.tool/agent" }, "/home/u"), join("/home/u", ".tool", "spaces"));
+	// Inside a space, the base home it came from decides, so the folder does not move.
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/spaces/work", PI_SPACES_BASE_HOME: "/h/.tool/agent" }, "/home/u"), join("/h/.tool", "spaces"));
 	assert.equal(spacesDir({ PI_SPACES_DIR: "~/s" }, "/home/u"), join("/home/u", "s"));
 	assert.equal(spacesDir({ PI_SPACES_DIR: "rel/s" }, "/home/u"), join("/home/u", "rel", "s"));
 });
