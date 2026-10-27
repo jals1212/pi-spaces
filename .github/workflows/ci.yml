@@ -1,0 +1,32 @@
+# The package's own checks, on PRs to main (develop -> main) and by hand.
+# Actions are pinned by commit so a moved tag cannot change what runs.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ['odd/**', 'README.md', 'CHANGELOG.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # engines.node is >=22.18: the bin and the tests import .ts through type stripping.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
