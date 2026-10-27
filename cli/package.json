@@ -1,0 +1,47 @@
+{
+  "name": "@jals1212/pi-spaces-cli",
+  "version": "0.1.0",
+  "description": "The pi-space command: pick a space and start Pi in it. Companion to the Pi extension @jals1212/pi-spaces.",
+  "license": "MIT",
+  "author": "jals1212",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jals1212/pi-spaces.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/jals1212/pi-spaces#readme",
+  "bugs": "https://github.com/jals1212/pi-spaces/issues",
+  "keywords": [
+    "pi",
+    "spaces",
+    "profiles",
+    "agent-home",
+    "cli"
+  ],
+  "type": "module",
+  "bin": {
+    "pi-space": "./bin/pi-space.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node --disable-warning=ExperimentalWarning scripts/build.mjs",
+    "prepack": "npm run build",
+    "test": "node ../scripts/link-self.mjs && npm run build --prefix .. && npm run build && node --test 'test/*.test.ts'"
+  },
+  "dependencies": {
+    "@jals1212/pi-spaces": "^0.1.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,23 +1,35 @@
-# Stages a release on npm when a vX.Y.Z tag is pushed, through npm's trusted
+# Stages a release on npm when a tag is pushed, through npm's trusted
 # publishing (OIDC): no npm token is stored anywhere, and the package carries a
 # provenance statement that links it to this workflow run.
+#
+# Two packages live in this repository, released by tag prefix:
+#   vX.Y.Z      @jals1212/pi-spaces (the Pi extension and the shared core), at the root
+#   cli-vX.Y.Z  @jals1212/pi-spaces-cli (the `pi-space` command), in cli/
+# Each has its own version, CHANGELOG.md and GitHub release. The CLI depends on
+# the root package, so a CLI release needs its range of @jals1212/pi-spaces
+# already on npm: release (and approve) the root package first.
 #
 # Staged, not published: the version waits on the registry, invisible, until a
 # maintainer approves it with 2FA (`npm stage list`, then
 # `npm stage approve <id>`, or on npmjs.com). A pushed tag alone publishes
-# nothing. Once staged, the release job creates the GitHub release of the tag,
-# its notes the version's section of CHANGELOG.md.
+# nothing.
 #
-# One-time setup on npmjs.com: Settings -> Trusted publisher -> GitHub Actions,
-# repository jals1212/pi-spaces, workflow release.yml, with "Allow npm publish"
-# and "Allow npm dist-tag" left unchecked. The first version (0.1.0) is
-# published by hand (`npm publish --access public --provenance=false`, with
-# 2FA): a package must exist before it can name a trusted publisher.
+# Once staged, the release job creates the GitHub release of the tag, its
+# notes the version's section of that package's CHANGELOG.md (an existing
+# release is left alone). The CLI's release is never marked latest: the
+# repository's latest release stays the extension's.
+#
+# One-time setup on npmjs.com, for each package: Settings -> Trusted publisher
+# -> GitHub Actions, repository jals1212/pi-spaces, workflow release.yml, with
+# "Allow npm publish" and "Allow npm dist-tag" left unchecked. The first
+# publish of @jals1212/pi-spaces-cli is made by hand (`npm publish --access
+# public --provenance=false` in cli/, with 2FA): a package must exist before it
+# can name a trusted publisher.
 name: Release
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ['v*.*.*', 'cli-v*.*.*']
 
 permissions:
   contents: read
@@ -27,6 +39,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     outputs:
+      dir: ${{ steps.which.outputs.dir }}
       version: ${{ steps.which.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,22 +48,34 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: The tag is the package version, with a CHANGELOG section
+      - name: Which package the tag releases, and that the tag is its version
         id: which
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          declared="$(node -p 'require("./package.json").version')"
-          [ "$version" = "$declared" ] || { echo "::error::Tag $GITHUB_REF_NAME, package.json $declared"; exit 1; }
-          grep -q "^## $version$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
+          case "$GITHUB_REF_NAME" in
+            cli-v*) dir=cli; version="${GITHUB_REF_NAME#cli-v}" ;;
+            *) dir=.; version="${GITHUB_REF_NAME#v}" ;;
+          esac
+          declared="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$dir/package.json")"
+          [ "$version" = "$declared" ] || { echo "::error::Tag $GITHUB_REF_NAME, $dir/package.json $declared"; exit 1; }
+          grep -q "^## $version$" "$dir/CHANGELOG.md" || { echo "::error::$dir/CHANGELOG.md has no ## $version section"; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The core the CLI depends on is on npm
+        if: steps.which.outputs.dir == 'cli'
+        run: |
+          range="$(node -p 'require("./cli/package.json").dependencies["@jals1212/pi-spaces"]')"
+          [ -n "$(npm view "@jals1212/pi-spaces@$range" version)" ] || { echo "::error::No @jals1212/pi-spaces $range on npm yet: release the extension first"; exit 1; }
+      # One run of the checks for both packages: the CLI's tests import the
+      # core from this checkout (scripts/link-self.mjs).
       - run: npm test
       - name: Stage the release (approve it on npm with 2FA)
+        working-directory: ${{ steps.which.outputs.dir }}
         env:
           VERSION: ${{ steps.which.outputs.version }}
         run: |
-          # A version already on npm (0.1.0, published by hand before the
-          # trusted publisher could exist) is left alone: the tag then only
-          # makes its GitHub release.
+          # A version already on npm (0.1.0 of the extension, published by hand
+          # before its trusted publisher could exist) is left alone: the tag
+          # then only makes its GitHub release.
           name="$(node -p 'require("./package.json").name')"
           if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
             echo "::notice::$name $VERSION is already on npm: not staged again"
@@ -69,12 +94,17 @@ jobs:
       - name: The GitHub release, with the version's CHANGELOG section
         env:
           GH_TOKEN: ${{ github.token }}
+          DIR: ${{ needs.publish.outputs.dir }}
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "The release $GITHUB_REF_NAME exists: left alone."
             exit 0
           fi
-          awk -v v="$VERSION" '$0=="## "v{on=1;next} on&&/^## /{exit} on' CHANGELOG.md | sed -e '/./,$!d' > notes.md
-          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no notes for $VERSION"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$VERSION" --notes-file notes.md
+          awk -v v="$VERSION" '$0=="## "v{on=1;next} on&&/^## /{exit} on' "$DIR/CHANGELOG.md" | sed -e '/./,$!d' > notes.md
+          [ -s notes.md ] || { echo "::error::$DIR/CHANGELOG.md has no notes for $VERSION"; exit 1; }
+          if [ "$DIR" = cli ]; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "pi-spaces-cli $VERSION" --notes-file notes.md --latest=false
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$VERSION" --notes-file notes.md
+          fi

@@ -5,7 +5,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore: ['odd/**', 'README.md', 'CHANGELOG.md']
+    paths-ignore: ['odd/**', 'README.md', 'CHANGELOG.md', 'cli/README.md', 'cli/CHANGELOG.md']
   workflow_dispatch:
 
 permissions:
@@ -22,11 +22,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # engines.node is >=22.18: the bin and the tests import .ts through type stripping.
+        # The build and the tests strip types from .ts, which needs Node 22.18 or later.
         node: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
+      # The root test script links cli/ to this checkout, builds both packages and runs both suites.
       - run: npm test

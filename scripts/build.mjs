@@ -1,6 +1,7 @@
-// Builds dist/: the src/*.ts modules as plain JavaScript, for the pi-space bin.
+// Builds dist/: the src/*.ts modules as plain JavaScript, for the CLI package
+// (@jals1212/pi-spaces-cli), which imports the core as '@jals1212/pi-spaces/spaces'.
 // Node does not strip TypeScript types from files under node_modules, so an
-// installed bin cannot import src/*.ts; Pi loads the extension's TypeScript itself.
+// installed package cannot import src/*.ts; Pi loads the extension's TypeScript itself.
 // Types are erased in place (same line and column), and ".ts" imports become ".js".
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
