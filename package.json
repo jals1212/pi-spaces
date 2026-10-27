@@ -1,0 +1,59 @@
+{
+  "name": "@jals1212/pi-spaces",
+  "version": "0.0.0",
+  "description": "Named spaces for Pi: keep several agent homes (sign-ins, packages, settings) and pick one by name.",
+  "license": "MIT",
+  "author": "jals1212",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jals1212/pi-spaces.git"
+  },
+  "homepage": "https://github.com/jals1212/pi-spaces#readme",
+  "bugs": "https://github.com/jals1212/pi-spaces/issues",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "spaces",
+    "profiles",
+    "agent-home"
+  ],
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extensions/spaces.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "extensions",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test 'tests/*.test.ts'"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
