@@ -87,8 +87,8 @@ function isSymlink(path: string): boolean {
 	}
 }
 
-/** Deletes a space. Refuses base, the active space, and anything that is not a real folder directly inside the spaces folder. */
-export function removeSpace(dir: string, name: string, agentHome: string): void {
+/** Throws the reason a space cannot be removed: base, invalid, missing, active, or not a real folder directly inside the spaces folder. */
+export function checkRemovable(dir: string, name: string, agentHome: string): string {
 	assertName(name);
 	const path = join(dir, name);
 	if (!existsSync(path) && !isSymlink(path)) throw new SpaceError(`Space "${name}" does not exist.`);
@@ -98,7 +98,12 @@ export function removeSpace(dir: string, name: string, agentHome: string): void 
 	if (activeSpace(dir, agentHome) === name) {
 		throw new SpaceError(`Space "${name}" is active; switch to another space before removing it.`);
 	}
-	rmSync(path, { recursive: true, force: true });
+	return path;
+}
+
+/** Deletes a space after checkRemovable. */
+export function removeSpace(dir: string, name: string, agentHome: string): void {
+	rmSync(checkRemovable(dir, name, agentHome), { recursive: true, force: true });
 }
 
 function isLocalSource(source: string): boolean {
