@@ -109,6 +109,27 @@ test("removeSpace refuses a spaces folder reached through a symlinked space", ()
 	assert.equal(existsSync(join(real, "work")), true);
 });
 
+test("removeSpace refuses the active space when reached through a symlinked spaces folder", () => {
+	const root = scratch();
+	mkdirSync(join(root, "real", "z"), { recursive: true });
+	symlinkSync(join(root, "real"), join(root, "link"));
+	assert.equal(activeSpace(join(root, "link"), join(root, "real", "z")), "z");
+	assert.throws(() => removeSpace(join(root, "link"), "z", join(root, "real", "z")), /active/);
+	assert.ok(existsSync(join(root, "real", "z")));
+});
+
+test("removeSpace refuses when the spaces folder is the agent home or inside it", () => {
+	const root = scratch();
+	const agent = join(root, "agent");
+	mkdirSync(join(agent, "sessions"), { recursive: true });
+	mkdirSync(join(agent, "nested", "x"), { recursive: true });
+	const message = new SpaceError(`The spaces folder ${agent} is the agent home or inside it; set PI_SPACES_DIR to a folder outside it.`);
+	assert.throws(() => removeSpace(agent, "sessions", agent), message);
+	assert.throws(() => removeSpace(join(agent, "nested"), "x", agent), SpaceError);
+	assert.ok(existsSync(join(agent, "sessions")));
+	assert.ok(existsSync(join(agent, "nested", "x")));
+});
+
 test("findOwnDeclaration copies this package's entry from the current settings", () => {
 	const root = scratch();
 	const agent = join(root, "agent");

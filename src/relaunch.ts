@@ -11,6 +11,13 @@ const VALUE_OPTIONS = new Set([
 	"-e", "--extension", "--skill", "--prompt-template", "--theme", "--use-theme",
 	"--system-prompt", "--append-system-prompt", "--tui-mode",
 ]);
+const DASH_REFUSING = new Set(["--mode", "--use-theme", "--tui-mode"]);
+// Pi's own boolean flags, which never take the next word.
+const KNOWN_FLAGS = new Set([
+	"--print", "--verbose", "--approve", "--no-approve", "--offline", "--help", "--version",
+	"--no-builtin-tools", "--no-tools", "--no-extensions", "--no-mcp", "--no-skills",
+	"--no-prompt-templates", "--no-themes", "--no-context-files", "--list-models",
+]);
 // Session options belong to the home being left, so they are dropped.
 const SESSION_FLAGS = new Set(["-c", "--continue", "-r", "--resume", "--no-session"]);
 const SESSION_VALUE_OPTIONS = new Set(["--session", "--session-id", "--fork", "--session-dir", "-n", "--name"]);
@@ -33,7 +40,15 @@ export function filterArgs(args: string[]): string[] {
 			continue;
 		}
 		kept.push(arg);
-		if (VALUE_OPTIONS.has(name) && !inlineValue && i + 1 < args.length) kept.push(args[++i]);
+		if (inlineValue || i + 1 >= args.length) continue;
+		const next = args[i + 1];
+		if (VALUE_OPTIONS.has(name)) {
+			// Pi does not take a dash-led value for these.
+			if (!(DASH_REFUSING.has(name) && next.startsWith("-"))) kept.push(args[++i]);
+		} else if (name.startsWith("--") && !KNOWN_FLAGS.has(name) && !next.startsWith("-") && !next.startsWith("@")) {
+			// Pi gives an unknown (extension) flag the next plain word as its value.
+			kept.push(args[++i]);
+		}
 	}
 	return kept;
 }
@@ -63,7 +78,8 @@ export function resolveSwitch(input: { dir: string; name: string; currentHome: s
 	return { space: name, targetHome: join(dir, name), baseHome };
 }
 
-const NOT_REWRITTEN = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME"]);
+// PWD and OLDPWD describe the working directory, which the relaunch keeps.
+const NOT_REWRITTEN = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME", "PWD", "OLDPWD"]);
 
 /**
  * The environment for the relaunched Pi. Every variable whose value is the current home,

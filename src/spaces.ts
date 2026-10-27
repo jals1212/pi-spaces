@@ -2,7 +2,7 @@
 // Host-agnostic: everything here relies only on Pi's PI_CODING_AGENT_DIR contract.
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 export const BASE = "base";
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -61,11 +61,22 @@ export function listSpaces(dir: string): string[] {
 
 /** The space whose folder is the agent home, or undefined. */
 export function activeSpace(dir: string, agentHome: string): string | undefined {
-	const home = resolve(agentHome);
 	for (const name of listSpaces(dir)) {
-		if (resolve(dir, name) === home) return name;
+		if (samePath(join(dir, name), agentHome)) return name;
 	}
 	return undefined;
+}
+
+function realOrResolved(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+function isInside(child: string, parent: string): boolean {
+	return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
 /** Creates an empty space whose settings.json declares this package, so /space works inside it. */
@@ -91,10 +102,14 @@ function isSymlink(path: string): boolean {
 export function checkRemovable(dir: string, name: string, agentHome: string): string {
 	assertName(name);
 	const path = join(dir, name);
+	const realDir = realOrResolved(dir);
+	if (isInside(realDir, realOrResolved(agentHome))) {
+		throw new SpaceError(`The spaces folder ${dir} is the agent home or inside it; set PI_SPACES_DIR to a folder outside it.`);
+	}
 	if (!existsSync(path) && !isSymlink(path)) throw new SpaceError(`Space "${name}" does not exist.`);
 	const notInside = new SpaceError(`Space "${name}" is not a folder inside ${dir}; remove it by hand.`);
 	if (!isRealFolder(path)) throw notInside;
-	if (dirname(realpathSync(path)) !== realpathSync(dir)) throw notInside;
+	if (dirname(realpathSync(path)) !== realDir) throw notInside;
 	if (activeSpace(dir, agentHome) === name) {
 		throw new SpaceError(`Space "${name}" is active; switch to another space before removing it.`);
 	}
@@ -122,11 +137,7 @@ function gitRepoName(source: string): string {
 }
 
 function samePath(a: string, b: string): boolean {
-	try {
-		return realpathSync(a) === realpathSync(b);
-	} catch {
-		return resolve(a) === resolve(b);
-	}
+	return realOrResolved(a) === realOrResolved(b);
 }
 
 /**

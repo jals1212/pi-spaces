@@ -22,6 +22,13 @@ test("filterArgs keeps options and drops the prompt, @files, session options and
 	assert.deepEqual(filterArgs(["--my-ext-flag", "-a"]), ["--my-ext-flag", "-a"]);
 });
 
+test("filterArgs keeps the value of an unknown extension flag, as Pi parses it", () => {
+	assert.deepEqual(filterArgs(["--my-flag", "v", "--model", "m", "prompt"]), ["--my-flag", "v", "--model", "m"]);
+	assert.deepEqual(filterArgs(["--my-flag", "--other", "@f.md"]), ["--my-flag", "--other"]);
+	assert.deepEqual(filterArgs(["--my-flag=v", "prompt"]), ["--my-flag=v"]);
+	assert.deepEqual(filterArgs(["--tui-mode", "--verbose"]), ["--tui-mode", "--verbose"]);
+});
+
 test("resolveSwitch targets a space folder or the base home, and refuses the rest", () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
 	const dir = join(root, "spaces");
@@ -47,6 +54,8 @@ test("relaunchEnv points Pi at the target and rewrites every variable inside the
 			HOST_AGENT_HOME: "/h/agent",
 			HOST_CONFIG: "/h/agent/config",
 			SIMILAR: "/h/agent-other",
+			PWD: "/h/agent/proj",
+			OLDPWD: "/h/agent",
 			UNRELATED: "/elsewhere",
 			PI_SPACE: "old",
 		},
@@ -57,6 +66,8 @@ test("relaunchEnv points Pi at the target and rewrites every variable inside the
 		HOST_AGENT_HOME: "/s/work",
 		HOST_CONFIG: "/s/work/config",
 		SIMILAR: "/h/agent-other",
+		PWD: "/h/agent/proj",
+		OLDPWD: "/h/agent",
 		UNRELATED: "/elsewhere",
 		PI_SPACE: "work",
 		PI_SPACES_BASE_HOME: "/h/agent",
