@@ -16,15 +16,18 @@ It works with any program that runs Pi, because it relies only on Pi's own `PI_C
 
 | Command | What it does |
 |---|---|
-| `/space` or `/space list` | Lists `base` and every space, with `*` on the active one. |
+| `/space` | Opens a list of the other spaces and restarts Pi in the one you pick. Without the interactive terminal it lists them instead. |
+| `/space list` | Lists `base` and every space, with `*` on the active one. |
 | `/space new <name>` | Creates an empty space. |
 | `/space switch <name>` | Restarts Pi in that space. `/space switch base` goes back to the home Pi started with. |
-| `/space switch` | Opens a list to pick the space. |
+| `/space switch` | Same as `/space`: opens the list to pick the space. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
 | `/space remove <name>` | Deletes a space after asking. Add `--yes` to skip the question; it is required when there is no dialog (print and JSON modes). |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 
 The status line shows `space: <name>` while a space is active, and nothing in the base home.
+
+Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. Typing `/space` and pressing Enter opens the picker in one step.
 
 ```text
 /space new work

@@ -27,7 +27,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("space", {
-		description: "List, create, remove, rename or switch Pi spaces (separate agent homes)",
+		description: "Pick a Pi space to switch to, or list, create, remove and rename spaces (separate agent homes)",
 		getArgumentCompletions: (prefix) => completeSpaceArgs(prefix, spacesDir()),
 		handler: async (args, ctx) => {
 			// Without a UI (print and JSON modes) notifications go nowhere, so they go to stderr;

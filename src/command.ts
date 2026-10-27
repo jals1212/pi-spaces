@@ -34,7 +34,8 @@ export interface SpaceCommandDeps {
 export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Promise<void> {
 	const { ctx } = deps;
 	const words = args.trim().split(/\s+/).filter(Boolean);
-	const [sub = "list", ...rest] = words;
+	// Bare /space opens the switch picker in the terminal UI (one Enter from the command menu); elsewhere it lists.
+	const [sub = ctx.mode === "tui" ? "switch" : "list", ...rest] = words;
 	try {
 		if (sub === "list" && rest.length === 0) return list(deps);
 		if (sub === "new" && rest.length === 1) {

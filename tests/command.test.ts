@@ -52,7 +52,7 @@ function fake(options: { mode?: "tui" | "print"; hasUI?: boolean; confirm?: bool
 
 test("list shows base and every space, marking the active one", async () => {
 	const f = fake();
-	await runSpaceCommand("", f.deps);
+	await runSpaceCommand("list", f.deps);
 	assert.deepEqual(f.notes, [["info", `Spaces in ${f.dir}:\n* base\nNo spaces yet. Create one with /space new <name>.`]]);
 
 	createSpace(f.dir, "work", "x");
@@ -277,4 +277,31 @@ test("completeSpaceArgs completes subcommands, then space names", () => {
 	assert.deepEqual(values("switch "), ["switch base", "switch web", "switch work"]);
 	assert.deepEqual(values("remove w"), ["remove web", "remove work"]);
 	assert.deepEqual(values("new "), null);
+});
+
+test("bare /space opens the switch picker in the terminal UI", async () => {
+	const f = fake({ select: () => "work" });
+	createSpace(f.dir, "work", "x");
+	createSpace(f.dir, "web", "x");
+	await runSpaceCommand("", f.deps);
+	await runSpaceCommand("   ", f.deps);
+	assert.deepEqual(f.selects, [
+		["Switch to space", ["web", "work"]],
+		["Switch to space", ["web", "work"]],
+	]);
+	assert.deepEqual(f.notes, [
+		["info", 'Switching to space "work"; Pi restarts in it.'],
+		["info", 'Switching to space "work"; Pi restarts in it.'],
+	]);
+	assert.equal(f.relaunches.length, 2);
+	assert.equal(f.shutdowns, 2);
+});
+
+test("bare /space without the terminal UI lists the spaces", async () => {
+	const f = fake({ mode: "print", hasUI: false });
+	createSpace(f.dir, "work", "x");
+	await runSpaceCommand("", f.deps);
+	assert.deepEqual(f.notes, [["info", `Spaces in ${f.dir}:\n* base\n  work`]]);
+	assert.deepEqual(f.selects, []);
+	assert.equal(f.relaunches.length, 0);
 });
