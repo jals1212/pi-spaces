@@ -1,0 +1,80 @@
+# Stages a release on npm when a vX.Y.Z tag is pushed, through npm's trusted
+# publishing (OIDC): no npm token is stored anywhere, and the package carries a
+# provenance statement that links it to this workflow run.
+#
+# Staged, not published: the version waits on the registry, invisible, until a
+# maintainer approves it with 2FA (`npm stage list`, then
+# `npm stage approve <id>`, or on npmjs.com). A pushed tag alone publishes
+# nothing. Once staged, the release job creates the GitHub release of the tag,
+# its notes the version's section of CHANGELOG.md.
+#
+# One-time setup on npmjs.com: Settings -> Trusted publisher -> GitHub Actions,
+# repository jals1212/pi-spaces, workflow release.yml, with "Allow npm publish"
+# and "Allow npm dist-tag" left unchecked. The first version (0.1.0) is
+# published by hand (`npm publish --access public --provenance=false`, with
+# 2FA): a package must exist before it can name a trusted publisher.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.which.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # `npm stage` needs npm 11.19 or later (Node 24.21 ships it); checked below.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: The tag is the package version, with a CHANGELOG section
+        id: which
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          declared="$(node -p 'require("./package.json").version')"
+          [ "$version" = "$declared" ] || { echo "::error::Tag $GITHUB_REF_NAME, package.json $declared"; exit 1; }
+          grep -q "^## $version$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm test
+      - name: Stage the release (approve it on npm with 2FA)
+        env:
+          VERSION: ${{ steps.which.outputs.version }}
+        run: |
+          # A version already on npm (0.1.0, published by hand before the
+          # trusted publisher could exist) is left alone: the tag then only
+          # makes its GitHub release.
+          name="$(node -p 'require("./package.json").name')"
+          if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
+            echo "::notice::$name $VERSION is already on npm: not staged again"
+            exit 0
+          fi
+          npm stage --help >/dev/null 2>&1 || { echo "::error::npm $(npm -v) has no npm stage"; exit 1; }
+          npm stage publish --provenance --access public
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The GitHub release, with the version's CHANGELOG section
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "The release $GITHUB_REF_NAME exists: left alone."
+            exit 0
+          fi
+          awk -v v="$VERSION" '$0=="## "v{on=1;next} on&&/^## /{exit} on' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no notes for $VERSION"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$VERSION" --notes-file notes.md

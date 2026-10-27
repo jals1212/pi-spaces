@@ -1,8 +1,8 @@
 // Spaces: named Pi agent homes kept side by side in one folder.
 // Host-agnostic: everything here relies only on Pi's PI_CODING_AGENT_DIR contract.
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 
 export const BASE = "base";
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -23,10 +23,18 @@ function expandTilde(path: string, home: string): string {
 	return path;
 }
 
-/** The folder that holds every space: PI_SPACES_DIR, else ~/.pi/spaces. */
+/**
+ * The folder that holds every space: PI_SPACES_DIR, else a `spaces` folder next to the base home
+ * (~/.pi/agent gives ~/.pi/spaces), so every program that runs Pi with its own home keeps its own spaces.
+ * The base home is the one Pi started with (PI_SPACES_BASE_HOME inside a space), else Pi's agent home.
+ */
 export function spacesDir(env: Env = process.env, home: string = osHomedir()): string {
 	const fromEnv = env.PI_SPACES_DIR;
-	return fromEnv ? resolve(expandTilde(fromEnv, home)) : join(home, ".pi", "spaces");
+	// A relative value resolves against the user's home, never the working directory.
+	if (fromEnv) return resolve(home, expandTilde(fromEnv, home));
+	const agentHome = env.PI_CODING_AGENT_DIR ? expandTilde(env.PI_CODING_AGENT_DIR, home) : join(home, ".pi", "agent");
+	const baseHome = env.PI_SPACES_BASE_HOME || agentHome;
+	return join(dirname(resolve(baseHome)), "spaces");
 }
 
 /** Returns the error message for an unusable name, or undefined when the name is valid. */
@@ -98,27 +106,57 @@ function isSymlink(path: string): boolean {
 	}
 }
 
-/** Throws the reason a space cannot be removed: base, invalid, missing, active, or not a real folder directly inside the spaces folder. */
-export function checkRemovable(dir: string, name: string, agentHome: string): string {
+const ACTIONS = {
+	remove: { gerund: "removing", past: "removed" },
+	rename: { gerund: "renaming", past: "renamed" },
+};
+type Action = keyof typeof ACTIONS;
+
+/**
+ * Throws the reason a space cannot be removed (or renamed, with action "rename"): base, invalid, missing, active, a spaces folder that is
+ * not dedicated (the filesystem root, the user's home, the agent home or inside it), a space holding a
+ * protected home, or anything that is not a real folder directly inside the spaces folder.
+ */
+export function checkRemovable(dir: string, name: string, agentHome: string, protect: string[] = [], userHome: string = osHomedir(), action: Action = "remove"): string {
 	assertName(name);
+	const { gerund, past } = ACTIONS[action];
 	const path = join(dir, name);
 	const realDir = realOrResolved(dir);
+	if (parse(realDir).root === realDir || realDir === realOrResolved(userHome)) {
+		throw new SpaceError(`The spaces folder ${dir} is not a dedicated folder; set PI_SPACES_DIR to one.`);
+	}
 	if (isInside(realDir, realOrResolved(agentHome))) {
 		throw new SpaceError(`The spaces folder ${dir} is the agent home or inside it; set PI_SPACES_DIR to a folder outside it.`);
 	}
 	if (!existsSync(path) && !isSymlink(path)) throw new SpaceError(`Space "${name}" does not exist.`);
-	const notInside = new SpaceError(`Space "${name}" is not a folder inside ${dir}; remove it by hand.`);
+	const notInside = new SpaceError(`Space "${name}" is not a folder inside ${dir}; ${action} it by hand.`);
 	if (!isRealFolder(path)) throw notInside;
 	if (dirname(realpathSync(path)) !== realDir) throw notInside;
 	if (activeSpace(dir, agentHome) === name) {
-		throw new SpaceError(`Space "${name}" is active; switch to another space before removing it.`);
+		throw new SpaceError(`Space "${name}" is active; switch to another space before ${gerund} it.`);
+	}
+	const realPath = realpathSync(path);
+	for (const home of [agentHome, ...protect]) {
+		if (isInside(realOrResolved(home), realPath)) {
+			throw new SpaceError(`Space "${name}" holds the ${home === agentHome ? "current" : "base"} home ${home}; it cannot be ${past}.`);
+		}
 	}
 	return path;
 }
 
 /** Deletes a space after checkRemovable. */
-export function removeSpace(dir: string, name: string, agentHome: string): void {
-	rmSync(checkRemovable(dir, name, agentHome), { recursive: true, force: true });
+export function removeSpace(dir: string, name: string, agentHome: string, protect: string[] = [], userHome: string = osHomedir()): void {
+	rmSync(checkRemovable(dir, name, agentHome, protect, userHome), { recursive: true, force: true });
+}
+
+/** Renames a space after the same safety checks as removal. The new name must be free. */
+export function renameSpace(dir: string, oldName: string, newName: string, agentHome: string, protect: string[] = [], userHome: string = osHomedir()): void {
+	assertName(oldName);
+	assertName(newName);
+	const from = checkRemovable(dir, oldName, agentHome, protect, userHome, "rename");
+	const to = join(dir, newName);
+	if (existsSync(to) || isSymlink(to)) throw new SpaceError(`Space "${newName}" already exists.`);
+	renameSync(from, to);
 }
 
 function isLocalSource(source: string): boolean {

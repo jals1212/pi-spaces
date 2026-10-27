@@ -1,6 +1,6 @@
 {
   "name": "@jals1212/pi-spaces",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Named spaces for Pi: keep several agent homes (sign-ins, packages, settings) and pick one by name.",
   "license": "MIT",
   "author": "jals1212",
@@ -18,12 +18,17 @@
     "agent-home"
   ],
   "type": "module",
+  "bin": {
+    "pi-space": "./bin/pi-space.mjs"
+  },
   "pi": {
     "extensions": [
       "./extensions/spaces.ts"
     ]
   },
   "files": [
+    "bin",
+    "dist",
     "src",
     "extensions",
     "README.md",
@@ -34,7 +39,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test 'tests/*.test.ts'"
+    "build": "node --disable-warning=ExperimentalWarning scripts/build.mjs",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test 'tests/*.test.ts'"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
