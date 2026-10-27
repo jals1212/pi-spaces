@@ -36,6 +36,28 @@ The status line shows `space: <name>` while a space is active, and nothing in th
 pi --space work "review this branch"   # start in "work" with a prompt
 ```
 
+## Optional CLI
+
+The package also ships a `pi-space` command for starting Pi in a space from your shell. `pi install` does not put commands on your `PATH`, so install it with npm if you want it:
+
+```bash
+npm i -g @jals1212/pi-spaces            # until it is published: npm i -g github:jals1212/pi-spaces
+```
+
+| Command | What it does |
+|---|---|
+| `pi-space` | Shows a numbered list of spaces and starts Pi in the one you pick. |
+| `pi-space <name> [pi args...]` | Starts Pi in that space (`base` for the home Pi starts with). |
+| `pi-space list` | Lists the spaces. A space named `list` can still be opened from the picker. |
+
+`pi-space` runs `pi --space <name>`, so the extension must be installed in the home the command opens. To start Pi through another program that runs it, set `PI_SPACES_COMMAND` once in your shell profile; its words come before `--space`:
+
+```bash
+export PI_SPACES_COMMAND="my-launcher --"   # pi-space work → my-launcher -- --space work
+```
+
+The CLI needs Node 22.18 or newer.
+
 ### Names
 
 Lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved.
