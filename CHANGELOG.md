@@ -6,6 +6,14 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.1.1
+
+### Fixed
+
+- The README, the `pi-space --help` text and the examples name no particular
+  program that runs Pi; they use a generic `my-launcher`. 0.1.0 is withdrawn
+  from npm: use 0.1.1.
+
 ## 0.1.0
 
 ### Added
