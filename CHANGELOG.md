@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.1.0
+
 ### Added
 
 - Named spaces: separate Pi agent homes in a `spaces` folder next to the home
