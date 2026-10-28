@@ -38,7 +38,7 @@
     "test": "node ../scripts/link-self.mjs && npm run build --prefix .. && npm run build && node --test 'test/*.test.ts'"
   },
   "dependencies": {
-    "@jals1212/pi-spaces": "^0.1.1"
+    "@jals1212/pi-spaces": "^0.2.0"
   },
   "publishConfig": {
     "access": "public",

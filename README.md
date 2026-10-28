@@ -45,6 +45,8 @@ From your shell:
 ```sh
 pi --space work                         # start Pi in "work"
 pi --space work "review this branch"    # with a prompt
+pi-space --new work                     # create a space (optional CLI)
+pi-space --remove work                  # delete it, after asking; keeps a backup unless told not to (optional CLI)
 pi-space                                # pick from a numbered list (optional CLI)
 ```
 
@@ -60,7 +62,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | `/space switch <name>` | Restarts Pi in that space. `base` is the home Pi started with. |
 | `/space switch` | Same as `/space`. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
-| `/space remove <name>` | Deletes a space after asking. `--yes` skips the question; it is required without a dialog (print and JSON modes). |
+| `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 
 The status line shows `space: <name>` while a space is active, and nothing in the base home.
@@ -71,7 +73,7 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, and `pi-space list` lists them. `PI_SPACES_COMMAND` makes it run another program that runs Pi. It only runs `pi --space <name>`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, `PI_SPACES_COMMAND` and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space --new <name>` creates one, `pi-space --remove <name>` deletes one, and `pi-space list` lists them. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces. It only runs `pi --space <name>`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Configuration reference
 
@@ -119,16 +121,18 @@ Pi reads its agent home once, when it starts, so a running session cannot move t
 
 ## What it leaves on your machine
 
-Only the spaces you create, each a folder in the spaces folder, and its `settings.json`. Pi fills a space as it would any home. Removing a space deletes its folder; nothing else is written outside it.
+Only the spaces you create, each a folder in the spaces folder, and its `settings.json`. Pi fills a space as it would any home. Removing a space moves its folder to `.backups/<name>-<UTC time>` in the spaces folder, or deletes it with `--no-backup` or when you choose so; nothing else is written outside it. A backup is a whole space: move it back to restore it (`mv ~/.pi/spaces/.backups/work-2026-10-28T14-30-05Z ~/.pi/spaces/work`), or delete it when you no longer need it. Backups are never removed for you, and `.backups` is never listed as a space.
 
 ## Safety
 
-`/space remove` and `/space rename` refuse:
+`/space remove`, `/space rename` and `pi-space --remove` refuse, before they ask:
 
 - `base` and the active space;
 - symlinks, and anything that is not a real folder directly inside the spaces folder;
 - a space that holds the current or base home;
 - a spaces folder that is the filesystem root, your home folder, or the agent home (or inside it).
+
+A backup also needs `.backups` to be a real folder, not a symlink or a file.
 
 ## Development
 
