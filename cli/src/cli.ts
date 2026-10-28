@@ -99,10 +99,53 @@ function parseCommand(args: string[]): CliCommand {
 	return { kind: "launch", name: first, args: rest };
 }
 
-/** The program and arguments that start Pi in a space: $PI_SPACES_COMMAND (default pi) plus --space <name>. */
+/**
+ * The program and arguments that start Pi in a space: $PI_SPACES_COMMAND (default pi) plus --space <name>.
+ * Throws when the command has an unclosed quote.
+ */
 export function launchCommand(env: Env, name: string, args: string[]): { program: string; args: string[] } {
-	const [program = "pi", ...prefix] = (env.PI_SPACES_COMMAND ?? "").split(/\s+/).filter(Boolean);
+	const [program = "pi", ...prefix] = splitCommand(env.PI_SPACES_COMMAND ?? "");
 	return { program, args: [...prefix, "--space", name, ...args] };
+}
+
+/**
+ * Splits a command into words on whitespace. Double or single quotes keep whitespace inside a word and are
+ * removed. There are no backslash escapes, so a Windows path in quotes keeps its backslashes.
+ */
+export function splitCommand(text: string): string[] {
+	const words: string[] = [];
+	let word = "";
+	// True from the first character or quote of a word, so "" alone is an empty word.
+	let started = false;
+	let quote: string | undefined;
+	for (const char of text) {
+		if (quote) {
+			if (char === quote) quote = undefined;
+			else word += char;
+		} else if (char === '"' || char === "'") {
+			quote = char;
+			started = true;
+		} else if (/\s/.test(char)) {
+			if (started) words.push(word);
+			word = "";
+			started = false;
+		} else {
+			word += char;
+			started = true;
+		}
+	}
+	if (quote) throw new Error(`the command has an unclosed ${quote} quote`);
+	if (started) words.push(word);
+	return words;
+}
+
+/**
+ * One word for the single command line cmd.exe gets when the child runs with shell: true on Windows:
+ * wrapped in double quotes unless it is plain, with inner double quotes doubled.
+ */
+export function quoteForCmd(word: string): string {
+	if (word !== "" && !/[\s"&|<>^()%!,;=]/.test(word)) return word;
+	return `"${word.replaceAll('"', '""')}"`;
 }
 
 const EXTENSION = "@jals1212/pi-spaces";
@@ -147,6 +190,8 @@ export interface CliIo {
 	/** The environment for the started Pi when --dir is given; otherwise it inherits this process's. */
 	childEnv?: Env;
 	home: string;
+	/** The platform to launch for; process.platform when absent. */
+	platform?: NodeJS.Platform;
 	spawn(program: string, args: string[], options: SpawnOptions): Promise<SpawnResult>;
 	exit(code: number): void;
 }
@@ -171,6 +216,7 @@ export function processIo(proc: NodeJS.Process = process): CliIo {
 		stderr: proc.stderr,
 		env: proc.env,
 		home: homedir(),
+		platform: process.platform,
 		spawn: spawnChild,
 		exit: (code) => proc.exit(code),
 	};
@@ -185,6 +231,7 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		if (command.command !== undefined) env.PI_SPACES_COMMAND = command.command;
 		io = { ...io, env, childEnv: command.dir !== undefined ? { ...io.env, PI_SPACES_DIR: env.PI_SPACES_DIR } : undefined };
 	}
+	const commandSource = command.command !== undefined ? "--command" : "PI_SPACES_COMMAND";
 	const dir = spacesDir(io.env, io.home);
 	switch (command.kind) {
 		case "help":
@@ -211,9 +258,9 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "remove":
 			return remove(command.name, command.yes, command.backup, dir, io);
 		case "launch":
-			return launch(command.name, command.args, dir, io);
+			return launch(command.name, command.args, dir, io, commandSource);
 		case "picker":
-			return pick(dir, io);
+			return pick(dir, io, commandSource);
 	}
 }
 
@@ -309,7 +356,7 @@ function lineReader(input: NodeJS.ReadableStream): LineReader {
 	};
 }
 
-async function launch(name: string, args: string[], dir: string, io: CliIo): Promise<void> {
+async function launch(name: string, args: string[], dir: string, io: CliIo, commandSource: string): Promise<void> {
 	if (name !== BASE) {
 		const invalid = validateName(name);
 		if (invalid) {
@@ -321,10 +368,21 @@ async function launch(name: string, args: string[], dir: string, io: CliIo): Pro
 			return io.exit(1);
 		}
 	}
-	const { program, args: programArgs } = launchCommand(io.env, name, args);
-	const options: SpawnOptions = { stdio: "inherit", shell: process.platform === "win32" };
+	let launched: { program: string; args: string[] };
+	try {
+		launched = launchCommand(io.env, name, args);
+	} catch (error) {
+		io.stderr.write(`pi-space: ${commandSource}: ${(error as Error).message}.\n`);
+		return io.exit(2);
+	}
+	const { program, args: programArgs } = launched;
+	const windows = (io.platform ?? process.platform) === "win32";
+	const options: SpawnOptions = { stdio: "inherit", shell: windows };
 	if (io.childEnv) options.env = io.childEnv;
-	const result = await io.spawn(program, programArgs, options);
+	// With a shell, Node joins the program and arguments into one line without quoting them.
+	const result = windows
+		? await io.spawn(quoteForCmd(program), programArgs.map(quoteForCmd), options)
+		: await io.spawn(program, programArgs, options);
 	if (result.error) {
 		io.stderr.write(`pi-space: could not start ${program}: ${result.error.message}\n`);
 		return io.exit(1);
@@ -332,7 +390,7 @@ async function launch(name: string, args: string[], dir: string, io: CliIo): Pro
 	io.exit(result.status ?? 1);
 }
 
-async function pick(dir: string, io: CliIo): Promise<void> {
+async function pick(dir: string, io: CliIo, commandSource: string): Promise<void> {
 	if (!io.stdin.isTTY) {
 		io.stderr.write(USAGE);
 		return io.exit(2);
@@ -347,7 +405,7 @@ async function pick(dir: string, io: CliIo): Promise<void> {
 		io.stderr.write(`pi-space: Choose a number from 1 to ${names.length}.\n`);
 		return io.exit(1);
 	}
-	return launch(names[number - 1], [], dir, io);
+	return launch(names[number - 1], [], dir, io, commandSource);
 }
 
 /** One line from the stream, or undefined at end of input. */

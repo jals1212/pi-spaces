@@ -21,10 +21,16 @@ commands and options and a patch version fixes.
   the program to run and the spaces folder for one call, instead of
   `PI_SPACES_COMMAND` and `PI_SPACES_DIR`. With `--dir`, the Pi it starts gets
   that folder as `PI_SPACES_DIR`.
+- Quotes in `--command` and `PI_SPACES_COMMAND`: double or single quotes keep a
+  path with spaces in one word, as in `--command '"/opt/my launcher/run" --'`.
+  A quote that is never closed is an error (exit status 2) and starts nothing.
 
 ### Changed
 
 - `pi-space list` with no spaces suggests `pi-space --new <name>`.
+- A `"` or `'` in `PI_SPACES_COMMAND` is now a quote, no longer part of a
+  word: a path with an apostrophe, such as `/home/o'neil/bin/run`, needs double
+  quotes around it.
 - Needs `@jals1212/pi-spaces` 0.2.0 or later (for `backupSpace` and the
   local-path rule of `--new`).
 
@@ -35,6 +41,8 @@ commands and options and a patch version fixes.
 - `pi-space --remove` explains a backup that cannot be written (for example a
   read-only spaces folder): the space was not removed, and `--no-backup`
   removes it without one.
+- A program whose path has spaces now starts, including on Windows, where
+  cmd.exe runs it and each word is now quoted for it.
 
 ## 0.2.0
 
