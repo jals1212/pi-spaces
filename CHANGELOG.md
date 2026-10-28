@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.2.0
+
 ### Added
 
 - `/space remove` asks, after the confirmation, whether to keep a backup:

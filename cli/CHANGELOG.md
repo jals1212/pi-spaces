@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.3.0
+
 ### Added
 
 - `pi-space --new <name>` creates a space from the shell, with the same
