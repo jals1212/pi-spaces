@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -164,6 +164,22 @@ test("remove without a dialog needs --yes, and then keeps a backup unless --no-b
 	assert.deepEqual(g.notes, [["info", 'Removed space "work".']]);
 	assert.equal(existsSync(join(g.dir, "work")), false);
 	assert.equal(onlyBackup(g.dir), undefined);
+});
+
+test("remove reports a backup that cannot be written and keeps the space", { skip: process.getuid?.() === 0 }, async () => {
+	const f = fake({ mode: "print", hasUI: false });
+	createSpace(f.dir, "work", "x");
+	chmodSync(f.dir, 0o555);
+	try {
+		await runSpaceCommand("remove work --yes", f.deps);
+	} finally {
+		chmodSync(f.dir, 0o755);
+	}
+	assert.equal(f.notes.length, 1);
+	assert.equal(f.notes[0][0], "error");
+	assert.match(f.notes[0][1], /^Could not back up space "work": .*EACCES.*\. The space was not removed; fix that, or remove it without a backup with --no-backup\.$/);
+	assert.equal(existsSync(join(f.dir, "work", "settings.json")), true);
+	assert.equal(existsSync(join(f.dir, BACKUPS)), false);
 });
 
 test("remove with an unknown or repeated flag prints the usage and keeps the space", async () => {

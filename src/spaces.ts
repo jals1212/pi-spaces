@@ -169,13 +169,26 @@ export function backupSpace(
 	if ((existsSync(folder) || isSymlink(folder)) && !isRealFolder(folder)) {
 		throw new SpaceError(`The backups folder ${folder} is not a folder; move it away and try again.`);
 	}
-	mkdirSync(folder, { recursive: true });
+	try {
+		mkdirSync(folder, { recursive: true });
+	} catch (error) {
+		throw backupFailed(name, error);
+	}
 	const stamp = `${now.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
 	let to = join(folder, `${name}-${stamp}`);
 	for (let n = 2; existsSync(to) || isSymlink(to); n++) to = join(folder, `${name}-${stamp}-${n}`);
 	// Inside the spaces folder, so the same filesystem: a rename, never a copy.
-	renameSync(from, to);
+	try {
+		renameSync(from, to);
+	} catch (error) {
+		throw backupFailed(name, error);
+	}
 	return to;
+}
+
+function backupFailed(name: string, error: unknown): SpaceError {
+	const reason = error instanceof Error ? error.message : String(error);
+	return new SpaceError(`Could not back up space "${name}": ${reason}. The space was not removed; fix that, or remove it without a backup with --no-backup.`);
 }
 
 /** Renames a space after the same safety checks as removal. The new name must be free. */
@@ -220,16 +233,22 @@ function samePath(a: string, b: string): boolean {
 /**
  * This package's declaration in the current home's settings.json, so a new space loads it the same way.
  * A local path matches when it is the package folder or another folder whose package.json has this package's name,
- * and is made absolute. Without a match (for example when loaded with -e), the package folder itself.
+ * and is made absolute. Without a match (for example when loaded with -e), the fallback, which is the package folder itself
+ * unless given. An empty packageRoot (unknown folder) matches a local path only by its package.json name.
  */
-export function findOwnDeclaration(agentHome: string, packageName: string, packageRoot: string): PackageDeclaration {
+export function findOwnDeclaration(
+	agentHome: string,
+	packageName: string,
+	packageRoot: string,
+	fallback: PackageDeclaration = packageRoot,
+): PackageDeclaration {
 	let packages: unknown;
 	try {
 		packages = JSON.parse(readFileSync(join(agentHome, "settings.json"), "utf8"))?.packages;
 	} catch {
-		return packageRoot;
+		return fallback;
 	}
-	if (!Array.isArray(packages)) return packageRoot;
+	if (!Array.isArray(packages)) return fallback;
 	const repo = packageName.split("/").pop() ?? packageName;
 	for (const entry of packages) {
 		const source = typeof entry === "string" ? entry : typeof entry?.source === "string" ? entry.source : undefined;
@@ -239,11 +258,11 @@ export function findOwnDeclaration(agentHome: string, packageName: string, packa
 			if (npmName(source) === packageName) match = source;
 		} else if (isLocalSource(source)) {
 			const absolute = isAbsolute(source) ? source : resolve(agentHome, expandTilde(source, osHomedir()));
-			if (samePath(absolute, packageRoot) || localPackageName(absolute) === packageName) match = absolute;
+			if ((packageRoot !== "" && samePath(absolute, packageRoot)) || localPackageName(absolute) === packageName) match = absolute;
 		} else if (gitRepoName(source) === repo) {
 			match = source;
 		}
 		if (match !== undefined) return typeof entry === "string" ? match : { ...entry, source: match };
 	}
-	return packageRoot;
+	return fallback;
 }

@@ -28,6 +28,14 @@ commands and options and a patch version fixes.
 - Needs `@jals1212/pi-spaces` 0.2.0 or later (for `backupSpace` and the
   local-path rule of `--new`).
 
+### Fixed
+
+- `pi-space --new` copies the base home's local path to this checkout of the
+  extension instead of writing `npm:@jals1212/pi-spaces`.
+- `pi-space --remove` explains a backup that cannot be written (for example a
+  read-only spaces folder): the space was not removed, and `--no-backup`
+  removes it without one.
+
 ## 0.2.0
 
 ### Added

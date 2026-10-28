@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { launchCommand, main, parseCli, type CliIo } from "../src/cli.ts";
 
 const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | list | --new <name> | --remove <name> [--yes] [--no-backup]]
@@ -49,6 +50,8 @@ async function run(
 		basePackages?: unknown[];
 		/** A local copy of the extension at <root>/checkout, known by its package.json name. */
 		checkout?: boolean;
+		/** Make the spaces folder read-only while the command runs. */
+		readOnly?: boolean;
 	} = {},
 ): Promise<Run> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-cli-")));
@@ -80,10 +83,15 @@ async function run(
 			},
 			exit: (code) => void (result.code = code),
 		};
-		await main(
-			argv.map((arg) => arg.replace("<root>", root)),
-			io,
-		);
+		if (options.readOnly) chmodSync(dir, 0o555);
+		try {
+			await main(
+				argv.map((arg) => arg.replace("<root>", root)),
+				io,
+			);
+		} finally {
+			chmodSync(dir, 0o755);
+		}
 		const backups = join(dir, ".backups");
 		if (existsSync(backups)) result.backups = readdirSync(backups).sort();
 		for (const name of existsSync(dir) ? readdirSync(dir).sort() : []) {
@@ -292,6 +300,13 @@ test("--new copies a local path to another copy of the extension from the base h
 	assert.deepEqual(r.settings.work, { packages: [{ source: join(r.root, "checkout"), extensions: ["extensions/spaces.ts"] }] });
 });
 
+test("--new copies the local path the base home loads the extension from, when it is the folder this command resolves", async () => {
+	const packageRoot = dirname(fileURLToPath(import.meta.resolve("@jals1212/pi-spaces/package.json")));
+	const r = await run(["--new", "work"], { basePackages: [packageRoot], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.settings.work, { packages: [packageRoot] });
+});
+
 test("--new refuses a taken, reserved or invalid name with exit 1", async () => {
 	const taken = await run(["--new", "work"], { spaces: ["work"] });
 	assert.equal(taken.code, 1);
@@ -323,6 +338,15 @@ test("--remove --yes keeps a backup in .backups and leaves the other spaces", as
 	assert.equal(r.err, "");
 	assert.deepEqual(r.left, ["other"]);
 	assert.equal(r.spawned.length, 0);
+});
+
+test("--remove --yes reports a backup that cannot be written with exit 1 and keeps the space", { skip: process.getuid?.() === 0 }, async () => {
+	const r = await run(["--remove", "work", "--yes"], { spaces: ["work"], readOnly: true });
+	assert.equal(r.code, 1);
+	assert.match(r.err, /^pi-space: Could not back up space "work": .*EACCES.*\. The space was not removed; fix that, or remove it without a backup with --no-backup\.\n$/);
+	assert.equal(r.out, "");
+	assert.deepEqual(r.left, ["work"]);
+	assert.deepEqual(r.backups, []);
 });
 
 test("--remove --yes --no-backup deletes without a backup", async () => {

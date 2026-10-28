@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -139,6 +139,28 @@ test("backupSpace makes the same checks as removeSpace and moves nothing when on
 	assert.equal(existsSync(join(dir, BACKUPS)), false);
 });
 
+test("backupSpace turns a backup that cannot be written into a SpaceError and keeps the space", { skip: process.getuid?.() === 0 }, () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "work"), { recursive: true });
+	writeFileSync(join(dir, "work", "auth.json"), "{}");
+	chmodSync(dir, 0o555);
+	try {
+		assert.throws(
+			() => backupSpace(dir, "work", join(root, "agent"), [], root),
+			(error) =>
+				error instanceof SpaceError &&
+				error.message.startsWith('Could not back up space "work": ') &&
+				error.message.includes("EACCES") &&
+				error.message.endsWith("The space was not removed; fix that, or remove it without a backup with --no-backup."),
+		);
+		assert.equal(readFileSync(join(dir, "work", "auth.json"), "utf8"), "{}");
+		assert.equal(existsSync(join(dir, BACKUPS)), false);
+	} finally {
+		chmodSync(dir, 0o755);
+	}
+});
+
 test("backupSpace refuses a .backups that is not a real folder", () => {
 	const root = scratch();
 	const dir = join(root, "spaces");
@@ -247,6 +269,53 @@ test("findOwnDeclaration copies a local path to another copy of this package, kn
 
 	write(["../stranger", "../missing"]);
 	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), "/opt/pkg");
+});
+
+test("findOwnDeclaration returns the declared path, not the fallback, when the entry is the package folder itself", () => {
+	const root = scratch();
+	const agent = join(root, "agent");
+	const own = join(root, "pkg");
+	mkdirSync(agent);
+	mkdirSync(own);
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [own] }));
+	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", own, "npm:@jals1212/pi-spaces"), own);
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [{ source: own, skills: [] }] }));
+	assert.deepEqual(findOwnDeclaration(agent, "@jals1212/pi-spaces", own, "npm:@jals1212/pi-spaces"), { source: own, skills: [] });
+});
+
+test("findOwnDeclaration returns the fallback when no entry matches, and the package folder without one", () => {
+	const root = scratch();
+	const agent = join(root, "agent");
+	mkdirSync(agent);
+	const fallback = { source: "npm:@jals1212/pi-spaces", skills: [] };
+	assert.deepEqual(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg", fallback), fallback);
+	writeFileSync(join(agent, "settings.json"), "{ not json");
+	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg", "npm:x"), "npm:x");
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:other", "../elsewhere"] }));
+	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg", "npm:x"), "npm:x");
+	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), "/opt/pkg");
+});
+
+test("findOwnDeclaration with an unknown package folder matches a local path only by its package.json name", () => {
+	const root = scratch();
+	const agent = join(root, "agent");
+	const named = join(root, "named");
+	const here = join(root, "here");
+	mkdirSync(agent);
+	mkdirSync(named);
+	mkdirSync(here);
+	writeFileSync(join(named, "package.json"), JSON.stringify({ name: "@jals1212/pi-spaces" }));
+	const before = process.cwd();
+	process.chdir(here);
+	try {
+		// An empty package folder must not stand for the current folder.
+		writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [here] }));
+		assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "", "npm:x"), "npm:x");
+		writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [named] }));
+		assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "", "npm:x"), named);
+	} finally {
+		process.chdir(before);
+	}
 });
 
 test("findOwnDeclaration falls back to the package folder when no entry matches", () => {

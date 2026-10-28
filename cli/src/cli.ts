@@ -119,9 +119,7 @@ export function newSpaceDeclaration(env: Env, home: string): PackageDeclaration 
 	} catch {
 		packageRoot = "";
 	}
-	const found = findOwnDeclaration(baseHome, EXTENSION, packageRoot);
-	// findOwnDeclaration answers packageRoot itself when nothing matches: this command's copy of the core is not what Pi loads.
-	return found === packageRoot ? `npm:${EXTENSION}` : found;
+	return findOwnDeclaration(baseHome, EXTENSION, packageRoot, `npm:${EXTENSION}`);
 }
 
 /** The agent home Pi uses from this shell: PI_CODING_AGENT_DIR, else ~/.pi/agent. */

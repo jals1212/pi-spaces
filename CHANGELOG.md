@@ -25,6 +25,12 @@ commands and options and a patch version fixes.
   (a folder whose `package.json` is named `@jals1212/pi-spaces`) instead of
   writing the folder of the copy that runs. The `pi-space --new` command
   uses the same rule.
+- `/space remove` and `backupSpace` report a backup that cannot be written
+  (for example a read-only spaces folder) as an error that says the space was
+  not removed and offers `--no-backup`, instead of a raw filesystem error.
+- `findOwnDeclaration` takes an optional fallback, answered when nothing
+  matches, and an empty package folder matches a local path only by its
+  `package.json` name.
 
 ## 0.1.1
 
