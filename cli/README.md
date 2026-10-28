@@ -18,6 +18,7 @@ Node 20 or later. The Pi extension `@jals1212/pi-spaces` must be installed in th
 | `pi-space <name> [pi args...]` | Starts Pi in that space (`base` for the home Pi starts with). |
 | `pi-space list` | Lists the spaces. A space named `list` can still be opened from the picker. |
 | `pi-space --help` | Shows the usage. |
+| `pi-space --version` | Prints the version. |
 
 ## Another program that runs Pi
 
