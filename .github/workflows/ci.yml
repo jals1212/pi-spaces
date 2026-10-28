@@ -17,11 +17,12 @@ concurrency:
 
 jobs:
   test:
-    name: Tests (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         # The build and the tests strip types from .ts, which needs Node 22.18 or later.
         node: [22, 24]
     steps:
@@ -29,5 +30,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
+      # No lockfile is kept: the tests only need cross-spawn, which the CLI's tests load from the root node_modules.
+      - run: npm install --no-package-lock --no-audit --no-fund
       # The root test script links cli/ to this checkout, builds both packages and runs both suites.
       - run: npm test

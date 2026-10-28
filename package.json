@@ -41,7 +41,10 @@
   "scripts": {
     "build": "node --disable-warning=ExperimentalWarning scripts/build.mjs",
     "prepack": "npm run build",
-    "test": "node scripts/link-self.mjs && npm run build && node --test 'tests/*.test.ts' && npm test --prefix cli"
+    "test": "node scripts/link-self.mjs && npm run build && node --test \"tests/*.test.ts\" && npm test --prefix cli"
+  },
+  "devDependencies": {
+    "cross-spawn": "^7.0.6"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

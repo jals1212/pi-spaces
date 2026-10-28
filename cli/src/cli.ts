@@ -1,11 +1,11 @@
 // The optional `pi-space` command: pick a space and start Pi in it.
 // It only passes `--space <name>`; the extension does the switch, so it never sets PI_CODING_AGENT_DIR.
-import { spawn as nodeSpawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import crossSpawn from "cross-spawn";
 import {
 	BACKUPS,
 	BASE,
@@ -139,15 +139,6 @@ export function splitCommand(text: string): string[] {
 	return words;
 }
 
-/**
- * One word for the single command line cmd.exe gets when the child runs with shell: true on Windows:
- * wrapped in double quotes unless it is plain, with inner double quotes doubled.
- */
-export function quoteForCmd(word: string): string {
-	if (word !== "" && !/[\s"&|<>^()%!,;=]/.test(word)) return word;
-	return `"${word.replaceAll('"', '""')}"`;
-}
-
 const EXTENSION = "@jals1212/pi-spaces";
 
 /**
@@ -172,7 +163,6 @@ function agentHome(env: Env, home: string): string {
 
 export interface SpawnOptions {
 	stdio: "inherit";
-	shell: boolean;
 	/** Set only with --dir; otherwise the child inherits this process's environment unchanged. */
 	env?: Env;
 }
@@ -190,19 +180,20 @@ export interface CliIo {
 	/** The environment for the started Pi when --dir is given; otherwise it inherits this process's. */
 	childEnv?: Env;
 	home: string;
-	/** The platform to launch for; process.platform when absent. */
-	platform?: NodeJS.Platform;
 	spawn(program: string, args: string[], options: SpawnOptions): Promise<SpawnResult>;
 	exit(code: number): void;
 }
 
-/** The real child process: stdio inherited, the environment unchanged, a shell on Windows so .cmd shims work. */
+/**
+ * The real child process: stdio inherited, the environment unchanged. cross-spawn is plain child_process.spawn
+ * except on Windows, where it finds .cmd and .bat shims such as pi.cmd and escapes the arguments for them.
+ */
 export function spawnChild(program: string, args: string[], options: SpawnOptions): Promise<SpawnResult> {
 	// Ctrl-C belongs to Pi while it runs; this process waits for it instead of dying first.
 	const ignore = () => {};
 	process.on("SIGINT", ignore);
 	return new Promise<SpawnResult>((resolve) => {
-		const child = nodeSpawn(program, args, options);
+		const child = crossSpawn(program, args, options);
 		child.once("error", (error) => resolve({ status: null, error }));
 		child.once("close", (status) => resolve({ status }));
 	}).finally(() => process.off("SIGINT", ignore));
@@ -216,7 +207,6 @@ export function processIo(proc: NodeJS.Process = process): CliIo {
 		stderr: proc.stderr,
 		env: proc.env,
 		home: homedir(),
-		platform: process.platform,
 		spawn: spawnChild,
 		exit: (code) => proc.exit(code),
 	};
@@ -376,13 +366,9 @@ async function launch(name: string, args: string[], dir: string, io: CliIo, comm
 		return io.exit(2);
 	}
 	const { program, args: programArgs } = launched;
-	const windows = (io.platform ?? process.platform) === "win32";
-	const options: SpawnOptions = { stdio: "inherit", shell: windows };
+	const options: SpawnOptions = { stdio: "inherit" };
 	if (io.childEnv) options.env = io.childEnv;
-	// With a shell, Node joins the program and arguments into one line without quoting them.
-	const result = windows
-		? await io.spawn(quoteForCmd(program), programArgs.map(quoteForCmd), options)
-		: await io.spawn(program, programArgs, options);
+	const result = await io.spawn(program, programArgs, options);
 	if (result.error) {
 		io.stderr.write(`pi-space: could not start ${program}: ${result.error.message}\n`);
 		return io.exit(1);
@@ -393,6 +379,13 @@ async function launch(name: string, args: string[], dir: string, io: CliIo, comm
 async function pick(dir: string, io: CliIo, commandSource: string): Promise<void> {
 	if (!io.stdin.isTTY) {
 		io.stderr.write(USAGE);
+		return io.exit(2);
+	}
+	// A bad command is reported before the list, not after the user has chosen.
+	try {
+		splitCommand(io.env.PI_SPACES_COMMAND ?? "");
+	} catch (error) {
+		io.stderr.write(`pi-space: ${commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
 	}
 	const names = [BASE, ...listSpaces(dir)];

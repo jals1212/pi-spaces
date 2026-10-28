@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { SpaceError } from "../src/spaces.ts";
 import { filterArgs, parseSpaceFlag, planStartup, relaunchCommand, relaunchEnv, resolveSwitch, runNow } from "../src/relaunch.ts";
 
@@ -48,38 +47,42 @@ test("resolveSwitch targets a space folder or the base home, and refuses the res
 });
 
 test("relaunchEnv points Pi at the target and rewrites every variable inside the current home", () => {
+	// Absolute on every system: on Windows a path written with "/" and no drive gets the current drive.
+	const path = (...parts: string[]) => resolve(join(...parts));
+	const home = path("/h/agent");
+	const target = path("/s/work");
 	const env = relaunchEnv(
 		{
-			PI_CODING_AGENT_DIR: "/h/agent",
-			HOST_AGENT_HOME: "/h/agent",
-			HOST_CONFIG: "/h/agent/config",
-			SIMILAR: "/h/agent-other",
-			PWD: "/h/agent/proj",
-			OLDPWD: "/h/agent",
-			UNRELATED: "/elsewhere",
-			LIST: "/usr/bin:/h/agent/bin:/h/agent-other/bin",
+			PI_CODING_AGENT_DIR: home,
+			HOST_AGENT_HOME: home,
+			HOST_CONFIG: join(home, "config"),
+			SIMILAR: path("/h/agent-other"),
+			PWD: join(home, "proj"),
+			OLDPWD: home,
+			UNRELATED: path("/elsewhere"),
+			LIST: [path("/usr/bin"), join(home, "bin"), join(path("/h/agent-other"), "bin")].join(delimiter),
 			PI_SPACE: "old",
 		},
-		{ currentHome: "/h/agent", targetHome: "/s/work", baseHome: "/h/agent", space: "work" },
+		{ currentHome: home, targetHome: target, baseHome: home, space: "work" },
 	);
 	assert.deepEqual(env, {
-		PI_CODING_AGENT_DIR: "/s/work",
-		HOST_AGENT_HOME: "/s/work",
-		HOST_CONFIG: "/s/work/config",
-		SIMILAR: "/h/agent-other",
-		PWD: "/h/agent/proj",
-		OLDPWD: "/h/agent",
-		UNRELATED: "/elsewhere",
-		LIST: "/usr/bin:/s/work/bin:/h/agent-other/bin",
+		PI_CODING_AGENT_DIR: target,
+		HOST_AGENT_HOME: target,
+		HOST_CONFIG: join(target, "config"),
+		SIMILAR: path("/h/agent-other"),
+		PWD: join(home, "proj"),
+		OLDPWD: home,
+		UNRELATED: path("/elsewhere"),
+		LIST: [path("/usr/bin"), join(target, "bin"), join(path("/h/agent-other"), "bin")].join(delimiter),
 		PI_SPACE: "work",
-		PI_SPACES_BASE_HOME: "/h/agent",
+		PI_SPACES_BASE_HOME: home,
 	});
 
 	const back = relaunchEnv(
-		{ PI_CODING_AGENT_DIR: "/s/work", PI_SPACE: "work", PI_SPACES_BASE_HOME: "/h/agent", PI_SPACES_DIR: "/s/work/x" },
-		{ currentHome: "/s/work", targetHome: "/h/agent", baseHome: "/h/agent", space: undefined },
+		{ PI_CODING_AGENT_DIR: target, PI_SPACE: "work", PI_SPACES_BASE_HOME: home, PI_SPACES_DIR: join(target, "x") },
+		{ currentHome: target, targetHome: home, baseHome: home, space: undefined },
 	);
-	assert.deepEqual(back, { PI_CODING_AGENT_DIR: "/h/agent", PI_SPACES_BASE_HOME: "/h/agent", PI_SPACES_DIR: "/s/work/x" });
+	assert.deepEqual(back, { PI_CODING_AGENT_DIR: home, PI_SPACES_BASE_HOME: home, PI_SPACES_DIR: join(target, "x") });
 });
 
 test("relaunchCommand reruns the same runtime and entry script with the filtered arguments", () => {
@@ -95,7 +98,8 @@ test("scheduleRelaunch runs the command with inherited stdio when the process ex
 	const child = join(root, "child.mjs");
 	writeFileSync(child, 'console.log("relaunched", process.env.PI_SPACE, process.argv.slice(2).join(" ")); process.exit(7);\n');
 	const parent = join(root, "parent.ts");
-	const module = fileURLToPath(new URL("../src/relaunch.ts", import.meta.url));
+	// A file URL, since a Windows path is not a valid import specifier.
+	const module = new URL("../src/relaunch.ts", import.meta.url).href;
 	writeFileSync(
 		parent,
 		`import { scheduleRelaunch } from ${JSON.stringify(module)};\n` +
@@ -141,7 +145,8 @@ test("runNow runs the command with inherited stdio and returns its exit code", (
 	const child = join(root, "child.mjs");
 	writeFileSync(child, 'console.log("child", process.env.PI_SPACE); process.exit(3);\n');
 	const parent = join(root, "parent.ts");
-	const module = fileURLToPath(new URL("../src/relaunch.ts", import.meta.url));
+	// A file URL, since a Windows path is not a valid import specifier.
+	const module = new URL("../src/relaunch.ts", import.meta.url).href;
 	writeFileSync(
 		parent,
 		`import { runNow } from ${JSON.stringify(module)};\n` +
