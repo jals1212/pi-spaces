@@ -6,6 +6,36 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `pi-space --new <name>` creates a space from the shell, with the same
+  `settings.json` as `/space new <name>`: the base home's declaration of
+  `@jals1212/pi-spaces`, or `npm:@jals1212/pi-spaces`. It does not start Pi.
+  A local path in the base home is copied when it is a copy of the extension.
+- `pi-space --remove <name>` deletes a space after asking in
+  the terminal, with the same safety checks as `/space remove`, then asks
+  whether to keep a backup in `.backups` (`[Y/n]`: Enter keeps one). `--yes`
+  skips the questions and keeps a backup, and is required without a terminal;
+  `--no-backup` deletes without one.
+- `--command <cmd>` and `--dir <path>`, before the rest of the arguments, set
+  the program to run and the spaces folder for one call, instead of
+  `PI_SPACES_COMMAND` and `PI_SPACES_DIR`. With `--dir`, the Pi it starts gets
+  that folder as `PI_SPACES_DIR`.
+
+### Changed
+
+- `pi-space list` with no spaces suggests `pi-space --new <name>`.
+- Needs `@jals1212/pi-spaces` 0.2.0 or later (for `backupSpace` and the
+  local-path rule of `--new`).
+
+### Fixed
+
+- `pi-space --new` copies the base home's local path to this checkout of the
+  extension instead of writing `npm:@jals1212/pi-spaces`.
+- `pi-space --remove` explains a backup that cannot be written (for example a
+  read-only spaces folder): the space was not removed, and `--no-backup`
+  removes it without one.
+
 ## 0.2.0
 
 ### Added
