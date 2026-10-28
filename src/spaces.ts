@@ -149,6 +149,35 @@ export function removeSpace(dir: string, name: string, agentHome: string, protec
 	rmSync(checkRemovable(dir, name, agentHome, protect, userHome), { recursive: true, force: true });
 }
 
+/** The folder inside the spaces folder that holds removed spaces; its leading dot keeps it from being a space. */
+export const BACKUPS = ".backups";
+
+/**
+ * Removes a space by moving it to <spaces folder>/.backups/<name>-<UTC time>, after checkRemovable.
+ * Returns the backup's path. A second backup in the same second gets a number; nothing is overwritten.
+ */
+export function backupSpace(
+	dir: string,
+	name: string,
+	agentHome: string,
+	protect: string[] = [],
+	userHome: string = osHomedir(),
+	now: Date = new Date(),
+): string {
+	const from = checkRemovable(dir, name, agentHome, protect, userHome);
+	const folder = join(dir, BACKUPS);
+	if ((existsSync(folder) || isSymlink(folder)) && !isRealFolder(folder)) {
+		throw new SpaceError(`The backups folder ${folder} is not a folder; move it away and try again.`);
+	}
+	mkdirSync(folder, { recursive: true });
+	const stamp = `${now.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
+	let to = join(folder, `${name}-${stamp}`);
+	for (let n = 2; existsSync(to) || isSymlink(to); n++) to = join(folder, `${name}-${stamp}-${n}`);
+	// Inside the spaces folder, so the same filesystem: a rename, never a copy.
+	renameSync(from, to);
+	return to;
+}
+
 /** Renames a space after the same safety checks as removal. The new name must be free. */
 export function renameSpace(dir: string, oldName: string, newName: string, agentHome: string, protect: string[] = [], userHome: string = osHomedir()): void {
 	assertName(oldName);
@@ -174,13 +203,24 @@ function gitRepoName(source: string): string {
 	return withoutRef.replace(/\.git$/, "").split(/[/:]/).pop() ?? "";
 }
 
+/** The name in a local package folder's package.json, or undefined when there is none. */
+function localPackageName(folder: string): string | undefined {
+	try {
+		const name = JSON.parse(readFileSync(join(folder, "package.json"), "utf8"))?.name;
+		return typeof name === "string" ? name : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function samePath(a: string, b: string): boolean {
 	return realOrResolved(a) === realOrResolved(b);
 }
 
 /**
  * This package's declaration in the current home's settings.json, so a new space loads it the same way.
- * A local path is made absolute. Without a match (for example when loaded with -e), the package folder itself.
+ * A local path matches when it is the package folder or another folder whose package.json has this package's name,
+ * and is made absolute. Without a match (for example when loaded with -e), the package folder itself.
  */
 export function findOwnDeclaration(agentHome: string, packageName: string, packageRoot: string): PackageDeclaration {
 	let packages: unknown;
@@ -199,7 +239,7 @@ export function findOwnDeclaration(agentHome: string, packageName: string, packa
 			if (npmName(source) === packageName) match = source;
 		} else if (isLocalSource(source)) {
 			const absolute = isAbsolute(source) ? source : resolve(agentHome, expandTilde(source, osHomedir()));
-			if (samePath(absolute, packageRoot)) match = absolute;
+			if (samePath(absolute, packageRoot) || localPackageName(absolute) === packageName) match = absolute;
 		} else if (gitRepoName(source) === repo) {
 			match = source;
 		}

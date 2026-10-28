@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
 	activeSpace,
+	BACKUPS,
+	backupSpace,
 	createSpace,
 	findOwnDeclaration,
 	listSpaces,
@@ -105,6 +107,51 @@ test("removeSpace deletes a space and refuses the active one, base, missing name
 	assert.deepEqual(listSpaces(dir), ["other"]);
 });
 
+test("backupSpace moves the space to .backups/<name>-<UTC time>, which is not a space", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	createSpace(dir, "work", "x");
+	writeFileSync(join(dir, "work", "auth.json"), "secret");
+	createSpace(dir, "other", "x");
+	const now = new Date("2026-10-28T14:30:05.123Z");
+
+	const path = backupSpace(dir, "work", join(root, "agent"), [], root, now);
+	assert.equal(path, join(dir, BACKUPS, "work-2026-10-28T14-30-05Z"));
+	assert.equal(readFileSync(join(path, "auth.json"), "utf8"), "secret");
+	assert.equal(existsSync(join(dir, "work")), false);
+	assert.deepEqual(listSpaces(dir), ["other"]);
+
+	// The same name at the same second gets a number, never overwriting the first backup.
+	createSpace(dir, "work", "x");
+	assert.equal(backupSpace(dir, "work", join(root, "agent"), [], root, now), join(dir, BACKUPS, "work-2026-10-28T14-30-05Z-2"));
+	assert.equal(readFileSync(join(path, "auth.json"), "utf8"), "secret");
+});
+
+test("backupSpace makes the same checks as removeSpace and moves nothing when one fails", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	createSpace(dir, "work", "x");
+	assert.throws(() => backupSpace(dir, "work", join(dir, "work"), [], root), new SpaceError('Space "work" is active; switch to another space before removing it.'));
+	assert.throws(() => backupSpace(dir, "base", join(root, "agent"), [], root), SpaceError);
+	assert.throws(() => backupSpace(dir, "ghost", join(root, "agent"), [], root), new SpaceError('Space "ghost" does not exist.'));
+	assert.throws(() => backupSpace(dir, BACKUPS, join(root, "agent"), [], root), SpaceError);
+	assert.equal(existsSync(join(dir, "work")), true);
+	assert.equal(existsSync(join(dir, BACKUPS)), false);
+});
+
+test("backupSpace refuses a .backups that is not a real folder", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	createSpace(dir, "work", "x");
+	mkdirSync(join(root, "elsewhere"));
+	symlinkSync(join(root, "elsewhere"), join(dir, BACKUPS));
+	assert.throws(
+		() => backupSpace(dir, "work", join(root, "agent"), [], root),
+		new SpaceError(`The backups folder ${join(dir, BACKUPS)} is not a folder; move it away and try again.`),
+	);
+	assert.equal(existsSync(join(dir, "work")), true);
+});
+
 test("removeSpace refuses a spaces folder reached through a symlinked space", () => {
 	const root = scratch();
 	const real = join(root, "real-spaces");
@@ -181,6 +228,25 @@ test("findOwnDeclaration copies this package's entry from the current settings",
 
 	write([{ source: "../pkg", extensions: ["extensions/spaces.ts"] }]);
 	assert.deepEqual(findOwnDeclaration(agent, name, own), { source: own, extensions: ["extensions/spaces.ts"] });
+});
+
+test("findOwnDeclaration copies a local path to another copy of this package, known by its package.json name", () => {
+	const root = scratch();
+	const agent = join(root, "agent");
+	const checkout = join(root, "checkout");
+	const stranger = join(root, "stranger");
+	mkdirSync(agent);
+	mkdirSync(checkout);
+	mkdirSync(stranger);
+	writeFileSync(join(checkout, "package.json"), JSON.stringify({ name: "@jals1212/pi-spaces" }));
+	writeFileSync(join(stranger, "package.json"), JSON.stringify({ name: "@someone/else" }));
+	const write = (packages: unknown[]) => writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages }));
+
+	write(["../stranger", { source: "../checkout", extensions: ["extensions/spaces.ts"] }]);
+	assert.deepEqual(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), { source: checkout, extensions: ["extensions/spaces.ts"] });
+
+	write(["../stranger", "../missing"]);
+	assert.equal(findOwnDeclaration(agent, "@jals1212/pi-spaces", "/opt/pkg"), "/opt/pkg");
 });
 
 test("findOwnDeclaration falls back to the package folder when no entry matches", () => {

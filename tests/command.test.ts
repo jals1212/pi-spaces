@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { completeSpaceArgs, runSpaceCommand, statusText, USAGE, type SpaceCommandDeps } from "../src/command.ts";
-import { createSpace } from "../src/spaces.ts";
+import { BACKUPS, createSpace } from "../src/spaces.ts";
 
 interface Fake {
 	deps: SpaceCommandDeps;
@@ -83,6 +83,18 @@ test("new creates the space with this package's declaration", async () => {
 	assert.equal(existsSync(join(f.dir, "Bad")), false);
 });
 
+const KEEP = "Keep a backup";
+const DROP = "Delete without a backup";
+
+/** The one backup left in the spaces folder, or undefined. */
+function onlyBackup(dir: string): string | undefined {
+	const folder = join(dir, BACKUPS);
+	if (!existsSync(folder)) return undefined;
+	const entries = readdirSync(folder);
+	assert.equal(entries.length, 1);
+	return join(folder, entries[0]);
+}
+
 test("remove asks first, and keeps the space when declined", async () => {
 	const f = fake({ confirm: false });
 	createSpace(f.dir, "work", "x");
@@ -90,17 +102,49 @@ test("remove asks first, and keeps the space when declined", async () => {
 	assert.deepEqual(f.confirms, [
 		`Remove space "work"? | This deletes ${join(f.dir, "work")} and everything in it: sign-ins, packages, settings and sessions.`,
 	]);
+	assert.deepEqual(f.selects, []);
 	assert.deepEqual(f.notes, [["info", 'Kept space "work".']]);
 	assert.equal(existsSync(join(f.dir, "work")), true);
+});
 
-	const g = fake({ confirm: true });
+test("remove then asks about a backup, keeping one first in the list", async () => {
+	const f = fake({ confirm: true, select: (choices) => choices[0] });
+	createSpace(f.dir, "work", "x");
+	await runSpaceCommand("remove work", f.deps);
+	assert.deepEqual(f.selects, [[`Keep a backup of "work" in ${join(f.dir, BACKUPS)}?`, [KEEP, DROP]]]);
+	const backup = onlyBackup(f.dir);
+	assert.ok(backup);
+	assert.deepEqual(f.notes, [["info", `Removed space "work"; its backup is ${backup}.`]]);
+	assert.equal(existsSync(join(f.dir, "work")), false);
+
+	const g = fake({ confirm: true, select: () => DROP });
 	createSpace(g.dir, "work", "x");
 	await runSpaceCommand("remove work", g.deps);
 	assert.deepEqual(g.notes, [["info", 'Removed space "work".']]);
 	assert.equal(existsSync(join(g.dir, "work")), false);
+	assert.equal(onlyBackup(g.dir), undefined);
 });
 
-test("remove without a dialog needs --yes", async () => {
+test("remove keeps the space when the backup question is dismissed", async () => {
+	const f = fake({ confirm: true, select: () => undefined });
+	createSpace(f.dir, "work", "x");
+	await runSpaceCommand("remove work", f.deps);
+	assert.deepEqual(f.notes, [["info", 'Kept space "work".']]);
+	assert.equal(existsSync(join(f.dir, "work")), true);
+	assert.equal(onlyBackup(f.dir), undefined);
+});
+
+test("remove --no-backup does not ask about a backup and deletes after the confirmation", async () => {
+	const f = fake({ confirm: true, select: () => KEEP });
+	createSpace(f.dir, "work", "x");
+	await runSpaceCommand("remove work --no-backup", f.deps);
+	assert.equal(f.confirms.length, 1);
+	assert.deepEqual(f.selects, []);
+	assert.deepEqual(f.notes, [["info", 'Removed space "work".']]);
+	assert.equal(onlyBackup(f.dir), undefined);
+});
+
+test("remove without a dialog needs --yes, and then keeps a backup unless --no-backup", async () => {
 	const f = fake({ mode: "print", hasUI: false });
 	createSpace(f.dir, "work", "x");
 	await runSpaceCommand("remove work", f.deps);
@@ -108,8 +152,28 @@ test("remove without a dialog needs --yes", async () => {
 	assert.equal(existsSync(join(f.dir, "work")), true);
 	f.notes.length = 0;
 	await runSpaceCommand("remove work --yes", f.deps);
-	assert.deepEqual(f.notes, [["info", 'Removed space "work".']]);
+	const backup = onlyBackup(f.dir);
+	assert.ok(backup);
+	assert.deepEqual(f.notes, [["info", `Removed space "work"; its backup is ${backup}.`]]);
 	assert.deepEqual(f.confirms, []);
+	assert.deepEqual(f.selects, []);
+
+	const g = fake({ mode: "print", hasUI: false });
+	createSpace(g.dir, "work", "x");
+	await runSpaceCommand("remove work --no-backup --yes", g.deps);
+	assert.deepEqual(g.notes, [["info", 'Removed space "work".']]);
+	assert.equal(existsSync(join(g.dir, "work")), false);
+	assert.equal(onlyBackup(g.dir), undefined);
+});
+
+test("remove with an unknown or repeated flag prints the usage and keeps the space", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	for (const args of ["remove work --backup", "remove work --yes --yes", "remove work --no-backup --no-backup", "remove --yes"]) {
+		await runSpaceCommand(args, f.deps);
+	}
+	assert.deepEqual(f.notes, Array(4).fill(["error", USAGE]));
+	assert.equal(existsSync(join(f.dir, "work")), true);
 });
 
 test("remove refuses the active space and missing names before asking", async () => {
@@ -253,7 +317,7 @@ test("unknown subcommands and missing names show the usage", async () => {
 	const f = fake();
 	for (const args of ["nope", "new", "remove", "rename", "rename a", "rename a b c", "switch a b", "new a b"]) await runSpaceCommand(args, f.deps);
 	assert.deepEqual(f.notes, Array(8).fill(["error", USAGE]));
-	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> | rename <old> <new> | switch [<name>]]");
+	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]");
 });
 
 test("statusText names the active space only", () => {
