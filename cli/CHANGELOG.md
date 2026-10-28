@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.3.1
+
 ### Fixed
 
 - On Windows the program is started through `cross-spawn`. npm shims such as
