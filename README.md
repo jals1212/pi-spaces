@@ -45,6 +45,8 @@ From your shell:
 ```sh
 pi --space work                         # start Pi in "work"
 pi --space work "review this branch"    # with a prompt
+pi-space --new work                     # create a space (optional CLI)
+pi-space --remove work                  # delete it, after asking; keeps a backup unless told not to (optional CLI)
 pi-space                                # pick from a numbered list (optional CLI)
 ```
 
@@ -71,7 +73,7 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, and `pi-space list` lists them. `PI_SPACES_COMMAND` makes it run another program that runs Pi. It only runs `pi --space <name>`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, `PI_SPACES_COMMAND` and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space --new <name>` creates one, `pi-space --remove <name>` deletes one, and `pi-space list` lists them. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces. It only runs `pi --space <name>`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Configuration reference
 
@@ -123,7 +125,7 @@ Only the spaces you create, each a folder in the spaces folder, and its `setting
 
 ## Safety
 
-`/space remove` and `/space rename` refuse, before they ask:
+`/space remove`, `/space rename` and `pi-space --remove` refuse, before they ask:
 
 - `base` and the active space;
 - symlinks, and anything that is not a real folder directly inside the spaces folder;
