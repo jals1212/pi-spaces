@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- On Windows the program is started through `cross-spawn`. npm shims such as
+  `pi.cmd`, paths with spaces, a trailing backslash, `%` and other `cmd.exe`
+  characters in the command or in Pi's arguments are passed as written.
+- The picker reports a bad command (an unclosed quote) before it lists the
+  spaces, not after you have chosen one.
+
+### Changed
+
+- Depends on `cross-spawn`.
+
 ## 0.3.0
 
 ### Added

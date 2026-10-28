@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse, resolve } from "node:path";
 import { test } from "node:test";
 import {
 	activeSpace,
@@ -22,15 +22,17 @@ function scratch(): string {
 }
 
 test("spacesDir sits next to the base home unless PI_SPACES_DIR is set", () => {
-	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces", PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), "/x/spaces");
-	assert.equal(spacesDir({}, "/home/u"), join("/home/u", ".pi", "spaces"));
-	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), join("/h/.tool", "spaces"));
-	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent/" }, "/home/u"), join("/h/.tool", "spaces"));
-	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "~/.tool/agent" }, "/home/u"), join("/home/u", ".tool", "spaces"));
+	// A path written with "/" and no drive is made absolute, so on Windows it gets the current drive.
+	const path = (...parts: string[]) => resolve(join(...parts));
+	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces", PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), path("/x/spaces"));
+	assert.equal(spacesDir({}, "/home/u"), path("/home/u", ".pi", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u"), path("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent/" }, "/home/u"), path("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "~/.tool/agent" }, "/home/u"), path("/home/u", ".tool", "spaces"));
 	// Inside a space, the base home it came from decides, so the folder does not move.
-	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/spaces/work", PI_SPACES_BASE_HOME: "/h/.tool/agent" }, "/home/u"), join("/h/.tool", "spaces"));
-	assert.equal(spacesDir({ PI_SPACES_DIR: "~/s" }, "/home/u"), join("/home/u", "s"));
-	assert.equal(spacesDir({ PI_SPACES_DIR: "rel/s" }, "/home/u"), join("/home/u", "rel", "s"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/spaces/work", PI_SPACES_BASE_HOME: "/h/.tool/agent" }, "/home/u"), path("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_SPACES_DIR: "~/s" }, "/home/u"), path("/home/u", "s"));
+	assert.equal(spacesDir({ PI_SPACES_DIR: "rel/s" }, "/home/u"), path("/home/u", "rel", "s"));
 });
 
 test("validateName accepts the documented names and rejects the rest", () => {
@@ -50,7 +52,7 @@ test("listSpaces returns sorted valid folders and skips files, symlinks and inva
 	mkdirSync(join(dir, "Bad"));
 	writeFileSync(join(dir, "file"), "");
 	mkdirSync(join(root, "elsewhere"));
-	symlinkSync(join(root, "elsewhere"), join(dir, "link"));
+	symlinkSync(join(root, "elsewhere"), join(dir, "link"), "junction");
 	assert.deepEqual(listSpaces(dir), ["alpha", "zeta"]);
 });
 
@@ -98,7 +100,7 @@ test("removeSpace deletes a space and refuses the active one, base, missing name
 
 	mkdirSync(join(root, "precious"));
 	writeFileSync(join(root, "precious", "data"), "keep");
-	symlinkSync(join(root, "precious"), join(dir, "link"));
+	symlinkSync(join(root, "precious"), join(dir, "link"), "junction");
 	assert.throws(() => removeSpace(dir, "link", agentHome), new SpaceError(`Space "link" is not a folder inside ${dir}; remove it by hand.`));
 	assert.equal(readFileSync(join(root, "precious", "data"), "utf8"), "keep");
 
@@ -139,7 +141,7 @@ test("backupSpace makes the same checks as removeSpace and moves nothing when on
 	assert.equal(existsSync(join(dir, BACKUPS)), false);
 });
 
-test("backupSpace turns a backup that cannot be written into a SpaceError and keeps the space", { skip: process.getuid?.() === 0 }, () => {
+test("backupSpace turns a backup that cannot be written into a SpaceError and keeps the space", { skip: process.platform === "win32" || process.getuid?.() === 0 }, () => {
 	const root = scratch();
 	const dir = join(root, "spaces");
 	mkdirSync(join(dir, "work"), { recursive: true });
@@ -166,7 +168,7 @@ test("backupSpace refuses a .backups that is not a real folder", () => {
 	const dir = join(root, "spaces");
 	createSpace(dir, "work", "x");
 	mkdirSync(join(root, "elsewhere"));
-	symlinkSync(join(root, "elsewhere"), join(dir, BACKUPS));
+	symlinkSync(join(root, "elsewhere"), join(dir, BACKUPS), "junction");
 	assert.throws(
 		() => backupSpace(dir, "work", join(root, "agent"), [], root),
 		new SpaceError(`The backups folder ${join(dir, BACKUPS)} is not a folder; move it away and try again.`),
@@ -180,7 +182,7 @@ test("removeSpace refuses a spaces folder reached through a symlinked space", ()
 	mkdirSync(join(real, "work"), { recursive: true });
 	const dir = join(root, "spaces");
 	mkdirSync(dir);
-	symlinkSync(join(real, "work"), join(dir, "work"));
+	symlinkSync(join(real, "work"), join(dir, "work"), "junction");
 	assert.throws(() => removeSpace(dir, "work", join(root, "agent")), SpaceError);
 	assert.equal(existsSync(join(real, "work")), true);
 });
@@ -188,7 +190,7 @@ test("removeSpace refuses a spaces folder reached through a symlinked space", ()
 test("removeSpace refuses the active space when reached through a symlinked spaces folder", () => {
 	const root = scratch();
 	mkdirSync(join(root, "real", "z"), { recursive: true });
-	symlinkSync(join(root, "real"), join(root, "link"));
+	symlinkSync(join(root, "real"), join(root, "link"), "junction");
 	assert.equal(activeSpace(join(root, "link"), join(root, "real", "z")), "z");
 	assert.throws(() => removeSpace(join(root, "link"), "z", join(root, "real", "z")), /active/);
 	assert.ok(existsSync(join(root, "real", "z")));
@@ -212,7 +214,8 @@ test("removeSpace refuses a spaces folder that is the filesystem root or the use
 	const home = join(root, "home");
 	mkdirSync(join(home, "docs"), { recursive: true });
 	assert.throws(() => removeSpace(home, "docs", join(root, "agent"), [], home), unsafe(home));
-	assert.throws(() => removeSpace("/", "tmp", join(root, "agent"), [], home), unsafe("/"));
+	const top = parse(root).root;
+	assert.throws(() => removeSpace(top, "tmp", join(root, "agent"), [], home), unsafe(top));
 	assert.ok(existsSync(join(home, "docs")));
 });
 
@@ -372,7 +375,7 @@ test("renameSpace refuses the active space, symlinks and a space holding the cur
 		new SpaceError(`Space "agent" holds the base home ${base}; it cannot be renamed.`),
 	);
 	mkdirSync(join(root, "precious"));
-	symlinkSync(join(root, "precious"), join(dir, "link"));
+	symlinkSync(join(root, "precious"), join(dir, "link"), "junction");
 	assert.throws(
 		() => renameSpace(dir, "link", "z", join(root, "agent")),
 		new SpaceError(`Space "link" is not a folder inside ${dir}; rename it by hand.`),
