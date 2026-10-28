@@ -733,6 +733,29 @@ test("bin/pi-space.mjs passes Pi's arguments to the real child as written: space
 	}
 });
 
+test("bin/pi-space.mjs on Windows starts a .cmd shim found on PATH without its extension, as npm installs pi", { skip: process.platform !== "win32" && "npm's .cmd shims exist only on Windows" }, () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		const dir = join(root, "spaces");
+		mkdirSync(join(dir, "work"), { recursive: true });
+		const shims = join(root, "my shims");
+		mkdirSync(shims);
+		writeFileSync(join(shims, "fake.mjs"), "console.log(JSON.stringify(process.argv.slice(2)));\n");
+		// The shape of the shim npm writes: the script next to it, with every argument forwarded.
+		writeFileSync(join(shims, "fake-pi.cmd"), `@"${process.execPath}" "%~dp0fake.mjs" %*\r\n`);
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const piArgs = ["-p", "hello world", "%PATH%", "a&b"];
+		const result = spawnSync(process.execPath, [bin, "--command", "fake-pi", "--dir", dir, "work", ...piArgs], {
+			encoding: "utf8",
+			env: { ...process.env, PATH: `${shims};${process.env.PATH}` },
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.deepEqual(JSON.parse(result.stdout), ["--space", "work", ...piArgs]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("bin/pi-space.mjs reports a program that does not exist with exit 1", () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
 	try {
