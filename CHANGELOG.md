@@ -6,6 +6,33 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.2.0
+
+### Added
+
+- `/space remove` asks, after the confirmation, whether to keep a backup:
+  the space moves to `.backups/<name>-<UTC time>` in the spaces folder, and
+  keeping one is the first choice. `--yes` keeps a backup, and `--no-backup`
+  deletes without one. `backupSpace` and `BACKUPS` in the core do it, with the
+  same checks as `removeSpace`.
+
+### Changed
+
+- `/space remove <name> --yes` now keeps a backup instead of deleting the
+  space; add `--no-backup` to delete it as before.
+
+### Fixed
+
+- `/space new` copies a local path that loads another copy of this package
+  (a folder whose `package.json` is named `@jals1212/pi-spaces`) instead of
+  writing the folder of the copy that runs.
+- `/space remove` and `backupSpace` report a backup that cannot be written
+  (for example a read-only spaces folder) as an error that says the space was
+  not removed and offers `--no-backup`, instead of a raw filesystem error.
+- `findOwnDeclaration` takes an optional fallback, answered when nothing
+  matches, and an empty package folder matches a local path only by its
+  `package.json` name.
+
 ## 0.1.1
 
 ### Changed

@@ -1,9 +1,24 @@
 // The /space command, kept apart from Pi's extension API so it can be tested directly.
 import { join } from "node:path";
 import { type Command, relaunchEnv, resolveSwitch } from "./relaunch.ts";
-import { activeSpace, BASE, checkRemovable, createSpace, type Env, listSpaces, type PackageDeclaration, removeSpace, renameSpace, SpaceError } from "./spaces.ts";
+import {
+	activeSpace,
+	BACKUPS,
+	BASE,
+	backupSpace,
+	checkRemovable,
+	createSpace,
+	type Env,
+	listSpaces,
+	type PackageDeclaration,
+	removeSpace,
+	renameSpace,
+	SpaceError,
+} from "./spaces.ts";
 
-export const USAGE = "Usage: /space [list | new <name> | remove <name> | rename <old> <new> | switch [<name>]]";
+export const USAGE = "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]";
+const KEEP_BACKUP = "Keep a backup";
+const NO_BACKUP = "Delete without a backup";
 const SUBCOMMANDS = ["list", "new", "remove", "rename", "switch"];
 
 export interface SpaceCommandContext {
@@ -43,9 +58,8 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 			ctx.ui.notify(`Created space "${rest[0]}" at ${path}. Enter it with /space switch ${rest[0]}.`, "info");
 			return;
 		}
-		if (sub === "remove" && (rest.length === 1 || (rest.length === 2 && rest[1] === "--yes"))) {
-			return await remove(rest[0], rest[1] === "--yes", deps);
-		}
+		const removal = sub === "remove" ? parseRemove(rest) : undefined;
+		if (removal) return await remove(removal, deps);
 		if (sub === "rename" && rest.length === 2) {
 			renameSpace(deps.dir, rest[0], rest[1], deps.currentHome(), protectedHomes(deps));
 			ctx.ui.notify(`Renamed space "${rest[0]}" to "${rest[1]}".`, "info");
@@ -69,8 +83,24 @@ function list(deps: SpaceCommandDeps): void {
 	deps.ctx.ui.notify(lines.join("\n"), "info");
 }
 
-async function remove(name: string, yes: boolean, deps: SpaceCommandDeps): Promise<void> {
+interface Removal {
+	name: string;
+	yes: boolean;
+	backup: boolean;
+}
+
+/** remove <name> with --yes and --no-backup after it, each at most once, in any order. */
+function parseRemove(rest: string[]): Removal | undefined {
+	const [name, ...flags] = rest;
+	if (name === undefined || name.startsWith("-")) return undefined;
+	if (flags.some((flag) => flag !== "--yes" && flag !== "--no-backup") || new Set(flags).size !== flags.length) return undefined;
+	return { name, yes: flags.includes("--yes"), backup: !flags.includes("--no-backup") };
+}
+
+/** Without --yes it asks to remove, then (without --no-backup) whether to keep a backup, keeping one first in the list. */
+async function remove({ name, yes, backup }: Removal, deps: SpaceCommandDeps): Promise<void> {
 	const { ctx } = deps;
+	let keep = backup;
 	if (!yes) {
 		if (!ctx.hasUI) throw new SpaceError(`Removing a space needs confirmation; run /space remove ${name} --yes.`);
 		// Fail before asking when the space cannot be removed anyway.
@@ -79,10 +109,18 @@ async function remove(name: string, yes: boolean, deps: SpaceCommandDeps): Promi
 			`Remove space "${name}"?`,
 			`This deletes ${join(deps.dir, name)} and everything in it: sign-ins, packages, settings and sessions.`,
 		);
-		if (!ok) {
+		const choice = ok && backup ? await ctx.ui.select(`Keep a backup of "${name}" in ${join(deps.dir, BACKUPS)}?`, [KEEP_BACKUP, NO_BACKUP]) : undefined;
+		// Dismissing the backup question is not an answer to it, so nothing is removed.
+		if (!ok || (backup && choice === undefined)) {
 			ctx.ui.notify(`Kept space "${name}".`, "info");
 			return;
 		}
+		keep = backup && choice === KEEP_BACKUP;
+	}
+	if (keep) {
+		const path = backupSpace(deps.dir, name, deps.currentHome(), protectedHomes(deps));
+		ctx.ui.notify(`Removed space "${name}"; its backup is ${path}.`, "info");
+		return;
 	}
 	removeSpace(deps.dir, name, deps.currentHome(), protectedHomes(deps));
 	ctx.ui.notify(`Removed space "${name}".`, "info");

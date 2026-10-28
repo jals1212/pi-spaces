@@ -1,6 +1,6 @@
 {
   "name": "@jals1212/pi-spaces",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Named spaces for Pi: keep several agent homes (sign-ins, packages, settings) and pick one by name.",
   "license": "MIT",
   "author": "jals1212",
