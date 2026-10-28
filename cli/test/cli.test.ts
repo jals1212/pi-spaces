@@ -740,7 +740,8 @@ test("bin/pi-space.mjs reports a program that does not exist with exit 1", () =>
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
 		const result = spawnSync(process.execPath, [bin, "--command", "pi-space-no-such-program", "--dir", join(root, "spaces"), "work"], { encoding: "utf8" });
 		assert.equal(result.status, 1);
-		assert.match(result.stderr, /^pi-space: could not start pi-space-no-such-program: .*ENOENT/);
+		// On Windows cmd.exe prints its own "is not recognized" line first; ours follows it.
+		assert.match(result.stderr, /^pi-space: could not start pi-space-no-such-program: .*ENOENT/m);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
