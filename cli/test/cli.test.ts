@@ -745,9 +745,11 @@ test("bin/pi-space.mjs on Windows starts a .cmd shim found on PATH without its e
 		writeFileSync(join(shims, "fake-pi.cmd"), `@"${process.execPath}" "%~dp0fake.mjs" %*\r\n`);
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
 		const piArgs = ["-p", "hello world", "%PATH%", "a&b"];
+		// Windows names it Path; a copied env would otherwise hold both Path and PATH.
+		const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
 		const result = spawnSync(process.execPath, [bin, "--command", "fake-pi", "--dir", dir, "work", ...piArgs], {
 			encoding: "utf8",
-			env: { ...process.env, PATH: `${shims};${process.env.PATH}` },
+			env: { ...process.env, [pathKey]: `${shims};${process.env[pathKey] ?? ""}` },
 		});
 		assert.equal(result.status, 0, result.stderr);
 		assert.deepEqual(JSON.parse(result.stdout), ["--space", "work", ...piArgs]);
