@@ -28,12 +28,15 @@ A new space gets a `settings.json` that declares the extension, so `/space` work
 
 ## Another program that runs Pi
 
-To start Pi through another program for one call, give `--command` and `--dir` before the rest; the words of `--command` come before `--space`. Such a program usually has its own home, so `--dir` points at its spaces folder, and the Pi it starts gets that folder as `PI_SPACES_DIR` too. Nothing is exported, so a plain `pi` in the same shell is not affected:
+To start Pi through another program for one call, give `--command` and `--dir` before the rest; the words of `--command` come before `--space`. The words are split on spaces; double or single quotes keep a path with spaces in one word. Such a program usually has its own home, so `--dir` points at its spaces folder, and the Pi it starts gets that folder as `PI_SPACES_DIR` too. Nothing is exported, so a plain `pi` in the same shell is not affected:
 
 ```sh
 pi-space --command "my-launcher --" --dir ~/.my-launcher/spaces work   # → my-launcher -- --space work
 pi-space --dir ~/.my-launcher/spaces --new work                         # create one in that folder
+pi-space --command '"/opt/my launcher/run" --' work                     # a path with spaces, in quotes
 ```
+
+Inside quotes a backslash is a plain character, so `"C:\Program Files\my-launcher\run.cmd"` works as written. A quote that is never closed is an error (exit status 2), and nothing is started.
 
 An alias keeps it short: `alias my-space='pi-space --command "my-launcher --" --dir ~/.my-launcher/spaces'`. To make it the default instead, set the variables in your shell profile:
 
@@ -44,7 +47,7 @@ export PI_SPACES_DIR=~/.my-launcher/spaces   # the spaces next to that program's
 
 | Variable | Meaning |
 | --- | --- |
-| `PI_SPACES_COMMAND` | The program to run, split on spaces, before `--space <name>`. Default: `pi`. `--command` wins for one call. |
+| `PI_SPACES_COMMAND` | The program to run, split on spaces (double or single quotes keep a path with spaces in one word, as in `"/opt/my launcher/run" --`), before `--space <name>`. Default: `pi`. `--command` wins for one call. |
 | `PI_SPACES_DIR` | The spaces folder. A relative value is taken from your home folder. Default: `spaces` next to the base home. `--dir` wins for one call; a relative `--dir` is taken from the current folder. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; its parent holds the default spaces folder. Default: `~/.pi/agent`. |
 
@@ -54,7 +57,7 @@ export PI_SPACES_DIR=~/.my-launcher/spaces   # the spaces next to that program's
 | --- | --- |
 | 0 … | Pi's own exit status. |
 | 1 | An unknown or invalid space, a name `--new` cannot use (taken, `base` or invalid), a space `--remove` cannot delete, `--remove` without `--yes` and no terminal, an out-of-range pick, or the program could not start. |
-| 2 | No arguments and no terminal to pick in, `--new` or `--remove` without exactly one name, or `--command` or `--dir` without a value or given twice: the usage is printed. |
+| 2 | No arguments and no terminal to pick in, `--new` or `--remove` without exactly one name, or `--command` or `--dir` without a value or given twice: the usage is printed. A `--command` or `PI_SPACES_COMMAND` with an unclosed quote: the problem is printed. |
 
 ## More
 

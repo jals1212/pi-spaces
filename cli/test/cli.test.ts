@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { launchCommand, main, parseCli, type CliIo } from "../src/cli.ts";
+import { launchCommand, main, parseCli, quoteForCmd, splitCommand, type CliIo } from "../src/cli.ts";
 
 const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | list | --new <name> | --remove <name> [--yes] [--no-backup]]
        pi-space --help | --version
@@ -52,6 +52,8 @@ async function run(
 		checkout?: boolean;
 		/** Make the spaces folder read-only while the command runs. */
 		readOnly?: boolean;
+		/** The platform the command believes it runs on. */
+		platform?: NodeJS.Platform;
 	} = {},
 ): Promise<Run> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-cli-")));
@@ -77,6 +79,7 @@ async function run(
 			stderr: { write: (text: string) => void (result.err += text) },
 			env: { PI_SPACES_DIR: dir, PI_CODING_AGENT_DIR: join(root, "no-agent"), ...env },
 			home: root,
+			platform: options.platform,
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
 				return options.spawnError ? { status: null, error: new Error(options.spawnError) } : { status: options.status ?? 0 };
@@ -206,6 +209,63 @@ test("launchCommand: extra whitespace is ignored; a blank value falls back to pi
 		args: ["--", "--space", "base"],
 	});
 	assert.deepEqual(launchCommand({ PI_SPACES_COMMAND: "   " }, "work", []), { program: "pi", args: ["--space", "work"] });
+});
+
+test("launchCommand: quotes keep a program path with spaces in one word", () => {
+	assert.deepEqual(launchCommand({ PI_SPACES_COMMAND: '"/opt/my launcher/run" --' }, "work", []), {
+		program: "/opt/my launcher/run",
+		args: ["--", "--space", "work"],
+	});
+});
+
+test("splitCommand: plain words, extra whitespace and blank text", () => {
+	assert.deepEqual(splitCommand("my-launcher --"), ["my-launcher", "--"]);
+	assert.deepEqual(splitCommand("  my-launcher \t  --\n "), ["my-launcher", "--"]);
+	assert.deepEqual(splitCommand(""), []);
+	assert.deepEqual(splitCommand("  \t "), []);
+});
+
+test("splitCommand: double and single quotes keep whitespace in one word and are removed", () => {
+	assert.deepEqual(splitCommand('"/opt/my launcher/run" --'), ["/opt/my launcher/run", "--"]);
+	assert.deepEqual(splitCommand("'/opt/my launcher/run' --"), ["/opt/my launcher/run", "--"]);
+});
+
+test("splitCommand: quotes join adjacent text into one word", () => {
+	assert.deepEqual(splitCommand('a"b c"d'), ["ab cd"]);
+	assert.deepEqual(splitCommand("a'b c'd e"), ["ab cd", "e"]);
+});
+
+test("splitCommand: an empty pair is an empty word only on its own", () => {
+	assert.deepEqual(splitCommand('x "" y'), ["x", "", "y"]);
+	assert.deepEqual(splitCommand("x '' y"), ["x", "", "y"]);
+	assert.deepEqual(splitCommand('x a"" y'), ["x", "a", "y"]);
+});
+
+test("splitCommand: there are no backslash escapes, so a Windows path in quotes keeps its backslashes", () => {
+	assert.deepEqual(splitCommand('"C:\\Program Files\\x.exe" --'), ["C:\\Program Files\\x.exe", "--"]);
+	assert.deepEqual(splitCommand("C:\\bin\\x.exe a\\ b"), ["C:\\bin\\x.exe", "a\\", "b"]);
+});
+
+test("splitCommand: the other kind of quote inside a quote is a plain character", () => {
+	assert.deepEqual(splitCommand(`"it's here" x`), ["it's here", "x"]);
+	assert.deepEqual(splitCommand(`'say "hi" now' x`), ['say "hi" now', "x"]);
+});
+
+test("splitCommand: an unclosed quote is an error that names the quote", () => {
+	assert.throws(() => splitCommand('"/opt/my launcher/run --'), { message: 'the command has an unclosed " quote' });
+	assert.throws(() => splitCommand("run 'a b"), { message: "the command has an unclosed ' quote" });
+});
+
+test("quoteForCmd: a plain word stays as it is", () => {
+	for (const word of ["pi", "C:\\bin\\x.exe", "--space", "a-b_c.d/e:f", "'x'"]) assert.equal(quoteForCmd(word), word);
+});
+
+test("quoteForCmd: whitespace, an empty word or a cmd.exe special character gets double quotes, inner quotes doubled", () => {
+	assert.equal(quoteForCmd("C:\\Program Files\\x.exe"), '"C:\\Program Files\\x.exe"');
+	assert.equal(quoteForCmd(""), '""');
+	assert.equal(quoteForCmd('say "hi"'), '"say ""hi"""');
+	assert.equal(quoteForCmd("a\tb"), '"a\tb"');
+	for (const char of '"&|<>^()%!,;=') assert.equal(quoteForCmd(`a${char}b`), `"a${char === '"' ? '""' : char}b"`);
 });
 
 test("--help prints the usage and exits 0", async () => {
@@ -459,6 +519,45 @@ test("--command runs that program for this call instead of PI_SPACES_COMMAND", a
 	assert.equal(r.spawned[0].options.env, undefined);
 });
 
+test("--command with a quoted path launches that program with the path in one word", async () => {
+	const r = await run(["--command", '"/opt/my launcher/run" --', "work"], { spaces: ["work"] });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "/opt/my launcher/run", args: ["--", "--space", "work"] }]);
+});
+
+test("an unclosed quote in --command exits 2 naming --command and spawns nothing", async () => {
+	const r = await run(["--command", '"/opt/my launcher/run --', "work"], { spaces: ["work"], env: { PI_SPACES_COMMAND: "other" } });
+	assert.equal(r.code, 2);
+	assert.equal(r.out, "");
+	assert.equal(r.err, 'pi-space: --command: the command has an unclosed " quote.\n');
+	assert.equal(r.spawned.length, 0);
+});
+
+test("an unclosed quote in PI_SPACES_COMMAND exits 2 naming PI_SPACES_COMMAND and spawns nothing", async () => {
+	const r = await run(["work"], { spaces: ["work"], env: { PI_SPACES_COMMAND: "run 'a b" } });
+	assert.equal(r.code, 2);
+	assert.equal(r.out, "");
+	assert.equal(r.err, "pi-space: PI_SPACES_COMMAND: the command has an unclosed ' quote.\n");
+	assert.equal(r.spawned.length, 0);
+});
+
+test("on Windows the program and arguments are quoted for cmd.exe and run through a shell", async () => {
+	const r = await run(["--command", '"C:\\Program Files\\x\\launcher.cmd" --', "work", "-p", "hello world"], { spaces: ["work"], platform: "win32" });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
+		{ program: '"C:\\Program Files\\x\\launcher.cmd"', args: ["--", "--space", "work", "-p", '"hello world"'] },
+	]);
+	assert.equal(r.spawned[0].options.shell, true);
+});
+
+test("on other platforms nothing is quoted and no shell is used", async () => {
+	const r = await run(["--command", '"/opt/my launcher/run" --', "work", "-p", "hello world"], { spaces: ["work"], platform: "linux" });
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
+		{ program: "/opt/my launcher/run", args: ["--", "--space", "work", "-p", "hello world"] },
+	]);
+	assert.equal(r.spawned[0].options.shell, false);
+});
+
 test("--dir uses that spaces folder instead of PI_SPACES_DIR, and the started Pi gets it as PI_SPACES_DIR", async () => {
 	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: "/some/home" };
 	const launched = await run(["--dir", "<root>/spaces", "work"], { spaces: ["work"], env });
@@ -569,7 +668,7 @@ test("bin/pi-space.mjs --dir and --command reach the real child: its PI_SPACES_D
 			"console.log(JSON.stringify({ argv: process.argv.slice(2), dir: process.env.PI_SPACES_DIR, home: process.env.PI_CODING_AGENT_DIR, command: process.env.PI_SPACES_COMMAND })); process.exit(3);\n",
 		);
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
-		const result = spawnSync(process.execPath, [bin, "--command", `${process.execPath} ${script}`, "--dir", dir, "work", "-c"], {
+		const result = spawnSync(process.execPath, [bin, "--command", `"${process.execPath}" "${script}"`, "--dir", dir, "work", "-c"], {
 			encoding: "utf8",
 			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: "/some/home" },
 		});
@@ -598,7 +697,7 @@ test("bin/pi-space.mjs runs PI_SPACES_COMMAND with --space and exits with its co
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
 		const result = spawnSync(process.execPath, [bin, "work", "-c"], {
 			encoding: "utf8",
-			env: { ...process.env, PI_SPACES_DIR: dir, PI_SPACES_COMMAND: `${process.execPath} ${script}`, PI_CODING_AGENT_DIR: "/some/home" },
+			env: { ...process.env, PI_SPACES_DIR: dir, PI_SPACES_COMMAND: `"${process.execPath}" "${script}"`, PI_CODING_AGENT_DIR: "/some/home" },
 		});
 		assert.equal(result.status, 7, result.stderr);
 		const seen = JSON.parse(result.stdout);
@@ -606,6 +705,23 @@ test("bin/pi-space.mjs runs PI_SPACES_COMMAND with --space and exits with its co
 		assert.equal(seen.dir, dir);
 		assert.ok(existsSync(join(seen.dir, "work")));
 		assert.equal(seen.home, "/some/home");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("bin/pi-space.mjs runs a launcher whose folder has a space in its name, given with quotes", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		const dir = join(root, "spaces");
+		mkdirSync(join(dir, "work"), { recursive: true });
+		mkdirSync(join(root, "my launcher"));
+		const script = join(root, "my launcher", "fake.mjs");
+		writeFileSync(script, "console.log(JSON.stringify({ argv: process.argv.slice(2) })); process.exit(5);\n");
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const result = spawnSync(process.execPath, [bin, "--command", `"${process.execPath}" "${script}"`, "--dir", dir, "work"], { encoding: "utf8" });
+		assert.equal(result.status, 5, result.stderr);
+		assert.deepEqual(JSON.parse(result.stdout).argv, ["--space", "work"]);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
