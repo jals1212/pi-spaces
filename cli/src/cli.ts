@@ -1,29 +1,41 @@
 // The optional `pi-space` command: pick a space and start Pi in it.
 // It only passes `--space <name>`; the extension does the switch, so it never sets PI_CODING_AGENT_DIR.
 import { spawn as nodeSpawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { BASE, type Env, listSpaces, spacesDir, validateName } from "@jals1212/pi-spaces/spaces";
 
-export const USAGE = `Usage: pi-space [<name> [pi args...] | list | --help]
+export const USAGE = `Usage: pi-space [<name> [pi args...] | list | --help | --version]
   pi-space              pick a space and start Pi in it
   pi-space <name> ...   start Pi in a space ("base" for the home Pi starts with)
   pi-space list         list the spaces
+  pi-space --version    print the version
 PI_SPACES_COMMAND sets the program to run (default: pi), e.g. "my-launcher --".
 `;
 
+/** This package's version; package.json sits one folder above both src/ and dist/. */
+export const VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+
 export type CliCommand =
 	| { kind: "help" }
+	| { kind: "version" }
+	| { kind: "unknown-option"; option: string }
 	| { kind: "list" }
 	| { kind: "picker" }
 	| { kind: "usage" }
 	| { kind: "launch"; name: string; args: string[] };
 
-/** `list` is the subcommand, so a space named "list" can only be opened from the picker. */
+/**
+ * `list` is the subcommand, so a space named "list" can only be opened from the picker.
+ * A space name never starts with "-", so any other option in first place is unknown, not a name.
+ */
 export function parseCli(args: string[]): CliCommand {
 	const [first, ...rest] = args;
 	if (first === undefined) return { kind: "picker" };
 	if (first === "--help" || first === "-h") return { kind: "help" };
+	if (first === "--version" || first === "-v") return { kind: "version" };
+	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
 	if (first === "list") return rest.length === 0 ? { kind: "list" } : { kind: "usage" };
 	return { kind: "launch", name: first, args: rest };
 }
@@ -81,6 +93,12 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "help":
 			io.stdout.write(USAGE);
 			return io.exit(0);
+		case "version":
+			io.stdout.write(`${VERSION}\n`);
+			return io.exit(0);
+		case "unknown-option":
+			io.stderr.write(`pi-space: Unknown option "${command.option}".\n${USAGE}`);
+			return io.exit(2);
 		case "usage":
 			io.stderr.write(USAGE);
 			return io.exit(2);
