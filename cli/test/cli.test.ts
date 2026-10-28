@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { launchCommand, main, parseCli, type CliIo } from "../src/cli.ts";
 
-const USAGE = `Usage: pi-space [<name> [pi args...] | list | --help]
+const USAGE = `Usage: pi-space [<name> [pi args...] | list | --help | --version]
   pi-space              pick a space and start Pi in it
   pi-space <name> ...   start Pi in a space ("base" for the home Pi starts with)
   pi-space list         list the spaces
+  pi-space --version    print the version
 PI_SPACES_COMMAND sets the program to run (default: pi), e.g. "my-launcher --".
 `;
 
@@ -60,6 +61,16 @@ test("parseCli: no arguments opens the picker", () => {
 test("parseCli: --help and -h", () => {
 	assert.deepEqual(parseCli(["--help"]), { kind: "help" });
 	assert.deepEqual(parseCli(["-h"]), { kind: "help" });
+});
+
+test("parseCli: --version and -v", () => {
+	assert.deepEqual(parseCli(["--version"]), { kind: "version" });
+	assert.deepEqual(parseCli(["-v"]), { kind: "version" });
+});
+
+test("parseCli: any other option in first place is an unknown option, never a space name", () => {
+	assert.deepEqual(parseCli(["--bogus"]), { kind: "unknown-option", option: "--bogus" });
+	assert.deepEqual(parseCli(["-x", "work"]), { kind: "unknown-option", option: "-x" });
 });
 
 test("parseCli: list is the subcommand, a name launches with the rest of the arguments", () => {
@@ -132,9 +143,25 @@ test("an invalid name exits 1 with the validation message and spawns nothing", a
 	assert.equal(r.code, 1);
 	assert.match(r.err, /^pi-space: Invalid space name "Bad Name"/);
 	assert.equal(r.spawned.length, 0);
-	const flag = await run(["--bogus"]);
-	assert.equal(flag.code, 1);
-	assert.equal(flag.spawned.length, 0);
+});
+
+test("--version prints the package version and exits 0", async () => {
+	const { version } = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"));
+	for (const flag of ["--version", "-v"]) {
+		const r = await run([flag]);
+		assert.equal(r.code, 0);
+		assert.equal(r.out, `${version}\n`);
+		assert.equal(r.err, "");
+		assert.equal(r.spawned.length, 0);
+	}
+});
+
+test("an unknown option prints it with the usage to stderr, exits 2 and spawns nothing", async () => {
+	const r = await run(["--bogus"]);
+	assert.equal(r.code, 2);
+	assert.equal(r.out, "");
+	assert.equal(r.err, `pi-space: Unknown option "--bogus".\n${USAGE}`);
+	assert.equal(r.spawned.length, 0);
 });
 
 test("base passes through without needing a folder", async () => {
@@ -195,6 +222,14 @@ test("picker: without a terminal the usage goes to stderr and the exit code is 2
 	assert.equal(r.out, "");
 	assert.equal(r.err, USAGE);
 	assert.equal(r.spawned.length, 0);
+});
+
+test("bin/pi-space.mjs --version prints the package version", () => {
+	const { version } = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"));
+	const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+	const result = spawnSync(process.execPath, [bin, "--version"], { encoding: "utf8" });
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(result.stdout, `${version}\n`);
 });
 
 test("bin/pi-space.mjs runs PI_SPACES_COMMAND with --space and exits with its code", () => {

@@ -6,6 +6,17 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.2.0
+
+### Added
+
+- `pi-space --version` (or `-v`) prints the version.
+
+### Fixed
+
+- An unknown option such as `--bogus` in first place is reported as an unknown
+  option with the usage, exit code 2, instead of as an invalid space name.
+
 ## 0.1.0
 
 ### Added
