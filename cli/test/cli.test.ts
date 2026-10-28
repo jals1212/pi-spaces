@@ -558,6 +558,33 @@ test("bin/pi-space.mjs --version prints the package version", () => {
 	assert.equal(result.stdout, `${version}\n`);
 });
 
+test("bin/pi-space.mjs --dir and --command reach the real child: its PI_SPACES_DIR is that folder, the rest of its env is untouched", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		const dir = join(root, "spaces");
+		mkdirSync(join(dir, "work"), { recursive: true });
+		const script = join(root, "fake.mjs");
+		writeFileSync(
+			script,
+			"console.log(JSON.stringify({ argv: process.argv.slice(2), dir: process.env.PI_SPACES_DIR, home: process.env.PI_CODING_AGENT_DIR, command: process.env.PI_SPACES_COMMAND })); process.exit(3);\n",
+		);
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const result = spawnSync(process.execPath, [bin, "--command", `${process.execPath} ${script}`, "--dir", dir, "work", "-c"], {
+			encoding: "utf8",
+			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: "/some/home" },
+		});
+		assert.equal(result.status, 3, result.stderr);
+		const seen = JSON.parse(result.stdout);
+		assert.deepEqual(seen.argv, ["--space", "work", "-c"]);
+		assert.equal(seen.dir, dir);
+		assert.equal(seen.home, "/some/home");
+		// --command is for this call only: the child keeps the shell's value.
+		assert.equal(seen.command, "not-run");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("bin/pi-space.mjs runs PI_SPACES_COMMAND with --space and exits with its code", () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
 	try {
