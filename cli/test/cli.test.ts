@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { launchCommand, main, parseCli, quoteForCmd, splitCommand, type CliIo } from "../src/cli.ts";
+import { launchCommand, main, parseCli, splitCommand, type CliIo } from "../src/cli.ts";
 
 const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | list | --new <name> | --remove <name> [--yes] [--no-backup]]
        pi-space --help | --version
@@ -52,8 +52,6 @@ async function run(
 		checkout?: boolean;
 		/** Make the spaces folder read-only while the command runs. */
 		readOnly?: boolean;
-		/** The platform the command believes it runs on. */
-		platform?: NodeJS.Platform;
 	} = {},
 ): Promise<Run> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-cli-")));
@@ -71,7 +69,9 @@ async function run(
 			mkdirSync(join(root, "agent"));
 			writeFileSync(join(root, "agent", "settings.json"), JSON.stringify({ packages: options.basePackages }));
 		}
-		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, value.replace("<root>", root)]));
+		// A path written with "/" after <root> is normalized, so it reads the same as join() gives on Windows.
+		const fill = (text: string) => (text.includes("<root>") ? normalize(text.replace("<root>", root)) : text);
+		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, fill(value)]));
 		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root };
 		const io: CliIo = {
 			stdin,
@@ -79,7 +79,6 @@ async function run(
 			stderr: { write: (text: string) => void (result.err += text) },
 			env: { PI_SPACES_DIR: dir, PI_CODING_AGENT_DIR: join(root, "no-agent"), ...env },
 			home: root,
-			platform: options.platform,
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
 				return options.spawnError ? { status: null, error: new Error(options.spawnError) } : { status: options.status ?? 0 };
@@ -88,10 +87,7 @@ async function run(
 		};
 		if (options.readOnly) chmodSync(dir, 0o555);
 		try {
-			await main(
-				argv.map((arg) => arg.replace("<root>", root)),
-				io,
-			);
+			await main(argv.map(fill), io);
 		} finally {
 			chmodSync(dir, 0o755);
 		}
@@ -256,18 +252,6 @@ test("splitCommand: an unclosed quote is an error that names the quote", () => {
 	assert.throws(() => splitCommand("run 'a b"), { message: "the command has an unclosed ' quote" });
 });
 
-test("quoteForCmd: a plain word stays as it is", () => {
-	for (const word of ["pi", "C:\\bin\\x.exe", "--space", "a-b_c.d/e:f", "'x'"]) assert.equal(quoteForCmd(word), word);
-});
-
-test("quoteForCmd: whitespace, an empty word or a cmd.exe special character gets double quotes, inner quotes doubled", () => {
-	assert.equal(quoteForCmd("C:\\Program Files\\x.exe"), '"C:\\Program Files\\x.exe"');
-	assert.equal(quoteForCmd(""), '""');
-	assert.equal(quoteForCmd('say "hi"'), '"say ""hi"""');
-	assert.equal(quoteForCmd("a\tb"), '"a\tb"');
-	for (const char of '"&|<>^()%!,;=') assert.equal(quoteForCmd(`a${char}b`), `"a${char === '"' ? '""' : char}b"`);
-});
-
 test("--help prints the usage and exits 0", async () => {
 	for (const flag of ["--help", "-h"]) {
 		const r = await run([flag]);
@@ -400,7 +384,7 @@ test("--remove --yes keeps a backup in .backups and leaves the other spaces", as
 	assert.equal(r.spawned.length, 0);
 });
 
-test("--remove --yes reports a backup that cannot be written with exit 1 and keeps the space", { skip: process.getuid?.() === 0 }, async () => {
+test("--remove --yes reports a backup that cannot be written with exit 1 and keeps the space", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
 	const r = await run(["--remove", "work", "--yes"], { spaces: ["work"], readOnly: true });
 	assert.equal(r.code, 1);
 	assert.match(r.err, /^pi-space: Could not back up space "work": .*EACCES.*\. The space was not removed; fix that, or remove it without a backup with --no-backup\.\n$/);
@@ -541,21 +525,13 @@ test("an unclosed quote in PI_SPACES_COMMAND exits 2 naming PI_SPACES_COMMAND an
 	assert.equal(r.spawned.length, 0);
 });
 
-test("on Windows the program and arguments are quoted for cmd.exe and run through a shell", async () => {
-	const r = await run(["--command", '"C:\\Program Files\\x\\launcher.cmd" --', "work", "-p", "hello world"], { spaces: ["work"], platform: "win32" });
+test("the program and arguments reach spawn exactly as split, with no shell option, on every platform", async () => {
+	const r = await run(["--command", '"C:\\Program Files\\x\\launcher.cmd" --', "work", "-p", "hello world", "100%", "C:\\dir with space\\", "a&b"], { spaces: ["work"] });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
-		{ program: '"C:\\Program Files\\x\\launcher.cmd"', args: ["--", "--space", "work", "-p", '"hello world"'] },
+		{ program: "C:\\Program Files\\x\\launcher.cmd", args: ["--", "--space", "work", "-p", "hello world", "100%", "C:\\dir with space\\", "a&b"] },
 	]);
-	assert.equal(r.spawned[0].options.shell, true);
-});
-
-test("on other platforms nothing is quoted and no shell is used", async () => {
-	const r = await run(["--command", '"/opt/my launcher/run" --', "work", "-p", "hello world"], { spaces: ["work"], platform: "linux" });
-	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
-		{ program: "/opt/my launcher/run", args: ["--", "--space", "work", "-p", "hello world"] },
-	]);
-	assert.equal(r.spawned[0].options.shell, false);
+	assert.deepEqual(r.spawned[0].options, { stdio: "inherit" });
 });
 
 test("--dir uses that spaces folder instead of PI_SPACES_DIR, and the started Pi gets it as PI_SPACES_DIR", async () => {
@@ -641,6 +617,19 @@ test("picker: an out-of-range or non-numeric answer exits 1 without launching", 
 	}
 });
 
+test("picker: a command with an unclosed quote exits 2 before the list is printed or a line is read", async () => {
+	const fromOption = await run(["--command", '"/opt/my launcher/run --'], { spaces: ["work"], tty: true, input: "2\n", env: { PI_SPACES_COMMAND: "other" } });
+	assert.equal(fromOption.code, 2);
+	assert.equal(fromOption.out, "");
+	assert.equal(fromOption.err, 'pi-space: --command: the command has an unclosed " quote.\n');
+	assert.equal(fromOption.spawned.length, 0);
+	const fromEnv = await run([], { spaces: ["work"], tty: true, input: "2\n", env: { PI_SPACES_COMMAND: "run 'a b" } });
+	assert.equal(fromEnv.code, 2);
+	assert.equal(fromEnv.out, "");
+	assert.equal(fromEnv.err, "pi-space: PI_SPACES_COMMAND: the command has an unclosed ' quote.\n");
+	assert.equal(fromEnv.spawned.length, 0);
+});
+
 test("picker: without a terminal the usage goes to stderr and the exit code is 2", async () => {
 	const r = await run([], { spaces: ["work"], tty: false, input: "2\n" });
 	assert.equal(r.code, 2);
@@ -722,6 +711,62 @@ test("bin/pi-space.mjs runs a launcher whose folder has a space in its name, giv
 		const result = spawnSync(process.execPath, [bin, "--command", `"${process.execPath}" "${script}"`, "--dir", dir, "work"], { encoding: "utf8" });
 		assert.equal(result.status, 5, result.stderr);
 		assert.deepEqual(JSON.parse(result.stdout).argv, ["--space", "work"]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("bin/pi-space.mjs passes Pi's arguments to the real child as written: spaces, %, a trailing backslash, quotes and cmd.exe characters", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		const dir = join(root, "spaces");
+		mkdirSync(join(dir, "work"), { recursive: true });
+		const script = join(root, "fake.mjs");
+		writeFileSync(script, "console.log(JSON.stringify(process.argv.slice(2)));\n");
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const piArgs = ["-p", "hello world", "100%", "%PATH%", "C:\\dir with space\\", 'say "hi"', "a&b|c<d>e^f", "(x)", "!y!"];
+		const result = spawnSync(process.execPath, [bin, "--command", `"${process.execPath}" "${script}"`, "--dir", dir, "work", ...piArgs], { encoding: "utf8" });
+		assert.equal(result.status, 0, result.stderr);
+		assert.deepEqual(JSON.parse(result.stdout), ["--space", "work", ...piArgs]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("bin/pi-space.mjs on Windows starts a .cmd shim found on PATH without its extension, as npm installs pi", { skip: process.platform !== "win32" && "npm's .cmd shims exist only on Windows" }, () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		const dir = join(root, "spaces");
+		mkdirSync(join(dir, "work"), { recursive: true });
+		const shims = join(root, "my shims");
+		mkdirSync(shims);
+		writeFileSync(join(shims, "fake.mjs"), "console.log(JSON.stringify(process.argv.slice(2)));\n");
+		// The shape of the shim npm writes: the script next to it, with every argument forwarded.
+		writeFileSync(join(shims, "fake-pi.cmd"), `@"${process.execPath}" "%~dp0fake.mjs" %*\r\n`);
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const piArgs = ["-p", "hello world", "%PATH%", "a&b"];
+		// Windows names it Path; a copied env would otherwise hold both Path and PATH.
+		const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+		const result = spawnSync(process.execPath, [bin, "--command", "fake-pi", "--dir", dir, "work", ...piArgs], {
+			encoding: "utf8",
+			env: { ...process.env, [pathKey]: `${shims};${process.env[pathKey] ?? ""}` },
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.deepEqual(JSON.parse(result.stdout), ["--space", "work", ...piArgs]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("bin/pi-space.mjs reports a program that does not exist with exit 1", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-bin-")));
+	try {
+		mkdirSync(join(root, "spaces", "work"), { recursive: true });
+		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
+		const result = spawnSync(process.execPath, [bin, "--command", "pi-space-no-such-program", "--dir", join(root, "spaces"), "work"], { encoding: "utf8" });
+		assert.equal(result.status, 1);
+		// On Windows cmd.exe prints its own "is not recognized" line first; ours follows it.
+		assert.match(result.stderr, /^pi-space: could not start pi-space-no-such-program: .*ENOENT/m);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

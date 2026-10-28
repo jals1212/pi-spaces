@@ -166,7 +166,7 @@ test("remove without a dialog needs --yes, and then keeps a backup unless --no-b
 	assert.equal(onlyBackup(g.dir), undefined);
 });
 
-test("remove reports a backup that cannot be written and keeps the space", { skip: process.getuid?.() === 0 }, async () => {
+test("remove reports a backup that cannot be written and keeps the space", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
 	const f = fake({ mode: "print", hasUI: false });
 	createSpace(f.dir, "work", "x");
 	chmodSync(f.dir, 0o555);

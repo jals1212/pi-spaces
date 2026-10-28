@@ -66,7 +66,8 @@ jobs:
           range="$(node -p 'require("./cli/package.json").dependencies["@jals1212/pi-spaces"]')"
           [ -n "$(npm view "@jals1212/pi-spaces@$range" version)" ] || { echo "::error::No @jals1212/pi-spaces $range on npm yet: release the extension first"; exit 1; }
       # One run of the checks for both packages: the CLI's tests import the
-      # core from this checkout (scripts/link-self.mjs).
+      # core from this checkout (scripts/link-self.mjs) and cross-spawn from the root node_modules.
+      - run: npm install --no-package-lock --no-audit --no-fund
       - run: npm test
       - name: Stage the release (approve it on npm with 2FA)
         working-directory: ${{ steps.which.outputs.dir }}
