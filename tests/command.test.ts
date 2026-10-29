@@ -336,11 +336,20 @@ test("unknown subcommands and missing names show the usage", async () => {
 	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]");
 });
 
-test("statusText names the active space only", () => {
+test("statusText names the active space, and base only when pi-spaces opened it", () => {
 	const f = fake();
 	createSpace(f.dir, "work", "x");
-	assert.equal(statusText(f.dir, f.base), undefined);
-	assert.equal(statusText(f.dir, join(f.dir, "work")), "◆ work");
+	const proc = (args: string[]) => ({ argv: ["/n/node", "/p/cli.js", ...args] });
+	const env = (vars: Record<string, string> = {}) => vars;
+	// A space: always named.
+	assert.equal(statusText(f.dir, join(f.dir, "work"), proc([]), env()), "◆ work");
+	// The base home from plain pi: nothing.
+	assert.equal(statusText(f.dir, f.base, proc([]), env()), undefined);
+	assert.equal(statusText(f.dir, f.base, proc(["-c", "base"]), env()), undefined);
+	// The base home through pi-spaces: pi --space base (pi-space base), or a switch back to base.
+	assert.equal(statusText(f.dir, f.base, proc(["--space", "base"]), env()), "◆ base");
+	assert.equal(statusText(f.dir, f.base, proc(["-e", "/pkg", "--space=base"]), env()), "◆ base");
+	assert.equal(statusText(f.dir, f.base, proc([]), env({ PI_SPACES_BASE_HOME: f.base })), "◆ base");
 });
 
 test("completeSpaceArgs completes subcommands, then space names", () => {
