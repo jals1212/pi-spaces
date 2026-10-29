@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { completeSpaceArgs, runSpaceCommand, statusText } from "../src/command.ts";
-import { exportSpaceInfo, spaceInfo, spacePrompt } from "../src/context.ts";
+import { addSpaceSection, exportSpaceInfo, spaceInfo } from "../src/context.ts";
 import { planStartup, relaunchCommand, runNow, scheduleRelaunch } from "../src/relaunch.ts";
 import { findOwnDeclaration, spacesDir } from "../src/spaces.ts";
 
@@ -21,14 +21,10 @@ export default function (pi: ExtensionAPI) {
 	}
 	if (plan.kind === "relaunch") process.exit(runNow(plan.command, plan.env));
 
-	// The space, its home and the command, for tools and child processes (environment) and for the model (prompt).
+	// Where this Pi runs: exported for tools and the programs they start, and told to the model before each run.
 	const info = spaceInfo(spacesDir(), getAgentDir(), process.env);
 	exportSpaceInfo(process.env, info);
-	pi.on("before_agent_start", (event) => {
-		const sections = event.systemPromptOptions?.sections;
-		if (sections) sections.pi_space = spacePrompt(info);
-		else return { systemPrompt: `${event.systemPrompt}\n\n<pi_space>\n${spacePrompt(info)}\n</pi_space>` };
-	});
+	pi.on("before_agent_start", (event) => addSpaceSection(event.systemPromptOptions, info));
 
 	pi.registerFlag("space", { description: "Start Pi in this space (see /space list)", type: "string" });
 

@@ -99,17 +99,17 @@ Set for the Pi a switch starts:
 | `PI_SPACE` | The space's name. Unset in the base home. |
 | `PI_SPACES_BASE_HOME` | The home Pi started with, so `base` and the spaces folder survive switches. |
 
-Set in every Pi this extension runs in, with or without a switch, for its tools and the programs they start:
+Set in every Pi this extension runs in, even one started without a switch, for its tools and the programs they start:
 
 | Variable | Meaning |
 | --- | --- |
-| `PI_SPACE` | The active space's name. Unset in the base home. |
+| `PI_SPACE` | As above: the active space's name, unset in the base home. |
 | `PI_SPACE_HOME` | The agent home this Pi runs with: the space's folder, or the base home. |
-| `PI_SPACES_COMMAND` | The program that starts Pi: its configured value, else `pi`. |
+| `PI_SPACES_COMMAND` | Kept when it has a value; set to `pi` when it is unset or blank. |
 
 ### What the model is told
 
-Before each run the system prompt gets a `<pi_space>` section with the same three facts: the space (or the base home), the agent home, and the command, with `<command> --space <name>` and `/space` as the ways to change space. The model knows where it runs without reading the environment.
+Before each run the system prompt gets a `<pi_space>` section with the same three facts: the space (or the base home), the agent home, and the command, with `<command> --space <name>` and `/space` as the ways to change space. The model knows where it runs without reading the environment. A Pi without structured prompt sections gets no section; the variables are still set.
 
 ### Exit status
 

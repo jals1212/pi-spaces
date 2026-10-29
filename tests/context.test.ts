@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { exportSpaceInfo, spaceInfo, spacePrompt } from "../src/context.ts";
+import { addSpaceSection, exportSpaceInfo, spaceInfo, spacePrompt } from "../src/context.ts";
 import { createSpace } from "../src/spaces.ts";
 
 function setup() {
@@ -55,4 +55,15 @@ test("spacePrompt tells the model the space, the home and the command", () => {
 			"Command that starts Pi: my-launcher -- (PI_SPACES_COMMAND); `my-launcher -- --space <name>` starts it in a space, and `/space` lists, creates, removes and switches spaces.",
 		].join("\n"),
 	);
+});
+
+test("addSpaceSection adds the pi_space prompt section and never replaces the prompt", () => {
+	const info = { space: "work", home: "/h/spaces/work", command: "pi" };
+	const options = { sections: { other: "kept" } as Record<string, string> };
+	addSpaceSection(options, info);
+	assert.deepEqual(options.sections, { other: "kept", pi_space: spacePrompt(info) });
+	const bare: { sections?: Record<string, string> } = {};
+	addSpaceSection(bare, info);
+	assert.deepEqual(bare.sections, { pi_space: spacePrompt(info) });
+	assert.doesNotThrow(() => addSpaceSection(undefined, info));
 });

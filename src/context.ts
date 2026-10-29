@@ -12,10 +12,15 @@ export interface SpaceInfo {
 	command: string;
 }
 
+/**
+ * Read once, when the extension loads: Pi keeps its agent home for the whole process, and
+ * the active space cannot be renamed or removed, so the facts hold until Pi exits.
+ */
 export function spaceInfo(dir: string, agentHome: string, env: Env): SpaceInfo {
 	return {
 		space: activeSpace(dir, agentHome),
 		home: resolve(agentHome),
+		// An empty or blank value means the default, as for the pi-space command.
 		command: env.PI_SPACES_COMMAND?.trim() || "pi",
 	};
 }
@@ -30,9 +35,18 @@ export function exportSpaceInfo(env: Env, info: SpaceInfo): void {
 
 /** The system prompt section that tells the model where it runs. */
 export function spacePrompt(info: SpaceInfo): string {
-	return [
-		info.space === undefined ? "This Pi runs in the base home, outside any space." : `This Pi runs in the space "${info.space}" (PI_SPACE).`,
-		`Agent home: ${info.home} (PI_SPACE_HOME).`,
-		`Command that starts Pi: ${info.command} (PI_SPACES_COMMAND); \`${info.command} --space <name>\` starts it in a space, and \`/space\` lists, creates, removes and switches spaces.`,
-	].join("\n");
+	const where = info.space === undefined ? "This Pi runs in the base home, outside any space." : `This Pi runs in the space "${info.space}" (PI_SPACE).`;
+	const start = `\`${info.command} --space <name>\` starts it in a space`;
+	const manage = "`/space` lists, creates, removes and switches spaces";
+	return [where, `Agent home: ${info.home} (PI_SPACE_HOME).`, `Command that starts Pi: ${info.command} (PI_SPACES_COMMAND); ${start}, and ${manage}.`].join("\n");
+}
+
+/**
+ * Adds the <pi_space> section to the structured prompt options of a run. It never replaces the
+ * whole prompt; a Pi without structured options gets no section, and the environment still has the facts.
+ */
+export function addSpaceSection(options: { sections?: Record<string, string> } | undefined, info: SpaceInfo): void {
+	if (options === undefined) return;
+	options.sections ??= {};
+	options.sections.pi_space = spacePrompt(info);
 }
