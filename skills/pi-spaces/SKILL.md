@@ -1,6 +1,6 @@
 ---
 name: pi-spaces
-description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, PI_SPACE, PI_SPACE_HOME, PI_SPACES_COMMAND, which space, agent home, base home. Know which Pi space this session runs in, its home and start command, and how spaces are listed, created, switched and removed."
+description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, PI_SPACE, PI_SPACE_HOME, PI_SPACES_COMMAND, which space, agent home, base home, update, install, uninstall. Know which Pi space this session runs in, its home and start command, and how spaces and their packages are listed, created, updated, switched and removed."
 license: MIT
 metadata:
   author: jals1212
@@ -30,8 +30,9 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Create a space | `pi-space --new <name>`, or ask the user for `/space new <name>` |
 | Work in another space | User runs `/space switch <name>`, or `$PI_SPACES_COMMAND --space <name> "<prompt>"` |
 | Remove a space | User request only: `pi-space --remove <name> --yes` keeps a backup in `.backups` |
+| Packages of a space | `$PI_SPACES_COMMAND --space <name|base> update --extensions`, `... install <source>`, `... uninstall <source>`, `... list` |
 
-Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` is reserved for the base home.
+Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`) are reserved.
 
 ## Execution Steps
 

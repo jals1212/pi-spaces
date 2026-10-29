@@ -37,9 +37,13 @@ export function spacesDir(env: Env = process.env, home: string = osHomedir()): s
 	return join(dirname(resolve(baseHome)), "spaces");
 }
 
+// The words of the pi-space and /space commands, so a space name never reads as one.
+const COMMANDS = new Set(["list", "new", "remove", "rename", "switch", "update", "install", "uninstall"]);
+
 /** Returns the error message for an unusable name, or undefined when the name is valid. */
 export function validateName(name: string): string | undefined {
 	if (name === BASE) return `"${BASE}" is reserved for the home Pi started with.`;
+	if (COMMANDS.has(name)) return `"${name}" is reserved: it is a pi-space or /space command.`;
 	if (!NAME.test(name)) {
 		return `Invalid space name "${name}": use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters).`;
 	}

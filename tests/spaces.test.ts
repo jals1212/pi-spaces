@@ -41,6 +41,9 @@ test("validateName accepts the documented names and rejects the rest", () => {
 		`Invalid space name "${n}": use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters).`;
 	for (const bad of ["", "Work", "-a", "_a", "a b", "a/b", "..", ".a", "a".repeat(65)]) assert.equal(validateName(bad), invalid(bad), bad);
 	assert.equal(validateName("base"), '"base" is reserved for the home Pi started with.');
+	for (const verb of ["list", "new", "remove", "rename", "switch", "update", "install", "uninstall"]) {
+		assert.equal(validateName(verb), `"${verb}" is reserved: it is a pi-space or /space command.`, verb);
+	}
 });
 
 test("listSpaces returns sorted valid folders and skips files, symlinks and invalid names", () => {
