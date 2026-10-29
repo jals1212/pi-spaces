@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The status line shows `◆ base` in the base home when pi-spaces opened it
+  (`pi --space base`, `pi-space base`, or a switch back to base); Pi started
+  plainly still shows nothing there.
+
 ## 0.4.0
 
 ### Added

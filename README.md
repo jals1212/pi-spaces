@@ -67,7 +67,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 | `pi --space <name> <command> [args...]` | Runs one of Pi's package commands (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the base home with `base`: `pi --space work update --extensions`, `pi --space work install npm:<package>`. |
 
-The status line shows `◆ <name>` while a space is active, and nothing in the base home.
+The status line shows `◆ <name>` while a space is active. In the base home it shows `◆ base` when pi-spaces opened it (`pi --space base`, `pi-space base`, or `/space switch base`), and nothing when Pi was started plainly.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 

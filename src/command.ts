@@ -1,6 +1,6 @@
 // The /space command, kept apart from Pi's extension API so it can be tested directly.
 import { join } from "node:path";
-import { type Command, relaunchEnv, resolveSwitch } from "./relaunch.ts";
+import { type Command, parseSpaceFlag, relaunchEnv, resolveSwitch } from "./relaunch.ts";
 import {
 	activeSpace,
 	BACKUPS,
@@ -154,10 +154,17 @@ function switchTo(name: string, deps: SpaceCommandDeps): void {
 	ctx.shutdown();
 }
 
-/** Status line text: the active space, or nothing in the base home. */
-export function statusText(dir: string, currentHome: string): string | undefined {
+/**
+ * Status line text: the active space; in the base home, `◆ base` only when pi-spaces opened it
+ * (`pi --space base`, which `pi-space base` runs, or a switch back to base, which sets
+ * PI_SPACES_BASE_HOME), and nothing when Pi was started plainly.
+ */
+export function statusText(dir: string, currentHome: string, proc: { argv: string[] } = process, env: Env = process.env): string | undefined {
 	const active = activeSpace(dir, currentHome);
-	return active === undefined ? undefined : `◆ ${active}`;
+	if (active !== undefined) return `◆ ${active}`;
+	const parsed = parseSpaceFlag(proc.argv.slice(2));
+	const openedBySpaces = ("name" in parsed && parsed.name === BASE) || Boolean(env.PI_SPACES_BASE_HOME);
+	return openedBySpaces ? `◆ ${BASE}` : undefined;
 }
 
 export function completeSpaceArgs(prefix: string, dir: string): { value: string; label: string }[] | null {
