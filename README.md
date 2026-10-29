@@ -45,8 +45,9 @@ From your shell:
 ```sh
 pi --space work                         # start Pi in "work"
 pi --space work "review this branch"    # with a prompt
-pi-space --new work                     # create a space (optional CLI)
-pi-space --remove work                  # delete it, after asking; keeps a backup unless told not to (optional CLI)
+pi-space new work                       # create a space (optional CLI)
+pi-space remove work                    # delete it, after asking; keeps a backup unless told not to (optional CLI)
+pi-space update --every                 # update the packages of base and of every space (optional CLI)
 pi-space                                # pick from a numbered list (optional CLI)
 ```
 
@@ -64,16 +65,17 @@ A new space starts empty except for a `settings.json` that declares this package
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
 | `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
+| `pi --space <name> <command> [args...]` | Runs one of Pi's package commands (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the base home with `base`: `pi --space work update --extensions`, `pi --space work install npm:<package>`. |
 
 The status line shows `◆ <name>` while a space is active, and nothing in the base home.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 
-**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved.
+**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved, and so are the command words `list`, `new`, `remove`, `rename`, `switch`, `update`, `install` and `uninstall`.
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space --new <name>` creates one, `pi-space --remove <name>` deletes one, and `pi-space list` lists them. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces. It only runs `pi --space <name>`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space new <name>` creates one, `pi-space rename <old> <new>` renames one, `pi-space remove <name>` deletes one, and `pi-space list` lists them. `pi-space list|update|install|uninstall <name|--every> ...` runs Pi's package commands in a space, or in every space. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces. It only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Configuration reference
 
@@ -135,13 +137,15 @@ Pi reads its agent home once, when it starts, so a running session cannot move t
 
 `pi --space <name>` acts before Pi opens its interface or runs anything, so it keeps the prompt and the session options too, in every mode.
 
+`pi --space <name> <command> ...`, where `<command>` is one of Pi's package commands right after the name, runs Pi again in that home with only `<command> ...`: Pi runs a package command only as its first argument. Options before `--space`, such as a launcher's own `-e`, are left out. The same Pi runs it, so a launcher's own Pi manages the space's packages; `base` and the current home work too.
+
 ## What it leaves on your machine
 
 Only the spaces you create, each a folder in the spaces folder, and its `settings.json`. Pi fills a space as it would any home. Removing a space moves its folder to `.backups/<name>-<UTC time>` in the spaces folder, or deletes it with `--no-backup` or when you choose so; nothing else is written outside it. A backup is a whole space: move it back to restore it (`mv ~/.pi/spaces/.backups/work-2026-10-28T14-30-05Z ~/.pi/spaces/work`), or delete it when you no longer need it. Backups are never removed for you, and `.backups` is never listed as a space.
 
 ## Safety
 
-`/space remove`, `/space rename` and `pi-space --remove` refuse, before they ask:
+`/space remove`, `/space rename`, `pi-space remove` and `pi-space rename` refuse, before they ask:
 
 - `base` and the active space;
 - symlinks, and anything that is not a real folder directly inside the spaces folder;
