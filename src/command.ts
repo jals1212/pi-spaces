@@ -157,7 +157,7 @@ function switchTo(name: string, deps: SpaceCommandDeps): void {
 /** Status line text: the active space, or nothing in the base home. */
 export function statusText(dir: string, currentHome: string): string | undefined {
 	const active = activeSpace(dir, currentHome);
-	return active === undefined ? undefined : `space: ${active}`;
+	return active === undefined ? undefined : `◆ ${active}`;
 }
 
 export function completeSpaceArgs(prefix: string, dir: string): { value: string; label: string }[] | null {

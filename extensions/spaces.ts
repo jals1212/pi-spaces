@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { completeSpaceArgs, runSpaceCommand, statusText } from "../src/command.ts";
+import { addSpaceSection, exportSpaceInfo, spaceInfo } from "../src/context.ts";
 import { planStartup, relaunchCommand, runNow, scheduleRelaunch } from "../src/relaunch.ts";
 import { findOwnDeclaration, spacesDir } from "../src/spaces.ts";
 
@@ -19,6 +20,11 @@ export default function (pi: ExtensionAPI) {
 		process.exit(1);
 	}
 	if (plan.kind === "relaunch") process.exit(runNow(plan.command, plan.env));
+
+	// Where this Pi runs: exported for tools and the programs they start, and told to the model before each run.
+	const info = spaceInfo(spacesDir(), getAgentDir(), process.env);
+	exportSpaceInfo(process.env, info);
+	pi.on("before_agent_start", (event) => addSpaceSection(event.systemPromptOptions, info));
 
 	pi.registerFlag("space", { description: "Start Pi in this space (see /space list)", type: "string" });
 
