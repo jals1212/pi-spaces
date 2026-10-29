@@ -14,6 +14,9 @@ commands and options and a patch version fixes.
   switch, and the system prompt gets a `<pi_space>` section with the same
   facts. `spaceInfo`, `exportSpaceInfo` and `spacePrompt` in the core build
   them.
+- A `pi-spaces` skill, declared in the package, that tells agents what a
+  space is, how to read the current space, home and command, and which
+  `/space` or `pi-space` action to use.
 
 ### Changed
 

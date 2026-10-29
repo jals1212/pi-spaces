@@ -25,12 +25,16 @@
   "pi": {
     "extensions": [
       "./extensions/spaces.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "files": [
     "dist",
     "src",
     "extensions",
+    "skills",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
