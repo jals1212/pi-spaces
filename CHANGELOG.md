@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.4.1
+
 ### Changed
 
 - The status line shows `◆ base` in the base home when pi-spaces opened it
