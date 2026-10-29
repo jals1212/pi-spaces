@@ -15,6 +15,11 @@ commands and options and a patch version fixes.
   facts. `spaceInfo`, `exportSpaceInfo` and `spacePrompt` in the core build
   them.
 
+### Changed
+
+- The status line shows the active space as `◆ <name>` instead of
+  `space: <name>`, so it stands out among other extensions' statuses.
+
 ## 0.2.0
 
 ### Added

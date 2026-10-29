@@ -65,7 +65,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 
-The status line shows `space: <name>` while a space is active, and nothing in the base home.
+The status line shows `◆ <name>` while a space is active, and nothing in the base home.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 

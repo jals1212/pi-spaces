@@ -340,7 +340,7 @@ test("statusText names the active space only", () => {
 	const f = fake();
 	createSpace(f.dir, "work", "x");
 	assert.equal(statusText(f.dir, f.base), undefined);
-	assert.equal(statusText(f.dir, join(f.dir, "work")), "space: work");
+	assert.equal(statusText(f.dir, join(f.dir, "work")), "◆ work");
 });
 
 test("completeSpaceArgs completes subcommands, then space names", () => {
