@@ -1,6 +1,6 @@
 # pi-space
 
-The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, from your shell. It is the optional companion of the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which holds the spaces themselves.
+The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, create, rename and remove spaces, and install, update and list the packages of a space, from your shell. It is the optional companion of the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which holds the spaces themselves.
 
 ## Install
 
@@ -8,23 +8,45 @@ The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, fr
 npm install -g @jals1212/pi-spaces-cli
 ```
 
-Node 20 or later. The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name>`, and the extension does the switch.
+Node 20 or later. The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]`, and the extension does the switch. For the package commands (`list <name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
 
 ## Commands
+
+The command words are reserved: a space can never be named `list`, `new`, `remove`, `rename`, `switch`, `update`, `install` or `uninstall`, so any other first word is a space name.
 
 | Command | What it does |
 | --- | --- |
 | `pi-space` | Shows a numbered list of spaces and starts Pi in the one you pick. |
 | `pi-space <name> [pi args...]` | Starts Pi in that space (`base` for the home Pi starts with). |
-| `pi-space list` | Lists the spaces. A space named `list` can still be opened from the picker. |
-| `pi-space --new <name>` | Creates an empty space, as `/space new <name>` does in Pi. It does not start Pi. |
-| `pi-space --remove <name> [--yes] [--no-backup]` | Deletes a space, as `/space remove <name>` does in Pi. It asks first (`[y/N]`), then whether to keep a backup in `<spaces folder>/.backups` (`[Y/n]`: Enter keeps one). `--yes` skips the questions and keeps a backup, and is required without a terminal; `--no-backup` deletes without one. |
+| `pi-space list` | Lists the spaces. |
+| `pi-space list <name\|--every>` | Lists the packages of a space (Pi's `list`). |
+| `pi-space new <name>` | Creates an empty space, as `/space new <name>` does in Pi. It does not start Pi. |
+| `pi-space rename <old> <new>` | Renames a space, as `/space rename` does in Pi. It refuses what `remove` refuses (see below). |
+| `pi-space remove <name> [--yes] [--no-backup]` | Deletes a space, as `/space remove <name>` does in Pi. It asks first (`[y/N]`), then whether to keep a backup in `<spaces folder>/.backups` (`[Y/n]`: Enter keeps one). `--yes` skips the questions and keeps a backup, and is required without a terminal; `--no-backup` deletes without one. |
+| `pi-space update <name\|--every> [pi update options...]` | Runs Pi's `update` in a space. What follows is Pi's: `--extensions`, `--all`, a source. With nothing after the name it is Pi's default. |
+| `pi-space install <name\|--every> <source> [pi install options...]` | Runs Pi's `install` in a space. The source is required. |
+| `pi-space uninstall <name\|--every> <source> [pi options...]` | Runs Pi's `uninstall` (its alias of `remove`) in a space. The source is required. |
 | `pi-space --help` | Shows the usage. |
 | `pi-space --version` | Prints the version. |
 
+`--new` and `--remove`, the options of 0.3, were replaced by `new` and `remove`; they exit with status 2 and name the command to use.
+
+### Packages in a space, or in every space
+
+```sh
+pi-space list work                      # the packages of "work"
+pi-space install work npm:some-package  # install in "work" only
+pi-space update base --extensions       # update the extensions of the base home
+pi-space update --every                 # base, then every space
+```
+
+A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, through `$PI_SPACES_COMMAND` (or `--command`), and ends with the exit status of that Pi. The extension relaunches Pi in the space's home, so the command works on that home's `settings.json` and packages; `pi-space` never sets `PI_CODING_AGENT_DIR` itself. `<name>` is `base` or an existing space; anything else exits with status 1 before Pi starts.
+
+`--every` takes the place of the name. The command runs in `base` first, then in every space in order, one after the other, each after a `== <name>` line on stdout. A failure does not stop the rest. The exit status is 0 if every run succeeded, otherwise 1, and the last line on stderr names the spaces that failed: `pi-space: update failed in: base, work`.
+
 A new space gets a `settings.json` that declares the extension, so `/space` works inside it: the same declaration as in the base home's `settings.json` (`PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:@jals1212/pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `@jals1212/pi-spaces`.
 
-`--remove` refuses `base`, the space you are in, a space that holds the base home, and anything that is not a real folder inside the spaces folder, before it asks. A backup is the whole space folder, moved to `.backups/<name>-<UTC time>`; move it back to restore it. See [what it leaves on your machine](https://github.com/jals1212/pi-spaces#what-it-leaves-on-your-machine).
+`remove` and `rename` refuse `base`, the space you are in, a space that holds the base home, and anything that is not a real folder inside the spaces folder, before it asks. A backup is the whole space folder, moved to `.backups/<name>-<UTC time>`; move it back to restore it. See [what it leaves on your machine](https://github.com/jals1212/pi-spaces#what-it-leaves-on-your-machine).
 
 ## Another program that runs Pi
 
@@ -32,7 +54,7 @@ To start Pi through another program for one call, give `--command` and `--dir` b
 
 ```sh
 pi-space --command "my-launcher --" --dir ~/.my-launcher/spaces work   # → my-launcher -- --space work
-pi-space --dir ~/.my-launcher/spaces --new work                         # create one in that folder
+pi-space --dir ~/.my-launcher/spaces new work                           # create one in that folder
 pi-space --command '"/opt/my launcher/run" --' work                     # a path with spaces, in quotes
 ```
 
@@ -55,9 +77,9 @@ export PI_SPACES_DIR=~/.my-launcher/spaces   # the spaces next to that program's
 
 | Status | Meaning |
 | --- | --- |
-| 0 … | Pi's own exit status. |
-| 1 | An unknown or invalid space, a name `--new` cannot use (taken, `base` or invalid), a space `--remove` cannot delete, `--remove` without `--yes` and no terminal, an out-of-range pick, or the program could not start. |
-| 2 | No arguments and no terminal to pick in, `--new` or `--remove` without exactly one name, or `--command` or `--dir` without a value or given twice: the usage is printed. A `--command` or `PI_SPACES_COMMAND` with an unclosed quote: the problem is printed. |
+| 0 … | Pi's own exit status, for a space and for a package command in one space. |
+| 1 | An unknown or invalid space, a name `new` or `rename` cannot use (taken, reserved or invalid), a space `remove` or `rename` cannot touch, `remove` without `--yes` and no terminal, an out-of-range pick, the program could not start, or `--every` and at least one run failed (the failed spaces are on the last line of stderr). |
+| 2 | No arguments and no terminal to pick in, a command with the wrong number of names (`new`, `remove`, `rename`), `install` or `uninstall` without a source, a package command without a space or `--every`, or `--command` or `--dir` without a value or given twice: the usage is printed. The old `--new` and `--remove`: the replacing command is printed. A `--command` or `PI_SPACES_COMMAND` with an unclosed quote: the problem is printed. |
 
 ## More
 

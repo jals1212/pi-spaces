@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.4.0
+
 ### Added
 
 - `pi --space <name> <command> [args...]` runs one of Pi's package commands

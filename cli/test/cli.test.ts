@@ -8,18 +8,25 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { launchCommand, main, parseCli, splitCommand, type CliIo } from "../src/cli.ts";
 
-const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | list | --new <name> | --remove <name> [--yes] [--no-backup]]
+const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | <command> ...]
        pi-space --help | --version
-  pi-space                   pick a space and start Pi in it
-  pi-space <name> ...        start Pi in a space ("base" for the home Pi starts with)
-  pi-space list              list the spaces
-  pi-space --new <name>      create a space
-  pi-space --remove <name>   delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
-                             (--yes skips the questions; --no-backup deletes without a backup)
-  pi-space --version         print the version
-Options for this call only:
-  --command <cmd>            the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
-  --dir <path>               the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
+  pi-space                                    pick a space and start Pi in it
+  pi-space <name> [pi args...]                start Pi in a space ("base" for the home Pi starts with)
+  pi-space list                               list the spaces
+  pi-space list <name|--every>                list the packages of a space
+  pi-space new <name>                         create a space
+  pi-space rename <old> <new>                 rename a space
+  pi-space remove <name>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
+                                              (--yes skips the questions; --no-backup deletes without a backup)
+  pi-space update <name|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
+  pi-space install <name|--every> <source>    install a package in a space (more words go to Pi)
+  pi-space uninstall <name|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space --help                             print this help
+  pi-space --version                          print the version
+  --every takes the place of the name: base first, then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
+Options before the command, for this call only:
+  --command <cmd>                             the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
+  --dir <path>                                the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
 `;
 
 interface Run {
@@ -45,6 +52,12 @@ async function run(
 		tty?: boolean;
 		input?: string;
 		status?: number;
+		/** Exit status of the spawned Pi by the space named after --space, else `status`. */
+		statuses?: Record<string, number>;
+		/** Make a spawn that cannot start, by the space named after --space. */
+		spawnErrors?: Record<string, string>;
+		/** Write "ran <space>" to stdout at each spawn, to see how it interleaves with the headers. */
+		echo?: boolean;
 		spawnError?: string;
 		/** packages for <root>/agent/settings.json, the base home when PI_CODING_AGENT_DIR is "<root>/agent". */
 		basePackages?: unknown[];
@@ -81,7 +94,10 @@ async function run(
 			home: root,
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
-				return options.spawnError ? { status: null, error: new Error(options.spawnError) } : { status: options.status ?? 0 };
+				const space = args[args.indexOf("--space") + 1];
+				if (options.echo) result.out += `ran ${space}\n`;
+				const failure = options.spawnErrors?.[space] ?? options.spawnError;
+				return failure ? { status: null, error: new Error(failure) } : { status: options.statuses?.[space] ?? options.status ?? 0 };
 			},
 			exit: (code) => void (result.code = code),
 		};
@@ -124,36 +140,75 @@ test("parseCli: any other option in first place is an unknown option, never a sp
 	assert.deepEqual(parseCli(["-x", "work"]), { kind: "unknown-option", option: "-x" });
 });
 
-test("parseCli: list is the subcommand, a name launches with the rest of the arguments", () => {
-	assert.deepEqual(parseCli(["list"]), { kind: "list" });
+test("parseCli: a name launches with the rest of the arguments", () => {
 	assert.deepEqual(parseCli(["work", "-c", "hello"]), { kind: "launch", name: "work", args: ["-c", "hello"] });
 	assert.deepEqual(parseCli(["base"]), { kind: "launch", name: "base", args: [] });
 });
 
-test("parseCli: --new takes exactly one name", () => {
-	assert.deepEqual(parseCli(["--new", "work"]), { kind: "new", name: "work" });
-	assert.deepEqual(parseCli(["--new"]), { kind: "usage" });
-	assert.deepEqual(parseCli(["--new", "a", "b"]), { kind: "usage" });
-	assert.deepEqual(parseCli(["new"]), { kind: "launch", name: "new", args: [] });
+test("parseCli: list alone lists the spaces; list <name> and list --every list packages", () => {
+	assert.deepEqual(parseCli(["list"]), { kind: "list" });
+	assert.deepEqual(parseCli(["list", "work"]), { kind: "packages", verb: "list", target: { name: "work" }, args: [] });
+	assert.deepEqual(parseCli(["list", "base"]), { kind: "packages", verb: "list", target: { name: "base" }, args: [] });
+	assert.deepEqual(parseCli(["list", "--every"]), { kind: "packages", verb: "list", target: { every: true }, args: [] });
+	assert.deepEqual(parseCli(["list", "a", "b"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["list", "--every", "x"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["list", "--bogus"]), { kind: "unknown-option", option: "--bogus" });
 });
 
-test("parseCli: --remove takes one name, with --yes (-y) and --no-backup on either side; --delete is not an option", () => {
-	assert.deepEqual(parseCli(["--remove", "work"]), { kind: "remove", name: "work", yes: false, backup: true });
-	assert.deepEqual(parseCli(["--remove", "work", "--yes"]), { kind: "remove", name: "work", yes: true, backup: true });
-	assert.deepEqual(parseCli(["--remove", "-y", "work"]), { kind: "remove", name: "work", yes: true, backup: true });
-	assert.deepEqual(parseCli(["--remove", "--no-backup", "work", "--yes"]), { kind: "remove", name: "work", yes: true, backup: false });
+test("parseCli: new takes exactly one name", () => {
+	assert.deepEqual(parseCli(["new", "work"]), { kind: "new", name: "work" });
+	assert.deepEqual(parseCli(["new"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["new", "a", "b"]), { kind: "usage" });
+});
+
+test("parseCli: rename takes exactly two names", () => {
+	assert.deepEqual(parseCli(["rename", "old", "fresh"]), { kind: "rename", from: "old", to: "fresh" });
+	for (const argv of [["rename"], ["rename", "a"], ["rename", "a", "b", "c"]]) {
+		assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	}
+});
+
+test("parseCli: remove takes one name, with --yes (-y) and --no-backup on either side; --delete is not an option", () => {
+	assert.deepEqual(parseCli(["remove", "work"]), { kind: "remove", name: "work", yes: false, backup: true });
+	assert.deepEqual(parseCli(["remove", "work", "--yes"]), { kind: "remove", name: "work", yes: true, backup: true });
+	assert.deepEqual(parseCli(["remove", "-y", "work"]), { kind: "remove", name: "work", yes: true, backup: true });
+	assert.deepEqual(parseCli(["remove", "--no-backup", "work", "--yes"]), { kind: "remove", name: "work", yes: true, backup: false });
 	assert.deepEqual(parseCli(["--delete", "work"]), { kind: "unknown-option", option: "--delete" });
 	for (const argv of [
-		["--remove"],
-		["--remove", "--yes"],
-		["--remove", "a", "b"],
-		["--remove", "a", "--yes", "b"],
-		["--remove", "a", "--yes", "-y"],
-		["--remove", "a", "--no-backup", "--no-backup"],
-		["--remove", "a", "--backup"],
+		["remove"],
+		["remove", "--yes"],
+		["remove", "a", "b"],
+		["remove", "a", "--yes", "b"],
+		["remove", "a", "--yes", "-y"],
+		["remove", "a", "--no-backup", "--no-backup"],
+		["remove", "a", "--backup"],
 	]) {
 		assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
 	}
+});
+
+test("parseCli: update takes a name or --every, then Pi's options as they are; nothing after the name is allowed", () => {
+	assert.deepEqual(parseCli(["update", "work"]), { kind: "packages", verb: "update", target: { name: "work" }, args: [] });
+	assert.deepEqual(parseCli(["update", "work", "--extensions"]), { kind: "packages", verb: "update", target: { name: "work" }, args: ["--extensions"] });
+	assert.deepEqual(parseCli(["update", "--every", "--all", "npm:x"]), { kind: "packages", verb: "update", target: { every: true }, args: ["--all", "npm:x"] });
+	assert.deepEqual(parseCli(["update"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["update", "--extensions"]), { kind: "unknown-option", option: "--extensions" });
+});
+
+test("parseCli: install and uninstall take a name or --every and a source, then Pi's options", () => {
+	for (const verb of ["install", "uninstall"] as const) {
+		assert.deepEqual(parseCli([verb, "work", "npm:x"]), { kind: "packages", verb, target: { name: "work" }, args: ["npm:x"] });
+		assert.deepEqual(parseCli([verb, "--every", "npm:x", "-l"]), { kind: "packages", verb, target: { every: true }, args: ["npm:x", "-l"] });
+		assert.deepEqual(parseCli([verb, "work"]), { kind: "usage" }, verb);
+		assert.deepEqual(parseCli([verb, "--every"]), { kind: "usage" }, verb);
+		assert.deepEqual(parseCli([verb]), { kind: "usage" }, verb);
+	}
+});
+
+test("parseCli: --new and --remove were replaced by the commands new and remove", () => {
+	assert.deepEqual(parseCli(["--new", "x"]), { kind: "replaced", option: "--new", instead: "pi-space new <name>" });
+	assert.deepEqual(parseCli(["--remove", "x", "--yes"]), { kind: "replaced", option: "--remove", instead: "pi-space remove <name> [--yes] [--no-backup]" });
+	assert.deepEqual(parseCli(["--dir", "/d", "--new"]), { kind: "replaced", option: "--new", instead: "pi-space new <name>", dir: "/d" });
 });
 
 test("parseCli: --command and --dir come first, in any order, and apply to whatever follows", () => {
@@ -165,7 +220,7 @@ test("parseCli: --command and --dir come first, in any order, and apply to whate
 		dir: "/d",
 	});
 	assert.deepEqual(parseCli(["--dir", "/d", "list"]), { kind: "list", dir: "/d" });
-	assert.deepEqual(parseCli(["--dir", "/d", "--new", "x"]), { kind: "new", name: "x", dir: "/d" });
+	assert.deepEqual(parseCli(["--dir", "/d", "new", "x"]), { kind: "new", name: "x", dir: "/d" });
 	assert.deepEqual(parseCli(["--command", "my-launcher"]), { kind: "picker", command: "my-launcher" });
 });
 
@@ -183,9 +238,8 @@ test("parseCli: --command, --dir and --yes after a space name belong to Pi", () 
 	});
 });
 
-test("parseCli: --help after a name belongs to Pi; list with extra words is a usage error", () => {
+test("parseCli: --help after a name belongs to Pi", () => {
 	assert.deepEqual(parseCli(["work", "--help"]), { kind: "launch", name: "work", args: ["--help"] });
-	assert.deepEqual(parseCli(["list", "extra"]), { kind: "usage" });
 });
 
 test("launchCommand: default program is pi", () => {
@@ -269,11 +323,11 @@ test("list prints base and every space, with a hint when there are none", async 
 	assert.equal(some.err, "");
 	const none = await run(["list"]);
 	assert.equal(none.code, 0);
-	assert.equal(none.out, `Spaces in ${none.dir}:\n  base\nNo spaces yet. Create one with pi-space --new <name>.\n`);
+	assert.equal(none.out, `Spaces in ${none.dir}:\n  base\nNo spaces yet. Create one with pi-space new <name>.\n`);
 });
 
-test("list with extra words prints the usage to stderr and exits 2", async () => {
-	const r = await run(["list", "extra"]);
+test("list with more than one word prints the usage to stderr and exits 2", async () => {
+	const r = await run(["list", "a", "extra"]);
 	assert.equal(r.code, 2);
 	assert.equal(r.out, "");
 	assert.equal(r.err, USAGE);
@@ -313,8 +367,8 @@ test("an unknown option prints it with the usage to stderr, exits 2 and spawns n
 	assert.equal(r.spawned.length, 0);
 });
 
-test("--new creates the space with npm:@jals1212/pi-spaces when the base home does not declare it, and spawns nothing", async () => {
-	const r = await run(["--new", "work"]);
+test("new creates the space with npm:@jals1212/pi-spaces when the base home does not declare it, and spawns nothing", async () => {
+	const r = await run(["new", "work"]);
 	assert.equal(r.code, 0);
 	assert.equal(r.out, `Created space "work" at ${join(r.dir, "work")}.\nStart Pi in it with: pi-space work\n`);
 	assert.equal(r.err, "");
@@ -322,20 +376,20 @@ test("--new creates the space with npm:@jals1212/pi-spaces when the base home do
 	assert.equal(r.spawned.length, 0);
 });
 
-test("--new copies the base home's declaration of the extension, as /space new does", async () => {
+test("new copies the base home's declaration of the extension, as /space new does", async () => {
 	const declaration = { source: "npm:@jals1212/pi-spaces@0.1.1", extensions: ["extensions/spaces.ts"] };
-	const r = await run(["--new", "work"], { basePackages: ["npm:other", declaration], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
+	const r = await run(["new", "work"], { basePackages: ["npm:other", declaration], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
 	assert.equal(r.code, 0);
 	assert.deepEqual(r.settings.work, { packages: [declaration] });
-	const fromSpace = await run(["--new", "work"], {
+	const fromSpace = await run(["new", "work"], {
 		basePackages: ["git:github.com/jals1212/pi-spaces"],
 		env: { PI_CODING_AGENT_DIR: "<root>/spaces/other", PI_SPACES_BASE_HOME: "<root>/agent" },
 	});
 	assert.deepEqual(fromSpace.settings.work, { packages: ["git:github.com/jals1212/pi-spaces"] });
 });
 
-test("--new copies a local path to another copy of the extension from the base home", async () => {
-	const r = await run(["--new", "work"], {
+test("new copies a local path to another copy of the extension from the base home", async () => {
+	const r = await run(["new", "work"], {
 		checkout: true,
 		basePackages: [{ source: "../checkout", extensions: ["extensions/spaces.ts"] }],
 		env: { PI_CODING_AGENT_DIR: "<root>/agent" },
@@ -344,28 +398,28 @@ test("--new copies a local path to another copy of the extension from the base h
 	assert.deepEqual(r.settings.work, { packages: [{ source: join(r.root, "checkout"), extensions: ["extensions/spaces.ts"] }] });
 });
 
-test("--new copies the local path the base home loads the extension from, when it is the folder this command resolves", async () => {
+test("new copies the local path the base home loads the extension from, when it is the folder this command resolves", async () => {
 	const packageRoot = dirname(fileURLToPath(import.meta.resolve("@jals1212/pi-spaces/package.json")));
-	const r = await run(["--new", "work"], { basePackages: [packageRoot], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
+	const r = await run(["new", "work"], { basePackages: [packageRoot], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.settings.work, { packages: [packageRoot] });
 });
 
-test("--new refuses a taken, reserved or invalid name with exit 1", async () => {
-	const taken = await run(["--new", "work"], { spaces: ["work"] });
+test("new refuses a taken, reserved or invalid name with exit 1", async () => {
+	const taken = await run(["new", "work"], { spaces: ["work"] });
 	assert.equal(taken.code, 1);
 	assert.equal(taken.err, 'pi-space: Space "work" already exists.\n');
 	assert.deepEqual(taken.settings, {});
-	const reserved = await run(["--new", "base"]);
+	const reserved = await run(["new", "base"]);
 	assert.equal(reserved.code, 1);
 	assert.match(reserved.err, /^pi-space: "base" is reserved/);
-	const invalid = await run(["--new", "Bad Name"]);
+	const invalid = await run(["new", "Bad Name"]);
 	assert.equal(invalid.code, 1);
 	assert.match(invalid.err, /^pi-space: Invalid space name "Bad Name"/);
 });
 
-test("--new without exactly one name prints the usage to stderr and exits 2", async () => {
-	for (const argv of [["--new"], ["--new", "a", "b"]]) {
+test("new without exactly one name prints the usage to stderr and exits 2", async () => {
+	for (const argv of [["new"], ["new", "a", "b"]]) {
 		const r = await run(argv);
 		assert.equal(r.code, 2);
 		assert.equal(r.err, USAGE);
@@ -373,8 +427,8 @@ test("--new without exactly one name prints the usage to stderr and exits 2", as
 	}
 });
 
-test("--remove --yes keeps a backup in .backups and leaves the other spaces", async () => {
-	const r = await run(["--remove", "work", "--yes"], { spaces: ["work", "other"] });
+test("remove --yes keeps a backup in .backups and leaves the other spaces", async () => {
+	const r = await run(["remove", "work", "--yes"], { spaces: ["work", "other"] });
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.backups.length, 1);
 	assert.match(r.backups[0], /^work-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/);
@@ -384,8 +438,8 @@ test("--remove --yes keeps a backup in .backups and leaves the other spaces", as
 	assert.equal(r.spawned.length, 0);
 });
 
-test("--remove --yes reports a backup that cannot be written with exit 1 and keeps the space", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
-	const r = await run(["--remove", "work", "--yes"], { spaces: ["work"], readOnly: true });
+test("remove --yes reports a backup that cannot be written with exit 1 and keeps the space", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
+	const r = await run(["remove", "work", "--yes"], { spaces: ["work"], readOnly: true });
 	assert.equal(r.code, 1);
 	assert.match(r.err, /^pi-space: Could not back up space "work": .*EACCES.*\. The space was not removed; fix that, or remove it without a backup with --no-backup\.\n$/);
 	assert.equal(r.out, "");
@@ -393,8 +447,8 @@ test("--remove --yes reports a backup that cannot be written with exit 1 and kee
 	assert.deepEqual(r.backups, []);
 });
 
-test("--remove --yes --no-backup deletes without a backup", async () => {
-	const r = await run(["--remove", "work", "--yes", "--no-backup"], { spaces: ["work", "other"] });
+test("remove --yes --no-backup deletes without a backup", async () => {
+	const r = await run(["remove", "work", "--yes", "--no-backup"], { spaces: ["work", "other"] });
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.out, 'Removed space "work".\n');
 	assert.deepEqual(r.left, ["other"]);
@@ -414,9 +468,9 @@ const removeQuestion = (dir: string) =>
 	`Remove space "work"? This deletes ${join(dir, "work")} and everything in it: sign-ins, packages, settings and sessions. [y/N] `;
 const backupQuestion = (dir: string) => `Keep a backup of "work" in ${join(dir, ".backups")}? [Y/n] `;
 
-test("--remove asks first in a terminal: anything but y keeps the space, without the backup question", async () => {
+test("remove asks first in a terminal: anything but y keeps the space, without the backup question", async () => {
 	for (const input of ["n\n", "\n", ""]) {
-		const r = await run(["--remove", "work"], { spaces: ["work"], tty: true, input });
+		const r = await run(["remove", "work"], { spaces: ["work"], tty: true, input });
 		assert.equal(r.code, 0, JSON.stringify(input));
 		assert.equal(r.out, `${removeQuestion(r.dir)}Kept space "work".\n`);
 		assert.equal(r.err, "");
@@ -425,10 +479,10 @@ test("--remove asks first in a terminal: anything but y keeps the space, without
 	}
 });
 
-test("--remove then asks about a backup: Enter, y or the end of input keep one; n deletes without one", async () => {
+test("remove then asks about a backup: Enter, y or the end of input keep one; n deletes without one", async () => {
 	// Both answers arrive in one chunk, as when pasted or piped: the second one must not be lost.
 	for (const input of ["y\n\n", "YES\ny\n", "y\nYes\n", "y\n"]) {
-		const r = await run(["--remove", "work"], { spaces: ["work"], tty: true, input });
+		const r = await run(["remove", "work"], { spaces: ["work"], tty: true, input });
 		assert.equal(r.code, 0, JSON.stringify(input));
 		assert.equal(r.backups.length, 1, JSON.stringify(input));
 		assert.equal(
@@ -438,7 +492,7 @@ test("--remove then asks about a backup: Enter, y or the end of input keep one; 
 		assert.deepEqual(r.left, []);
 	}
 	for (const input of ["y\nn\n", "y\nNO\n"]) {
-		const r = await run(["--remove", "work"], { spaces: ["work"], tty: true, input });
+		const r = await run(["remove", "work"], { spaces: ["work"], tty: true, input });
 		assert.equal(r.code, 0, JSON.stringify(input));
 		assert.equal(r.out, `${removeQuestion(r.dir)}${backupQuestion(r.dir)}Removed space "work".\n`);
 		assert.deepEqual(r.left, []);
@@ -446,23 +500,23 @@ test("--remove then asks about a backup: Enter, y or the end of input keep one; 
 	}
 });
 
-test("--remove --no-backup in a terminal asks only the first question", async () => {
-	const r = await run(["--remove", "work", "--no-backup"], { spaces: ["work"], tty: true, input: "y\n" });
+test("remove --no-backup in a terminal asks only the first question", async () => {
+	const r = await run(["remove", "work", "--no-backup"], { spaces: ["work"], tty: true, input: "y\n" });
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.out, `${removeQuestion(r.dir)}Removed space "work".\n`);
 	assert.deepEqual(r.left, []);
 	assert.deepEqual(r.backups, []);
 });
 
-test("--remove without a terminal and without --yes refuses with exit 1 and keeps the space", async () => {
-	const r = await run(["--remove", "work"], { spaces: ["work"], tty: false });
+test("remove without a terminal and without --yes refuses with exit 1 and keeps the space", async () => {
+	const r = await run(["remove", "work"], { spaces: ["work"], tty: false });
 	assert.equal(r.code, 1);
 	assert.equal(r.out, "");
-	assert.equal(r.err, 'pi-space: Removing a space needs confirmation; run pi-space --remove work --yes.\n');
+	assert.equal(r.err, 'pi-space: Removing a space needs confirmation; run pi-space remove work --yes.\n');
 	assert.deepEqual(r.left, ["work"]);
 });
 
-test("--remove refuses a missing, reserved, invalid or active space with exit 1, before asking", async () => {
+test("remove refuses a missing, reserved, invalid or active space with exit 1, before asking", async () => {
 	const cases: [string, Parameters<typeof run>[1], RegExp | string][] = [
 		["ghost", { spaces: ["work"] }, 'pi-space: Space "ghost" does not exist.\n'],
 		["base", { spaces: ["work"] }, /^pi-space: "base" is reserved/],
@@ -470,7 +524,7 @@ test("--remove refuses a missing, reserved, invalid or active space with exit 1,
 		["work", { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "<root>/spaces/work" } }, 'pi-space: Space "work" is active; switch to another space before removing it.\n'],
 	];
 	for (const [name, options, err] of cases) {
-		const r = await run(["--remove", name], { ...options, tty: true, input: "y\n" });
+		const r = await run(["remove", name], { ...options, tty: true, input: "y\n" });
 		assert.equal(r.code, 1, name);
 		assert.equal(r.out, "", name);
 		if (typeof err === "string") assert.equal(r.err, err);
@@ -479,8 +533,8 @@ test("--remove refuses a missing, reserved, invalid or active space with exit 1,
 	}
 });
 
-test("--remove protects the base home when run from inside a space", async () => {
-	const r = await run(["--remove", "agent", "--yes"], {
+test("remove protects the base home when run from inside a space", async () => {
+	const r = await run(["remove", "agent", "--yes"], {
 		spaces: ["agent", "work"],
 		env: { PI_CODING_AGENT_DIR: "<root>/spaces/work", PI_SPACES_BASE_HOME: "<root>/spaces/agent" },
 	});
@@ -489,11 +543,188 @@ test("--remove protects the base home when run from inside a space", async () =>
 	assert.deepEqual(r.left, ["agent", "work"]);
 });
 
-test("--remove without exactly one name prints the usage to stderr and exits 2", async () => {
-	const r = await run(["--remove", "a", "b"], { spaces: ["a", "b"] });
+test("remove without exactly one name prints the usage to stderr and exits 2", async () => {
+	const r = await run(["remove", "a", "b"], { spaces: ["a", "b"] });
 	assert.equal(r.code, 2);
 	assert.equal(r.err, USAGE);
 	assert.deepEqual(r.left, ["a", "b"]);
+});
+
+test("rename moves the space, keeps its settings and spawns nothing", async () => {
+	const r = await run(["rename", "work", "job"], { spaces: ["work", "other"] });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, 'Renamed space "work" to "job".\n');
+	assert.equal(r.err, "");
+	assert.deepEqual(r.left, ["job", "other"]);
+	assert.equal(r.spawned.length, 0);
+});
+
+test("rename refuses a missing, taken, reserved, invalid or active space with exit 1 and changes nothing", async () => {
+	const cases: [string[], Parameters<typeof run>[1], RegExp | string][] = [
+		[["ghost", "x"], { spaces: ["work"] }, 'pi-space: Space "ghost" does not exist.\n'],
+		[["work", "other"], { spaces: ["work", "other"] }, 'pi-space: Space "other" already exists.\n'],
+		[["work", "base"], { spaces: ["work"] }, /^pi-space: "base" is reserved/],
+		[["work", "list"], { spaces: ["work"] }, /^pi-space: "list" is reserved/],
+		[["work", "Bad Name"], { spaces: ["work"] }, /^pi-space: Invalid space name "Bad Name"/],
+		[["work", "x"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "<root>/spaces/work" } }, 'pi-space: Space "work" is active; switch to another space before renaming it.\n'],
+	];
+	for (const [names, options, err] of cases) {
+		const r = await run(["rename", ...names], options);
+		assert.equal(r.code, 1, names.join(" "));
+		assert.equal(r.out, "", names.join(" "));
+		if (typeof err === "string") assert.equal(r.err, err);
+		else assert.match(r.err, err);
+		assert.deepEqual(r.left, [...(options.spaces ?? [])].sort(), names.join(" "));
+	}
+});
+
+test("rename without exactly two names prints the usage to stderr and exits 2", async () => {
+	for (const argv of [["rename"], ["rename", "a"], ["rename", "a", "b", "c"]]) {
+		const r = await run(argv, { spaces: ["a"] });
+		assert.equal(r.code, 2);
+		assert.equal(r.err, USAGE);
+		assert.deepEqual(r.left, ["a"]);
+	}
+});
+
+test("--new and --remove say what replaced them, exit 2 and change nothing", async () => {
+	const created = await run(["--new", "x"]);
+	assert.equal(created.code, 2);
+	assert.equal(created.out, "");
+	assert.equal(created.err, "pi-space: --new was replaced by: pi-space new <name>\n");
+	assert.deepEqual(created.left, []);
+	const removed = await run(["--remove", "work", "--yes"], { spaces: ["work"] });
+	assert.equal(removed.code, 2);
+	assert.equal(removed.out, "");
+	assert.equal(removed.err, "pi-space: --remove was replaced by: pi-space remove <name> [--yes] [--no-backup]\n");
+	assert.deepEqual(removed.left, ["work"]);
+	assert.equal(removed.spawned.length, 0);
+});
+
+test("list <name> runs Pi's list in that space through the extension, with inherited stdio and Pi's exit status", async () => {
+	const r = await run(["list", "work"], { spaces: ["work"], status: 4, env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	assert.equal(r.code, 4);
+	assert.equal(r.out, "");
+	assert.equal(r.err, "");
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "pi", args: ["--space", "work", "list"] }]);
+	assert.deepEqual(r.spawned[0].options, { stdio: "inherit" });
+});
+
+test("update, install and uninstall run `--space <name> <command> <args>` through PI_SPACES_COMMAND and --command", async () => {
+	const update = await run(["update", "work", "--extensions"], { spaces: ["work"], env: { PI_SPACES_COMMAND: "my-launcher --" } });
+	assert.equal(update.code, 0, update.err);
+	assert.deepEqual(update.spawned.map(({ program, args }) => ({ program, args })), [{ program: "my-launcher", args: ["--", "--space", "work", "update", "--extensions"] }]);
+	const install = await run(["--command", '"/opt/my launcher/run" --', "install", "work", "npm:x@1", "-l"], { spaces: ["work"] });
+	assert.equal(install.code, 0, install.err);
+	assert.deepEqual(install.spawned.map(({ program, args }) => ({ program, args })), [
+		{ program: "/opt/my launcher/run", args: ["--", "--space", "work", "install", "npm:x@1", "-l"] },
+	]);
+	const uninstall = await run(["uninstall", "base", "npm:x"]);
+	assert.deepEqual(uninstall.spawned.map(({ args }) => args), [["--space", "base", "uninstall", "npm:x"]]);
+	const bare = await run(["update", "work"], { spaces: ["work"] });
+	assert.deepEqual(bare.spawned.map(({ args }) => args), [["--space", "work", "update"]]);
+});
+
+test("a package command returns the exit status of Pi", async () => {
+	const r = await run(["install", "work", "npm:x"], { spaces: ["work"], status: 9 });
+	assert.equal(r.code, 9);
+});
+
+test("a package command never sets PI_CODING_AGENT_DIR, and --dir reaches the child as PI_SPACES_DIR", async () => {
+	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: "/some/home" };
+	const plain = await run(["update", "work"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	assert.equal(plain.spawned[0].options.env, undefined);
+	const withDir = await run(["--dir", "<root>/spaces", "update", "work"], { spaces: ["work"], env });
+	const childEnv = withDir.spawned[0].options.env as Record<string, string>;
+	assert.equal(childEnv.PI_SPACES_DIR, withDir.dir);
+	assert.equal(childEnv.PI_CODING_AGENT_DIR, "/some/home");
+});
+
+test("a package command in an unknown or invalid space exits 1 and spawns nothing", async () => {
+	for (const verb of ["list", "update", "install", "uninstall"]) {
+		const ghost = await run(verb === "list" || verb === "update" ? [verb, "ghost"] : [verb, "ghost", "npm:x"], { spaces: ["work"] });
+		assert.equal(ghost.code, 1, verb);
+		assert.equal(ghost.out, "", verb);
+		assert.equal(ghost.err, 'pi-space: Space "ghost" does not exist.\n', verb);
+		assert.equal(ghost.spawned.length, 0, verb);
+	}
+	const invalid = await run(["update", "Bad Name"]);
+	assert.equal(invalid.code, 1);
+	assert.match(invalid.err, /^pi-space: Invalid space name "Bad Name"/);
+	assert.equal(invalid.spawned.length, 0);
+});
+
+test("install and uninstall without a source print the usage to stderr, exit 2 and spawn nothing", async () => {
+	for (const argv of [["install", "work"], ["uninstall", "work"], ["install", "--every"], ["uninstall"], ["update"]]) {
+		const r = await run(argv, { spaces: ["work"] });
+		assert.equal(r.code, 2, argv.join(" "));
+		assert.equal(r.out, "", argv.join(" "));
+		assert.equal(r.err, USAGE, argv.join(" "));
+		assert.equal(r.spawned.length, 0, argv.join(" "));
+	}
+});
+
+test("a package command with an unclosed quote in the command exits 2 naming its source and spawns nothing", async () => {
+	const one = await run(["update", "work"], { spaces: ["work"], env: { PI_SPACES_COMMAND: "run 'a b" } });
+	assert.equal(one.code, 2);
+	assert.equal(one.err, "pi-space: PI_SPACES_COMMAND: the command has an unclosed ' quote.\n");
+	assert.equal(one.spawned.length, 0);
+	const every = await run(["--command", '"x', "update", "--every"], { spaces: ["work"] });
+	assert.equal(every.code, 2);
+	assert.equal(every.out, "");
+	assert.equal(every.err, 'pi-space: --command: the command has an unclosed " quote.\n');
+	assert.equal(every.spawned.length, 0);
+});
+
+test("a package command whose program cannot start prints the reason and exits 1", async () => {
+	const r = await run(["update", "work"], { spaces: ["work"], spawnError: "spawn pi ENOENT" });
+	assert.equal(r.code, 1);
+	assert.equal(r.err, "pi-space: could not start pi: spawn pi ENOENT\n");
+});
+
+test("--every runs base first, then every space in order, one at a time, each after its header", async () => {
+	const r = await run(["update", "--every", "--extensions"], { spaces: ["work", "alpha"], echo: true });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, "== base\nran base\n== alpha\nran alpha\n== work\nran work\n");
+	assert.equal(r.err, "");
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
+		{ program: "pi", args: ["--space", "base", "update", "--extensions"] },
+		{ program: "pi", args: ["--space", "alpha", "update", "--extensions"] },
+		{ program: "pi", args: ["--space", "work", "update", "--extensions"] },
+	]);
+	for (const spawned of r.spawned) assert.deepEqual(spawned.options, { stdio: "inherit" });
+});
+
+test("--every works for list, install and uninstall, and with no spaces it runs only base", async () => {
+	const listed = await run(["list", "--every"], { spaces: ["work"] });
+	assert.deepEqual(listed.spawned.map(({ args }) => args), [["--space", "base", "list"], ["--space", "work", "list"]]);
+	const installed = await run(["install", "--every", "npm:x"], { spaces: ["work"] });
+	assert.deepEqual(installed.spawned.map(({ args }) => args), [["--space", "base", "install", "npm:x"], ["--space", "work", "install", "npm:x"]]);
+	const removed = await run(["uninstall", "--every", "npm:x"]);
+	assert.equal(removed.out, "== base\n");
+	assert.deepEqual(removed.spawned.map(({ args }) => args), [["--space", "base", "uninstall", "npm:x"]]);
+});
+
+test("--every goes on after a failure, exits 1 and names the failed spaces on the last line of stderr", async () => {
+	const r = await run(["update", "--every"], { spaces: ["a", "b", "c"], echo: true, statuses: { base: 3, b: 1 } });
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "== base\nran base\n== a\nran a\n== b\nran b\n== c\nran c\n");
+	assert.equal(r.err, "pi-space: update failed in: base, b\n");
+	assert.equal(r.spawned.length, 4);
+});
+
+test("--every counts a program that cannot start as a failure and names the reason", async () => {
+	const r = await run(["install", "--every", "npm:x"], { spaces: ["a", "b"], spawnErrors: { a: "spawn pi ENOENT" } });
+	assert.equal(r.code, 1);
+	assert.equal(r.err, "pi-space: could not start pi: spawn pi ENOENT\npi-space: install failed in: a\n");
+	assert.equal(r.spawned.length, 3);
+});
+
+test("--every with --dir hands the folder to every child", async () => {
+	const r = await run(["--dir", "<root>/spaces", "update", "--every"], { spaces: ["a"], env: { PI_SPACES_DIR: "<root>/elsewhere" } });
+	assert.equal(r.code, 0, r.err);
+	for (const spawned of r.spawned) assert.equal((spawned.options.env as Record<string, string>).PI_SPACES_DIR, r.dir);
+	assert.equal(r.spawned.length, 2);
 });
 
 test("--command runs that program for this call instead of PI_SPACES_COMMAND", async () => {
@@ -546,11 +777,11 @@ test("--dir uses that spaces folder instead of PI_SPACES_DIR, and the started Pi
 	const listed = await run(["--dir", "<root>/spaces", "list"], { spaces: ["work"], env });
 	assert.equal(listed.out, `Spaces in ${listed.dir}:\n  base\n  work\n`);
 
-	const created = await run(["--dir", "<root>/spaces", "--new", "fresh"], { env });
+	const created = await run(["--dir", "<root>/spaces", "new", "fresh"], { env });
 	assert.equal(created.code, 0, created.err);
 	assert.deepEqual(created.left, ["fresh"]);
 
-	const removed = await run(["--dir", "<root>/spaces", "--remove", "work", "--yes"], { spaces: ["work"], env });
+	const removed = await run(["--dir", "<root>/spaces", "remove", "work", "--yes"], { spaces: ["work"], env });
 	assert.equal(removed.code, 0, removed.err);
 	assert.deepEqual(removed.left, []);
 	assert.equal(removed.backups.length, 1);

@@ -1,5 +1,6 @@
-// The optional `pi-space` command: pick a space and start Pi in it.
-// It only passes `--space <name>`; the extension does the switch, so it never sets PI_CODING_AGENT_DIR.
+// The optional `pi-space` command: pick a space and start Pi in it, and manage the spaces and their packages.
+// It only passes `--space <name>` (and, for a package command, Pi's command after it); the extension does the
+// switch, so it never sets PI_CODING_AGENT_DIR.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -17,23 +18,31 @@ import {
 	listSpaces,
 	type PackageDeclaration,
 	removeSpace,
+	renameSpace,
 	SpaceError,
 	spacesDir,
 	validateName,
 } from "@jals1212/pi-spaces/spaces";
 
-export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | list | --new <name> | --remove <name> [--yes] [--no-backup]]
+export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | <command> ...]
        pi-space --help | --version
-  pi-space                   pick a space and start Pi in it
-  pi-space <name> ...        start Pi in a space ("base" for the home Pi starts with)
-  pi-space list              list the spaces
-  pi-space --new <name>      create a space
-  pi-space --remove <name>   delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
-                             (--yes skips the questions; --no-backup deletes without a backup)
-  pi-space --version         print the version
-Options for this call only:
-  --command <cmd>            the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
-  --dir <path>               the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
+  pi-space                                    pick a space and start Pi in it
+  pi-space <name> [pi args...]                start Pi in a space ("base" for the home Pi starts with)
+  pi-space list                               list the spaces
+  pi-space list <name|--every>                list the packages of a space
+  pi-space new <name>                         create a space
+  pi-space rename <old> <new>                 rename a space
+  pi-space remove <name>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
+                                              (--yes skips the questions; --no-backup deletes without a backup)
+  pi-space update <name|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
+  pi-space install <name|--every> <source>    install a package in a space (more words go to Pi)
+  pi-space uninstall <name|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space --help                             print this help
+  pi-space --version                          print the version
+  --every takes the place of the name: base first, then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
+Options before the command, for this call only:
+  --command <cmd>                             the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
+  --dir <path>                                the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
 `;
 
 /** This package's version; package.json sits one folder above both src/ and dist/. */
@@ -45,12 +54,29 @@ export interface CallOptions {
 	dir?: string;
 }
 
+/** The Pi commands that pi-space runs in one space or in every space. */
+export type PackageVerb = "list" | "update" | "install" | "uninstall";
+
+/** A space name (or `base`), or every space: base first, then the spaces in order. */
+export type PackageTarget = { name: string } | { every: true };
+
+const PACKAGE_VERBS: readonly string[] = ["list", "update", "install", "uninstall"];
+
+/** The old options, and the command that replaced each. */
+const REPLACED = {
+	"--new": "pi-space new <name>",
+	"--remove": "pi-space remove <name> [--yes] [--no-backup]",
+} as const;
+
 export type CliCommand = (
 	| { kind: "help" }
 	| { kind: "version" }
 	| { kind: "unknown-option"; option: string }
+	| { kind: "replaced"; option: string; instead: string }
 	| { kind: "list" }
+	| { kind: "packages"; verb: PackageVerb; target: PackageTarget; args: string[] }
 	| { kind: "new"; name: string }
+	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
 	| { kind: "picker" }
 	| { kind: "usage" }
@@ -62,8 +88,8 @@ const CALL_OPTIONS = { "--command": "command", "--dir": "dir" } as const;
 
 /**
  * --command and --dir come first; after a space name every argument belongs to Pi.
- * `list` is the subcommand, so a space named "list" can only be opened from the picker.
- * `--new` and `--remove` are options, not subcommands, so they never take a space name.
+ * The commands (list, new, remove, rename, update, install, uninstall) are reserved words, so they are read
+ * before a name: the core never lets a space have one of them as its name.
  * A space name never starts with "-", so any other option in first place is unknown, not a name.
  */
 export function parseCli(args: string[]): CliCommand {
@@ -85,8 +111,13 @@ function parseCommand(args: string[]): CliCommand {
 	if (first === undefined) return { kind: "picker" };
 	if (first === "--help" || first === "-h") return { kind: "help" };
 	if (first === "--version" || first === "-v") return { kind: "version" };
-	if (first === "--new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
-	if (first === "--remove") {
+	if (Object.hasOwn(REPLACED, first)) return { kind: "replaced", option: first, instead: REPLACED[first as keyof typeof REPLACED] };
+	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
+	if (first === "list" && rest.length === 0) return { kind: "list" };
+	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
+	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
+	if (first === "rename") return rest.length === 2 ? { kind: "rename", from: rest[0], to: rest[1] } : { kind: "usage" };
+	if (first === "remove") {
 		const flags = rest.filter((arg) => arg.startsWith("-"));
 		const names = rest.filter((arg) => !arg.startsWith("-"));
 		const yes = flags.filter((flag) => flag === "--yes" || flag === "-y").length;
@@ -94,9 +125,20 @@ function parseCommand(args: string[]): CliCommand {
 		if (names.length !== 1 || yes > 1 || noBackup > 1 || yes + noBackup !== flags.length) return { kind: "usage" };
 		return { kind: "remove", name: names[0], yes: yes === 1, backup: noBackup === 0 };
 	}
-	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
-	if (first === "list") return rest.length === 0 ? { kind: "list" } : { kind: "usage" };
 	return { kind: "launch", name: first, args: rest };
+}
+
+/**
+ * `<verb> <name|--every> [args...]`. list takes nothing after the target; install and uninstall need a source
+ * (the first argument after it); update may have nothing, which is Pi's own default.
+ */
+function parsePackages(verb: PackageVerb, rest: string[]): CliCommand {
+	const [first, ...args] = rest;
+	if (first === undefined) return { kind: "usage" };
+	if (first !== "--every" && first.startsWith("-")) return { kind: "unknown-option", option: first };
+	if (verb === "list" && args.length > 0) return { kind: "usage" };
+	if ((verb === "install" || verb === "uninstall") && args.length === 0) return { kind: "usage" };
+	return { kind: "packages", verb, target: first === "--every" ? { every: true } : { name: first }, args };
 }
 
 /**
@@ -233,18 +275,25 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "unknown-option":
 			io.stderr.write(`pi-space: Unknown option "${command.option}".\n${USAGE}`);
 			return io.exit(2);
+		case "replaced":
+			io.stderr.write(`pi-space: ${command.option} was replaced by: ${command.instead}\n`);
+			return io.exit(2);
 		case "usage":
 			io.stderr.write(USAGE);
 			return io.exit(2);
 		case "list": {
 			const spaces = listSpaces(dir);
 			const lines = [`Spaces in ${dir}:`, `  ${BASE}`, ...spaces.map((name) => `  ${name}`)];
-			if (spaces.length === 0) lines.push("No spaces yet. Create one with pi-space --new <name>.");
+			if (spaces.length === 0) lines.push("No spaces yet. Create one with pi-space new <name>.");
 			io.stdout.write(`${lines.join("\n")}\n`);
 			return io.exit(0);
 		}
+		case "packages":
+			return runPackages(command.verb, command.target, command.args, dir, io, commandSource);
 		case "new":
 			return create(command.name, dir, io);
+		case "rename":
+			return rename(command.from, command.to, dir, io);
 		case "remove":
 			return remove(command.name, command.yes, command.backup, dir, io);
 		case "launch":
@@ -266,6 +315,19 @@ function create(name: string, dir: string, io: CliIo): void {
 	}
 }
 
+/** Renames a space after the same checks as remove: not base, not the active space, not one that holds the base home. */
+function rename(from: string, to: string, dir: string, io: CliIo): void {
+	try {
+		const protect = io.env.PI_SPACES_BASE_HOME ? [io.env.PI_SPACES_BASE_HOME] : [];
+		renameSpace(dir, from, to, agentHome(io.env, io.home), protect, io.home);
+		io.stdout.write(`Renamed space "${from}" to "${to}".\n`);
+		return io.exit(0);
+	} catch (error) {
+		io.stderr.write(`pi-space: ${error instanceof SpaceError ? error.message : `could not rename space "${from}": ${(error as Error).message}`}\n`);
+		return io.exit(1);
+	}
+}
+
 /**
  * Without --yes it asks to remove ([y/N]), then, without --no-backup, whether to keep a backup ([Y/n]).
  * With --yes it asks nothing and keeps a backup unless --no-backup.
@@ -279,7 +341,7 @@ async function remove(name: string, yes: boolean, backup: boolean, dir: string, 
 		const path = checkRemovable(dir, name, current, protect, io.home);
 		let keep = backup;
 		if (!yes) {
-			if (!io.stdin.isTTY) throw new SpaceError(`Removing a space needs confirmation; run pi-space --remove ${name} --yes.`);
+			if (!io.stdin.isTTY) throw new SpaceError(`Removing a space needs confirmation; run pi-space remove ${name} --yes.`);
 			// One reader for every question, so an answer typed ahead is not lost between them.
 			reader = lineReader(io.stdin);
 			io.stdout.write(`Remove space "${name}"? This deletes ${path} and everything in it: sign-ins, packages, settings and sessions. [y/N] `);
@@ -346,18 +408,35 @@ function lineReader(input: NodeJS.ReadableStream): LineReader {
 	};
 }
 
-async function launch(name: string, args: string[], dir: string, io: CliIo, commandSource: string): Promise<void> {
-	if (name !== BASE) {
-		const invalid = validateName(name);
-		if (invalid) {
-			io.stderr.write(`pi-space: ${invalid}\n`);
-			return io.exit(1);
-		}
-		if (!listSpaces(dir).includes(name)) {
-			io.stderr.write(`pi-space: Space "${name}" does not exist.\n`);
-			return io.exit(1);
-		}
+/** Prints the reason and returns false when `name` is not base or an existing space. */
+function checkSpace(name: string, dir: string, io: CliIo): boolean {
+	if (name === BASE) return true;
+	const invalid = validateName(name);
+	if (invalid) {
+		io.stderr.write(`pi-space: ${invalid}\n`);
+		return false;
 	}
+	if (!listSpaces(dir).includes(name)) {
+		io.stderr.write(`pi-space: Space "${name}" does not exist.\n`);
+		return false;
+	}
+	return true;
+}
+
+/** Runs the command with Pi's `args` in a space and returns its exit status; 1, with the reason printed, when it cannot start. */
+async function spawnPi(program: string, programArgs: string[], io: CliIo): Promise<number> {
+	const options: SpawnOptions = { stdio: "inherit" };
+	if (io.childEnv) options.env = io.childEnv;
+	const result = await io.spawn(program, programArgs, options);
+	if (result.error) {
+		io.stderr.write(`pi-space: could not start ${program}: ${result.error.message}\n`);
+		return 1;
+	}
+	return result.status ?? 1;
+}
+
+async function launch(name: string, args: string[], dir: string, io: CliIo, commandSource: string): Promise<void> {
+	if (!checkSpace(name, dir, io)) return io.exit(1);
 	let launched: { program: string; args: string[] };
 	try {
 		launched = launchCommand(io.env, name, args);
@@ -365,15 +444,37 @@ async function launch(name: string, args: string[], dir: string, io: CliIo, comm
 		io.stderr.write(`pi-space: ${commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
 	}
-	const { program, args: programArgs } = launched;
-	const options: SpawnOptions = { stdio: "inherit" };
-	if (io.childEnv) options.env = io.childEnv;
-	const result = await io.spawn(program, programArgs, options);
-	if (result.error) {
-		io.stderr.write(`pi-space: could not start ${program}: ${result.error.message}\n`);
+	io.exit(await spawnPi(launched.program, launched.args, io));
+}
+
+/**
+ * Runs one of Pi's package commands in a space, or in base and then every space with --every, through the same
+ * Pi (`--space <name> <verb> [args...]`): the extension relaunches it in that home, so the home is never set here.
+ * With --every each run gets a `== <name>` header, one failure does not stop the rest, and the status is 1 if any failed.
+ */
+async function runPackages(verb: PackageVerb, target: PackageTarget, args: string[], dir: string, io: CliIo, commandSource: string): Promise<void> {
+	const names = "every" in target ? [BASE, ...listSpaces(dir)] : [target.name];
+	if (!("every" in target) && !checkSpace(target.name, dir, io)) return io.exit(1);
+	const failed: string[] = [];
+	for (const name of names) {
+		let launched: { program: string; args: string[] };
+		try {
+			launched = launchCommand(io.env, name, [verb, ...args]);
+		} catch (error) {
+			// The same command for every space, so this is reported once, before any header.
+			io.stderr.write(`pi-space: ${commandSource}: ${(error as Error).message}.\n`);
+			return io.exit(2);
+		}
+		if ("every" in target) io.stdout.write(`== ${name}\n`);
+		const status = await spawnPi(launched.program, launched.args, io);
+		if (!("every" in target)) return io.exit(status);
+		if (status !== 0) failed.push(name);
+	}
+	if (failed.length > 0) {
+		io.stderr.write(`pi-space: ${verb} failed in: ${failed.join(", ")}\n`);
 		return io.exit(1);
 	}
-	io.exit(result.status ?? 1);
+	io.exit(0);
 }
 
 async function pick(dir: string, io: CliIo, commandSource: string): Promise<void> {
