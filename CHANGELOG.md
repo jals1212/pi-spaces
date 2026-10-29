@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.3.0
+
 ### Added
 
 - Pi knows the space it runs in. Every Pi with the extension sets
