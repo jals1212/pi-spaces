@@ -65,7 +65,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 
-The status line shows `space: <name>` while a space is active, and nothing in the base home.
+The status line shows `◆ <name>` while a space is active, and nothing in the base home.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 
@@ -98,6 +98,22 @@ Set for the Pi a switch starts:
 | `PI_CODING_AGENT_DIR` | The space's folder, or the base home for `base`. |
 | `PI_SPACE` | The space's name. Unset in the base home. |
 | `PI_SPACES_BASE_HOME` | The home Pi started with, so `base` and the spaces folder survive switches. |
+
+Set in every Pi this extension runs in, even one started without a switch, for its tools and the programs they start:
+
+| Variable | Meaning |
+| --- | --- |
+| `PI_SPACE` | The active space's name, unset in the base home: the same variable a switch sets. |
+| `PI_SPACE_HOME` | The agent home this Pi runs with: the space's folder, or the base home. |
+| `PI_SPACES_COMMAND` | Kept when it has a value; set to `pi` when it is unset or blank. |
+
+### What the model is told
+
+Before each run the system prompt gets a `<pi_space>` section with the same three facts: the space (or the base home), the agent home, and the command, with `<command> --space <name>` and `/space` as the ways to change space. The model knows where it runs without reading the environment. A Pi without structured prompt sections gets no section; the variables are still set.
+
+### The `pi-spaces` skill
+
+The package also ships a `pi-spaces` skill (`skills/pi-spaces/SKILL.md`). It tells agents what a space is, how to read the current space, home and command, and which `/space` or `pi-space` action to use or propose for listing, creating, switching and removing spaces. Pi loads it when a task is about spaces; `/skill:pi-spaces` loads it by hand.
 
 ### Exit status
 

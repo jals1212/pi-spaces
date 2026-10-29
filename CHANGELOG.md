@@ -6,6 +6,25 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.3.0
+
+### Added
+
+- Pi knows the space it runs in. Every Pi with the extension sets
+  `PI_SPACE` (unset in the base home), `PI_SPACE_HOME` (its agent home) and
+  `PI_SPACES_COMMAND` (its configured value, else `pi`), with or without a
+  switch, and the system prompt gets a `<pi_space>` section with the same
+  facts. `spaceInfo`, `exportSpaceInfo` and `spacePrompt` in the core build
+  them.
+- A `pi-spaces` skill, declared in the package, that tells agents what a
+  space is, how to read the current space, home and command, and which
+  `/space` or `pi-space` action to use.
+
+### Changed
+
+- The status line shows the active space as `◆ <name>` instead of
+  `space: <name>`, so it stands out among other extensions' statuses.
+
 ## 0.2.0
 
 ### Added
