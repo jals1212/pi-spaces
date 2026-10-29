@@ -6,6 +6,42 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.4.0
+
+### Added
+
+- `pi-space list <name|--every>` lists the packages of a space, and
+  `pi-space update`, `install` and `uninstall` take a space and run Pi's
+  command of that name in it, for example `pi-space update work --extensions`
+  or `pi-space install work npm:some-package`. What follows is Pi's own:
+  `install` and `uninstall` need a source, and `update` may have none. The
+  command runs through the extension (`pi --space <name> <command> ...`) and
+  its exit status is `pi-space`'s. Needs `@jals1212/pi-spaces` 0.4.0 or later
+  in the base home.
+- `--every` takes the place of the space: the command runs in `base`, then in
+  every space in turn, each after a `== <name>` line. A failure does not stop
+  the rest; the exit status is 1 if any failed, and the last line on stderr
+  names them: `pi-space: update failed in: base, work`.
+- `pi-space rename <old> <new>` renames a space, as `/space rename` does, with
+  the same refusals as `remove`.
+
+### Changed
+
+- `pi-space new <name>` and `pi-space remove <name> [--yes] [--no-backup]` are
+  commands, like `list`, `rename` and Pi's own. They do what `--new` and
+  `--remove` did, with the same questions and backup.
+- The command words `list`, `new`, `remove`, `rename`, `switch`, `update`,
+  `install` and `uninstall` can no longer name a space, so `pi-space <name>`
+  never reads as a command (see the extension's 0.4.0).
+- Requires `@jals1212/pi-spaces` 0.4.0 or later.
+
+### Removed
+
+- The options `--new` and `--remove`. They exit with status 2 and name the
+  command that replaced them: `pi-space --new work` →
+  `pi-space new <name>`, `pi-space --remove work` →
+  `pi-space remove <name> [--yes] [--no-backup]`.
+
 ## 0.3.1
 
 ### Fixed

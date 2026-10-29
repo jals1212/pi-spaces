@@ -27,10 +27,10 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Which space, home, command | `<pi_space>` section, or `echo "$PI_SPACE|$PI_SPACE_HOME|$PI_SPACES_COMMAND"` |
 | List spaces from a shell | `pi-space list` (optional `@jals1212/pi-spaces-cli`) |
 | Spaces folder | `PI_SPACES_DIR`, else `spaces` next to the base home (`PI_SPACES_BASE_HOME`, else this home) |
-| Create a space | `pi-space --new <name>`, or ask the user for `/space new <name>` |
+| Create a space | `pi-space new <name>`, or ask the user for `/space new <name>` |
 | Work in another space | User runs `/space switch <name>`, or `$PI_SPACES_COMMAND --space <name> "<prompt>"` |
-| Remove a space | User request only: `pi-space --remove <name> --yes` keeps a backup in `.backups` |
-| Packages of a space | `$PI_SPACES_COMMAND --space <name|base> update --extensions`, `... install <source>`, `... uninstall <source>`, `... list` |
+| Remove a space | User request only: `pi-space remove <name> --yes` keeps a backup in `.backups` |
+| Packages of a space | `pi-space update <name|base|--every> --extensions`, `pi-space install <name> <source>`, `pi-space uninstall <name> <source>`, `pi-space list <name>`; without the CLI, `$PI_SPACES_COMMAND --space <name|base> update --extensions` |
 
 Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`) are reserved.
 
