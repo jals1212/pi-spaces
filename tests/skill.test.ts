@@ -11,7 +11,8 @@ test("the package ships the pi-spaces skill with valid frontmatter", () => {
 	assert.ok(pkg.files.includes("skills"));
 	const path = join(root, "skills", "pi-spaces", "SKILL.md");
 	assert.ok(existsSync(path), `${path} is missing`);
-	const frontmatter = readFileSync(path, "utf8").match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+	// A Windows checkout may turn line endings into CRLF.
+	const frontmatter = readFileSync(path, "utf8").replace(/\r\n/g, "\n").match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
 	assert.match(frontmatter, /^name: pi-spaces$/m);
 	const description = frontmatter.match(/^description: "(.*)"$/m)?.[1] ?? "";
 	assert.ok(description.length > 0 && description.length <= 1024, "description must be 1-1024 characters");
