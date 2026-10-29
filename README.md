@@ -103,7 +103,7 @@ Set in every Pi this extension runs in, even one started without a switch, for i
 
 | Variable | Meaning |
 | --- | --- |
-| `PI_SPACE` | As above: the active space's name, unset in the base home. |
+| `PI_SPACE` | The active space's name, unset in the base home: the same variable a switch sets. |
 | `PI_SPACE_HOME` | The agent home this Pi runs with: the space's folder, or the base home. |
 | `PI_SPACES_COMMAND` | Kept when it has a value; set to `pi` when it is unset or blank. |
 

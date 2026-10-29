@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { addSpaceSection, exportSpaceInfo, spaceInfo, spacePrompt } from "../src/context.ts";
+import { addSpaceSection, exportSpaceInfo, type PromptSections, spaceInfo, spacePrompt } from "../src/context.ts";
 import { createSpace } from "../src/spaces.ts";
 
 function setup() {
@@ -57,13 +57,20 @@ test("spacePrompt tells the model the space, the home and the command", () => {
 	);
 });
 
-test("addSpaceSection adds the pi_space prompt section and never replaces the prompt", () => {
-	const info = { space: "work", home: "/h/spaces/work", command: "pi" };
-	const options = { sections: { other: "kept" } as Record<string, string> };
-	addSpaceSection(options, info);
-	assert.deepEqual(options.sections, { other: "kept", pi_space: spacePrompt(info) });
-	const bare: { sections?: Record<string, string> } = {};
-	addSpaceSection(bare, info);
-	assert.deepEqual(bare.sections, { pi_space: spacePrompt(info) });
-	assert.doesNotThrow(() => addSpaceSection(undefined, info));
+const work = { space: "work", home: "/h/spaces/work", command: "pi" };
+
+test("addSpaceSection sets pi_space and keeps the other sections", () => {
+	const options: PromptSections = { sections: { other: "kept", pi_space: "an earlier run's text" } };
+	addSpaceSection(options, work);
+	assert.deepEqual(options.sections, { other: "kept", pi_space: spacePrompt(work) });
+});
+
+test("addSpaceSection creates the section map when it is missing", () => {
+	const options: PromptSections = {};
+	addSpaceSection(options, work);
+	assert.deepEqual(options, { sections: { pi_space: spacePrompt(work) } });
+});
+
+test("addSpaceSection does nothing without structured prompt options", () => {
+	assert.equal(addSpaceSection(undefined, work), undefined);
 });

@@ -20,7 +20,7 @@ export function spaceInfo(dir: string, agentHome: string, env: Env): SpaceInfo {
 	return {
 		space: activeSpace(dir, agentHome),
 		home: resolve(agentHome),
-		// An empty or blank value means the default, as for the pi-space command.
+		// A blank value counts as unset, so the default is pi, as in the pi-space command.
 		command: env.PI_SPACES_COMMAND?.trim() || "pi",
 	};
 }
@@ -35,17 +35,28 @@ export function exportSpaceInfo(env: Env, info: SpaceInfo): void {
 
 /** The system prompt section that tells the model where it runs. */
 export function spacePrompt(info: SpaceInfo): string {
-	const where = info.space === undefined ? "This Pi runs in the base home, outside any space." : `This Pi runs in the space "${info.space}" (PI_SPACE).`;
+	const where = info.space === undefined
+		? "This Pi runs in the base home, outside any space."
+		: `This Pi runs in the space "${info.space}" (PI_SPACE).`;
+	const home = `Agent home: ${info.home} (PI_SPACE_HOME).`;
 	const start = `\`${info.command} --space <name>\` starts it in a space`;
 	const manage = "`/space` lists, creates, removes and switches spaces";
-	return [where, `Agent home: ${info.home} (PI_SPACE_HOME).`, `Command that starts Pi: ${info.command} (PI_SPACES_COMMAND); ${start}, and ${manage}.`].join("\n");
+	const command = `Command that starts Pi: ${info.command} (PI_SPACES_COMMAND); ${start}, and ${manage}.`;
+	return [where, home, command].join("\n");
+}
+
+/** The part of a run's structured prompt options this package writes. */
+export interface PromptSections {
+	sections?: Record<string, string>;
 }
 
 /**
- * Adds the <pi_space> section to the structured prompt options of a run. It never replaces the
- * whole prompt; a Pi without structured options gets no section, and the environment still has the facts.
+ * Sets the <pi_space> section in a run's structured prompt options, creating the section map when
+ * it is missing and replacing an earlier pi_space section. Other sections and the rest of the
+ * prompt are left alone. Without structured options (an older Pi) nothing is added; the
+ * environment still has the facts.
  */
-export function addSpaceSection(options: { sections?: Record<string, string> } | undefined, info: SpaceInfo): void {
+export function addSpaceSection(options: PromptSections | undefined, info: SpaceInfo): void {
 	if (options === undefined) return;
 	options.sections ??= {};
 	options.sections.pi_space = spacePrompt(info);
