@@ -112,10 +112,11 @@ test("scheduleRelaunch runs the command with inherited stdio when the process ex
 });
 
 test("parseSpaceFlag takes --space <name> or --space=<name> and leaves everything else", () => {
-	assert.deepEqual(parseSpaceFlag(["--model", "m", "hi"]), { name: undefined, rest: ["--model", "m", "hi"] });
-	assert.deepEqual(parseSpaceFlag(["--space", "work", "-c", "hi"]), { name: "work", rest: ["-c", "hi"] });
-	assert.deepEqual(parseSpaceFlag(["-c", "--space=work"]), { name: "work", rest: ["-c"] });
-	assert.deepEqual(parseSpaceFlag(["--", "--space", "work"]), { name: undefined, rest: ["--", "--space", "work"] });
+	assert.deepEqual(parseSpaceFlag(["--model", "m", "hi"]), { name: undefined, rest: ["--model", "m", "hi"], afterName: [] });
+	assert.deepEqual(parseSpaceFlag(["--space", "work", "-c", "hi"]), { name: "work", rest: ["-c", "hi"], afterName: ["-c", "hi"] });
+	assert.deepEqual(parseSpaceFlag(["-c", "--space=work"]), { name: "work", rest: ["-c"], afterName: [] });
+	assert.deepEqual(parseSpaceFlag(["-e", "x", "--space", "work", "list"]), { name: "work", rest: ["-e", "x", "list"], afterName: ["list"] });
+	assert.deepEqual(parseSpaceFlag(["--", "--space", "work"]), { name: undefined, rest: ["--", "--space", "work"], afterName: [] });
 	for (const args of [["--space"], ["--space", "-c"], ["--space="]]) {
 		assert.deepEqual(parseSpaceFlag(args), { error: "--space needs a space name: pi --space <name>." }, args.join(" "));
 	}
@@ -138,6 +139,49 @@ test("planStartup relaunches in the space with every other argument, prompt and 
 	assert.deepEqual(planStartup({ proc: proc(["--space", "base"]), dir, currentHome: base, env: {} }), { kind: "none" });
 	assert.deepEqual(planStartup({ proc: proc(["--space", "ghost"]), dir, currentHome: base, env: {} }), { kind: "error", message: 'Space "ghost" does not exist.' });
 	assert.deepEqual(planStartup({ proc: proc(["--space"]), dir, currentHome: base, env: {} }), { kind: "error", message: "--space needs a space name: pi --space <name>." });
+});
+
+test("planStartup runs a Pi package command in the target home, the current one included", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "work"), { recursive: true });
+	const base = join(root, "agent");
+	const proc = (args: string[]) => ({ execPath: "/n/node", execArgv: [], argv: ["/n/node", "/p/cli.js", ...args] });
+
+	// Another home: the space's environment, and the command with its arguments as written.
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work", "update", "--extensions"]), dir, currentHome: base, env: {} }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js", "update", "--extensions"] },
+		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base },
+	});
+	// The current home: Pi started with --space first, so it runs again with the command first, environment unchanged.
+	for (const command of ["install", "remove", "uninstall", "update", "list"]) {
+		assert.deepEqual(planStartup({ proc: proc(["--space", "base", command, "npm:x"]), dir, currentHome: base, env: { A: "1" } }), {
+			kind: "relaunch",
+			command: { command: "/n/node", args: ["/p/cli.js", command, "npm:x"] },
+			env: { A: "1" },
+		}, command);
+	}
+	const inWork = { PI_SPACES_BASE_HOME: base, PI_SPACE: "work" };
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work", "list"]), dir, currentHome: join(dir, "work"), env: inWork }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js", "list"] },
+		env: inWork,
+	});
+	// Options before --space (a launcher may add its own, such as -e) do not belong to the package command.
+	assert.deepEqual(planStartup({ proc: proc(["-e", "/pkg", "--space", "work", "list"]), dir, currentHome: base, env: {} }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js", "list"] },
+		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base },
+	});
+	assert.deepEqual(planStartup({ proc: proc(["-e", "/pkg", "--space=base", "update"]), dir, currentHome: base, env: {} }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js", "update"] },
+		env: {},
+	});
+	// Only right after the name: a later word is still a prompt.
+	assert.deepEqual(planStartup({ proc: proc(["--space", "base", "-p", "update"]), dir, currentHome: base, env: {} }), { kind: "none" });
+	assert.deepEqual(planStartup({ proc: proc(["--space", "ghost", "update"]), dir, currentHome: base, env: {} }), { kind: "error", message: 'Space "ghost" does not exist.' });
 });
 
 test("runNow runs the command with inherited stdio and returns its exit code", () => {

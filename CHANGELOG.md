@@ -6,6 +6,21 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `pi --space <name> <command> [args...]` runs one of Pi's package commands
+  (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the
+  base home with `base`, through the same Pi: `pi --space work update
+  --extensions`. Options before `--space`, such as a launcher's own `-e`, are
+  left out, since Pi runs a package command only as its first argument.
+
+### Changed
+
+- The command words `list`, `new`, `remove`, `rename`, `switch`, `update`,
+  `install` and `uninstall` are reserved and can no longer name a space, so
+  `pi-space <name>` never reads as a command. A folder with such a name in the
+  spaces folder is no longer listed as a space.
+
 ## 0.3.0
 
 ### Added

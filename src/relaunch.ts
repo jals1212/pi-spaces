@@ -123,10 +123,14 @@ export function relaunchCommand(proc: Proc = process, args: string[] = filterArg
 
 const SPACE_FLAG_ERROR = "--space needs a space name: pi --space <name>.";
 
-/** Finds --space <name> or --space=<name> before "--", and returns the other arguments unchanged. */
-export function parseSpaceFlag(args: string[]): { name: string | undefined; rest: string[] } | { error: string } {
+/**
+ * Finds --space <name> or --space=<name> before "--", and returns the other arguments unchanged,
+ * and the arguments that follow the name.
+ */
+export function parseSpaceFlag(args: string[]): { name: string | undefined; rest: string[]; afterName: string[] } | { error: string } {
 	const rest: string[] = [];
 	let name: string | undefined;
+	let afterName: string[] = [];
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === "--") {
@@ -138,36 +142,48 @@ export function parseSpaceFlag(args: string[]): { name: string | undefined; rest
 			if (value === undefined || value === "" || value.startsWith("-")) return { error: SPACE_FLAG_ERROR };
 			name = value;
 			i++;
+			afterName = args.slice(i + 1);
 		} else if (arg.startsWith("--space=")) {
 			name = arg.slice("--space=".length);
 			if (name === "") return { error: SPACE_FLAG_ERROR };
+			afterName = args.slice(i + 1);
 		} else {
 			rest.push(arg);
 		}
 	}
-	return { name, rest };
+	return { name, rest, afterName };
 }
+
+// Pi runs these only as its first argument, before extensions load.
+const PACKAGE_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list"]);
 
 export type StartupPlan = { kind: "none" } | { kind: "error"; message: string } | { kind: "relaunch"; command: Command; env: Env };
 
 /**
  * What `pi --space <name>` does at startup: nothing without the flag or when Pi already runs in that
  * space; otherwise run Pi again in the space with every other argument, since nothing has run yet.
+ * `pi --space <name> <package command> ...` always runs Pi again, even in the current home, because
+ * Pi runs a package command (install, remove, uninstall, update, list) only as its first argument.
  */
 export function planStartup(input: { proc: Proc; dir: string; currentHome: string; env: Env }): StartupPlan {
 	const { proc, dir, currentHome, env } = input;
 	const parsed = parseSpaceFlag(proc.argv.slice(2));
 	if ("error" in parsed) return { kind: "error", message: parsed.error };
 	if (parsed.name === undefined) return { kind: "none" };
+	// A package command runs alone: options before --space (a launcher may add its own) are for a session.
+	const packageCommand = PACKAGE_COMMANDS.has(parsed.afterName[0] ?? "");
+	const args = packageCommand ? parsed.afterName : parsed.rest;
 	let target: SwitchTarget;
 	try {
 		target = resolveSwitch({ dir, name: parsed.name, currentHome, env });
 	} catch (error) {
 		if (!(error instanceof SpaceError)) throw error;
-		if (error.message.startsWith("Already in")) return { kind: "none" };
+		if (error.message.startsWith("Already in")) {
+			return packageCommand ? { kind: "relaunch", command: relaunchCommand(proc, args), env } : { kind: "none" };
+		}
 		return { kind: "error", message: error.message };
 	}
-	return { kind: "relaunch", command: relaunchCommand(proc, parsed.rest), env: relaunchEnv(env, { ...target, currentHome }) };
+	return { kind: "relaunch", command: relaunchCommand(proc, args), env: relaunchEnv(env, { ...target, currentHome }) };
 }
 
 /** Runs the command now with inherited stdio and returns its exit code (1 when it cannot start). */

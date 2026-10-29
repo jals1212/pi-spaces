@@ -64,12 +64,13 @@ A new space starts empty except for a `settings.json` that declares this package
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
 | `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
+| `pi --space <name> <command> [args...]` | Runs one of Pi's package commands (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the base home with `base`: `pi --space work update --extensions`, `pi --space work install npm:<package>`. |
 
 The status line shows `◆ <name>` while a space is active, and nothing in the base home.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 
-**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved.
+**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved, and so are the command words `list`, `new`, `remove`, `rename`, `switch`, `update`, `install` and `uninstall`.
 
 ## The `pi-space` command
 
@@ -134,6 +135,8 @@ Pi reads its agent home once, when it starts, so a running session cannot move t
 - Switching works only in the interactive terminal.
 
 `pi --space <name>` acts before Pi opens its interface or runs anything, so it keeps the prompt and the session options too, in every mode.
+
+`pi --space <name> <command> ...`, where `<command>` is one of Pi's package commands right after the name, runs Pi again in that home with only `<command> ...`: Pi runs a package command only as its first argument. Options before `--space`, such as a launcher's own `-e`, are left out. The same Pi runs it, so a launcher's own Pi manages the space's packages; `base` and the current home work too.
 
 ## What it leaves on your machine
 
