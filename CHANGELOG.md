@@ -17,9 +17,10 @@ commands and options and a patch version fixes.
   a message that it needs a newer pi-spaces, and unknown keys are refused. A
   built-in `pi` profile always exists and can be replaced. See the README.
 - `spaceEnv`: variables that exist only in spaces. Entering a space sets them
-  (`{home}` and `{name}` filled in), going back to `base` removes them, and
-  moving between spaces recomputes them. Without `spaceEnv`, whatever a program
-  keeps outside its agent home stays shared with the base home, as before.
+  (`{home}` and `{name}` filled in) and moving between spaces recomputes
+  them. Going back to `base` puts back the values the base home had (kept in `PI_SPACES_BASE_ENV` meanwhile). Without
+  `spaceEnv`, whatever a program keeps outside its agent home stays shared with
+  the base home, as before. The variables pi-spaces sets itself are refused.
 - The extension applies the profile whose `home` is the base home: its
   `spaceEnv` on `/space switch` and `pi --space`, its `dir` as the spaces
   folder, and `/space new` names `pi-space setup <name>` when it has a `setup`.

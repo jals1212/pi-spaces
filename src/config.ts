@@ -10,6 +10,9 @@ export const SCHEMA = "pi-spaces.config/v1";
 const NEWER_SCHEMA = /^pi-spaces\.config\/v([1-9][0-9]*)$/;
 const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// Set by pi-spaces itself on every switch; a profile that set them would break switching.
+const RESERVED_VARIABLES = new Set(["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME"]);
+const isReservedVariable = (name: string) => RESERVED_VARIABLES.has(name) || name.startsWith("PI_SPACES_");
 const TOP_KEYS = ["schema", "default", "profiles"];
 const PROFILE_KEYS = ["home", "command", "dir", "setup", "spaceEnv"];
 const BUILT_IN = "pi";
@@ -153,6 +156,7 @@ function parseSpaceEnv(profile: string, value: unknown, fail: Fail): Record<stri
 		if (!VARIABLE_NAME.test(key)) {
 			fail(`invalid variable name "${key}" in "spaceEnv" of profile "${profile}"; use letters, digits and "_", not starting with a digit.`);
 		}
+		if (isReservedVariable(key)) fail(`"${key}" in "spaceEnv" of profile "${profile}" is set by pi-spaces itself; choose another variable.`);
 		if (typeof text !== "string") return fail(`"spaceEnv.${key}" in profile "${profile}" must be a string.`);
 		entries.push([key, text]);
 	}

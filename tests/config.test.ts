@@ -159,6 +159,18 @@ test("loadConfig checks profile fields: home, command, dir and setup are non-emp
 	}
 });
 
+test("loadConfig refuses spaceEnv variables that pi-spaces sets itself", () => {
+	for (const reserved of ["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV", "PI_SPACES_DIR", "PI_SPACES_SETUP"]) {
+		assert.equal(
+			failure(v1({ profiles: { gsh: { spaceEnv: { [reserved]: "v" } } } })),
+			`/c/config.json: "${reserved}" in "spaceEnv" of profile "gsh" is set by pi-spaces itself; choose another variable.`,
+			reserved,
+		);
+	}
+	// Names that only look alike are the profile's own.
+	assert.doesNotThrow(() => load(v1({ profiles: { gsh: { spaceEnv: { PI_SPACEX: "v", MY_PI_SPACE: "v" } } } }), "/c/config.json"));
+});
+
 test("loadConfig checks spaceEnv: an object of string values under variable-like names", () => {
 	for (const value of ["x", [], null, 1]) {
 		assert.equal(failure(v1({ profiles: { gsh: { spaceEnv: value } } })), '/c/config.json: "spaceEnv" in profile "gsh" must be an object of strings.');
