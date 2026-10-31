@@ -132,7 +132,7 @@ test("switch applies the profile's spaceEnv: set in a space, removed in base, re
 		PI_CODING_AGENT_DIR: join(f.dir, "work"),
 		PI_SPACES_BASE_HOME: f.base,
 		PI_SPACE: "work",
-		HOST_CFG: join(f.dir, "work", "cfg"),
+		HOST_CFG: `${join(f.dir, "work")}/cfg`,
 		PI_SPACES_BASE_ENV: "{}",
 	});
 
@@ -143,7 +143,7 @@ test("switch applies the profile's spaceEnv: set in a space, removed in base, re
 	inWork.deps.env = { PI_CODING_AGENT_DIR: join(inWork.dir, "work"), PI_SPACES_BASE_HOME: inWork.base, PI_SPACE: "work", HOST_CFG: join(inWork.dir, "work", "cfg") };
 	await runSpaceCommand("switch play", inWork.deps);
 	await runSpaceCommand("switch base", inWork.deps);
-	assert.equal(inWork.relaunches[0].env.HOST_CFG, join(inWork.dir, "play", "cfg"));
+	assert.equal(inWork.relaunches[0].env.HOST_CFG, `${join(inWork.dir, "play")}/cfg`);
 	assert.deepEqual(inWork.relaunches[1].env, { PI_CODING_AGENT_DIR: inWork.base, PI_SPACES_BASE_HOME: inWork.base });
 });
 

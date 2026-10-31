@@ -97,7 +97,8 @@ test("relaunchEnv with spaceEnv sets it for a space, removes it for base, and re
 	assert.deepEqual(entered, {
 		PI_CODING_AGENT_DIR: join(dir, "work"),
 		UNRELATED: path("/elsewhere"),
-		HOST_CFG: join(dir, "work", "cfg"),
+		// The template's own "/" stays as written, on every platform.
+		HOST_CFG: `${join(dir, "work")}/cfg`,
 		HOST_LABEL: "label-work",
 		PI_SPACES_BASE_HOME: base,
 		PI_SPACE: "work",
@@ -110,7 +111,7 @@ test("relaunchEnv with spaceEnv sets it for a space, removes it for base, and re
 		{ ...entered, PI_CODING_AGENT_DIR: join(dir, "work"), HOST_CFG: join(dir, "work", "cfg"), HOST_LABEL: "label-work", HOST_OTHER: join(dir, "work", "x") },
 		{ currentHome: join(dir, "work"), targetHome: join(dir, "play"), baseHome: base, space: "play", spaceEnv },
 	);
-	assert.equal(between.HOST_CFG, join(dir, "play", "cfg"));
+	assert.equal(between.HOST_CFG, `${join(dir, "play")}/cfg`);
 	assert.equal(between.HOST_LABEL, "label-play");
 	// A variable that is not in spaceEnv still moves with the home.
 	assert.equal(between.HOST_OTHER, join(dir, "play", "x"));
@@ -163,7 +164,7 @@ test("planStartup passes the profile's spaceEnv to the environment of the relaun
 	assert.deepEqual(planStartup({ proc: proc(["--space", "work"]), dir, currentHome: base, env: { PI_CODING_AGENT_DIR: base }, spaceEnv }), {
 		kind: "relaunch",
 		command: { command: "/n/node", args: ["/p/cli.js"] },
-		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base, HOST_CFG: join(dir, "work", "cfg"), PI_SPACES_BASE_ENV: "{}" },
+		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base, HOST_CFG: `${join(dir, "work")}/cfg`, PI_SPACES_BASE_ENV: "{}" },
 	});
 	// Base again: removed.
 	assert.deepEqual(
