@@ -6,6 +6,23 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.7.0
+
+### Changed
+
+- A bare `pi-space` opens a picker instead of a numbered list: ↑/↓ (or
+  Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc or Ctrl-D cancel (exit 0),
+  Ctrl-C exits 130, and typing filters by space or profile name (Backspace,
+  Ctrl-U). `base` comes first; the cursor starts on the space this Pi runs in
+  (`PI_SPACE_HOME`), marked `(active)`. A long list scrolls to fit the
+  terminal. No new dependency. Without a terminal it prints the usage and exits
+  2, as before.
+- With a config file, and no `--profile`, `--dir` or `--command` in the call,
+  the picker lists the spaces of every profile under its name, the current one
+  first; a profile whose spaces folder is already listed is skipped. A space of
+  another profile starts with that profile's command and spaces folder (and
+  the `--config` of the call).
+
 ## 0.6.2
 
 ### Fixed

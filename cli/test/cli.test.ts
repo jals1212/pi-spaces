@@ -35,6 +35,9 @@ Options before the command, for this call only:
   --config <path>                             the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
+const SCHEMA = "pi-spaces.config/v1";
+const CONFIG = ".pi-spaces/config.json";
+
 interface Run {
 	code: number | undefined;
 	out: string;
@@ -950,43 +953,78 @@ test("a command that cannot start prints the reason and exits 1", async () => {
 	assert.equal(r.err, "pi-space: could not start pi: spawn pi ENOENT\n");
 });
 
-test("picker: a valid number launches that space", async () => {
-	const r = await run([], { spaces: ["alpha", "work"], tty: true, input: "3\n", status: 0 });
+const DOWN = "\x1b[B";
+
+test("picker: base first, then the spaces; arrows and Enter launch the space under the cursor", async () => {
+	const r = await run([], { spaces: ["alpha", "work"], tty: true, input: `${DOWN}${DOWN}\r`, status: 0 });
 	assert.equal(r.code, 0);
-	assert.equal(r.out, `Spaces in ${r.dir}:\n1) base\n2) alpha\n3) work\nSpace number: `);
+	// The keys come in one chunk, so only the first frame is drawn.
+	assert.match(r.out, /\n {2}> base\n {4}alpha\n {4}work/);
 	assert.deepEqual(r.spawned.map(({ args }) => args), [["--space", "work"]]);
 });
 
-test("picker: 1 launches base", async () => {
-	const r = await run([], { spaces: ["work"], tty: true, input: " 1 \n" });
-	assert.deepEqual(r.spawned.map(({ args }) => args), [["--space", "base"]]);
+test("picker: Enter at once launches base; typing filters first", async () => {
+	assert.deepEqual((await run([], { spaces: ["work"], tty: true, input: "\r" })).spawned.map(({ args }) => args), [["--space", "base"]]);
+	assert.deepEqual((await run([], { spaces: ["alpha", "work"], tty: true, input: "wo\r" })).spawned.map(({ args }) => args), [["--space", "work"]]);
 });
 
-test("picker: an empty line or EOF exits 0 without launching", async () => {
-	for (const input of ["\n", ""]) {
+test("picker: Esc or the end of input exit 0 without launching; Ctrl-C exits 130", async () => {
+	for (const [input, code] of [["\x1b", 0], ["", 0], ["\x03", 130]] as const) {
 		const r = await run([], { spaces: ["work"], tty: true, input });
-		assert.equal(r.code, 0, JSON.stringify(input));
+		assert.equal(r.code, code, JSON.stringify(input));
 		assert.equal(r.spawned.length, 0);
 		assert.equal(r.err, "");
 	}
 });
 
-test("picker: an out-of-range or non-numeric answer exits 1 without launching", async () => {
-	for (const input of ["3\n", "0\n", "abc\n", "-1\n"]) {
-		const r = await run([], { spaces: ["work"], tty: true, input });
-		assert.equal(r.code, 1, input);
-		assert.equal(r.err, "pi-space: Choose a number from 1 to 2.\n");
-		assert.equal(r.spawned.length, 0);
+test("picker: the cursor starts on the active space, which is marked", async () => {
+	const r = await run([], { spaces: ["alpha", "work"], tty: true, input: "\r", env: { PI_SPACE: "work", PI_SPACE_HOME: "<root>/spaces/work" } });
+	assert.match(r.out, /> work \(active\)/);
+	assert.deepEqual(r.spawned.map(({ args }) => args), [["--space", "work"]]);
+});
+
+test("picker: in base Pi the base of its profile is the active one", async () => {
+	const r = await run([], { spaces: ["work"], tty: true, input: "\x1b", env: { PI_SPACE_HOME: "<root>/no-agent" } });
+	assert.match(r.out, /> base \(active\)/);
+});
+
+const PICKER_FILES = {
+	[CONFIG]: { schema: SCHEMA, default: "ml", profiles: { ml: { command: "my-launcher --", home: "~/ml/agent", dir: "~/spaces" }, other: { command: "other-launcher", dir: "~/other-spaces" } } },
+	"other-spaces/zed/.keep": "",
+};
+
+test("picker: with a config file it groups the spaces by profile, the current first, and skips a profile with the same folder (here twin and pi)", async () => {
+	const r = await run([], { spaces: ["work"], tty: true, input: "\x1b", files: { ...PICKER_FILES, [CONFIG]: { ...PICKER_FILES[CONFIG], profiles: { ...PICKER_FILES[CONFIG].profiles, twin: { dir: "~/spaces" } } } } });
+	assert.match(r.out, /\nml\n {2}> base\n {4}work\nother\n {4}base\n {4}zed\x1b/);
+	assert.doesNotMatch(r.out, /twin|\npi\n/);
+});
+
+test("picker: a space of another profile starts with that profile's command and folder", async () => {
+	const r = await run([], { spaces: ["work"], tty: true, input: "zed\r", files: PICKER_FILES });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.spawned.length, 1);
+	assert.equal(r.spawned[0].program, "other-launcher");
+	assert.deepEqual(r.spawned[0].args, ["--space", "zed"]);
+	assert.equal((r.spawned[0].options.env as Record<string, string>).PI_SPACES_DIR, join(r.root, "other-spaces"));
+	const own = await run([], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
+	assert.equal(own.spawned[0].program, "my-launcher");
+	assert.deepEqual(own.spawned[0].args, ["--", "--space", "work"]);
+});
+
+test("picker: --profile, --dir or --command keep it to the spaces of this call, with no groups", async () => {
+	for (const argv of [["--profile", "other"], ["--dir", "<root>/other-spaces"], ["--command", "x"]]) {
+		const r = await run(argv, { spaces: ["work"], tty: true, input: "\x1b", files: PICKER_FILES });
+		assert.doesNotMatch(r.out, /\nml\n|\nother\n|\npi\n/, argv.join(" "));
 	}
 });
 
-test("picker: a command with an unclosed quote exits 2 before the list is printed or a line is read", async () => {
-	const fromOption = await run(["--command", '"/opt/my launcher/run --'], { spaces: ["work"], tty: true, input: "2\n", env: { PI_SPACES_COMMAND: "other" } });
+test("picker: a command with an unclosed quote exits 2 before the picker is drawn or a key is read", async () => {
+	const fromOption = await run(["--command", '"/opt/my launcher/run --'], { spaces: ["work"], tty: true, input: "\r", env: { PI_SPACES_COMMAND: "other" } });
 	assert.equal(fromOption.code, 2);
 	assert.equal(fromOption.out, "");
 	assert.equal(fromOption.err, 'pi-space: --command: the command has an unclosed " quote.\n');
 	assert.equal(fromOption.spawned.length, 0);
-	const fromEnv = await run([], { spaces: ["work"], tty: true, input: "2\n", env: { PI_SPACES_COMMAND: "run 'a b" } });
+	const fromEnv = await run([], { spaces: ["work"], tty: true, input: "\r", env: { PI_SPACES_COMMAND: "run 'a b" } });
 	assert.equal(fromEnv.code, 2);
 	assert.equal(fromEnv.out, "");
 	assert.equal(fromEnv.err, "pi-space: PI_SPACES_COMMAND: the command has an unclosed ' quote.\n");
@@ -994,7 +1032,7 @@ test("picker: a command with an unclosed quote exits 2 before the list is printe
 });
 
 test("picker: without a terminal the usage goes to stderr and the exit code is 2", async () => {
-	const r = await run([], { spaces: ["work"], tty: false, input: "2\n" });
+	const r = await run([], { spaces: ["work"], tty: false, input: "\r" });
 	assert.equal(r.code, 2);
 	assert.equal(r.out, "");
 	assert.equal(r.err, USAGE);
@@ -1278,8 +1316,6 @@ test("--setup reaches the started Pi as PI_SPACES_SETUP, so /space new can name 
 	assert.equal(setupEnvOf(packages).PI_SPACES_SETUP, SETUP);
 });
 
-const SCHEMA = "pi-spaces.config/v1";
-const CONFIG = ".pi-spaces/config.json";
 const programsOf = (r: Run) => r.spawned.map(({ program, args }) => ({ program, args }));
 
 test("parseCli: --profile and --config come first with the other call options; a blank, missing or repeated one is usage; after a name they belong to Pi", () => {

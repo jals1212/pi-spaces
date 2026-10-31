@@ -16,7 +16,7 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 
 | Command | What it does |
 | --- | --- |
-| `pi-space` | Shows a numbered list of spaces and starts Pi in the one you pick. |
+| `pi-space` | Opens a picker of the spaces and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by space or profile name. `base` comes first, and the cursor starts on the space this Pi runs in, marked `(active)`. With a config file and no `--profile`, `--dir` or `--command`, the spaces of every profile are listed under its name, the current one first; a space of another profile starts with that profile. |
 | `pi-space <name> [pi args...]` | Starts Pi in that space (`base` for the home Pi starts with). |
 | `pi-space list` | Lists the spaces. |
 | `pi-space list <name\|--every>` | Lists the packages of a space (Pi's `list`). |
@@ -206,7 +206,8 @@ Only those three variables change. A variable that points into the base home sta
 | Status | Meaning |
 | --- | --- |
 | 0 … | Pi's own exit status, for a space and for a package command in one space; the setup's exit status for `setup <name>` and for a `new` whose setup failed. |
-| 1 | An unknown or invalid space, a name `new` or `rename` cannot use (taken, reserved or invalid), a space `remove` or `rename` cannot touch, `remove` without `--yes` and no terminal, an out-of-range pick, the program could not start, or `--every` and at least one run failed (the failed spaces are on the last line of stderr), or `setup base`, since setup runs only in spaces. |
+| 1 | An unknown or invalid space, a name `new` or `rename` cannot use (taken, reserved or invalid), a space `remove` or `rename` cannot touch, `remove` without `--yes` and no terminal, the program could not start, or `--every` and at least one run failed (the failed spaces are on the last line of stderr), or `setup base`, since setup runs only in spaces. |
+| 130 | Ctrl-C in the picker. |
 | 2 | A config file that is wrong or an unknown `--profile` (the problem is printed), `completion` with another shell or none, no arguments and no terminal to pick in, a command with the wrong number of names (`new`, `remove`, `rename`), `install` or `uninstall` without a source, a package command without a space or `--every`, or `--command`, `--dir`, `--setup`, `--profile` or `--config` without a value (or a blank one) or given twice: the usage is printed. `setup` without a setup command: the problem is printed. The old `--new` and `--remove`: the replacing command is printed. A `--command`, `PI_SPACES_COMMAND`, `--setup`, `PI_SPACES_SETUP` or a profile's `command` or `setup` with an unclosed quote: the problem is printed, and nothing is created or started. |
 
 ## More

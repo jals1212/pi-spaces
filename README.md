@@ -48,7 +48,7 @@ pi --space work "review this branch"    # with a prompt
 pi-space new work                       # create a space (optional CLI)
 pi-space remove work                    # delete it, after asking; keeps a backup unless told not to (optional CLI)
 pi-space update --every                 # update the packages of base and of every space (optional CLI)
-pi-space                                # pick from a numbered list (optional CLI)
+pi-space                                # pick a space: arrows, Enter, type to filter (optional CLI)
 ```
 
 A new space starts empty except for a `settings.json` that declares this package, so `/space` works inside it. Sign in and install packages there as you would in a fresh Pi.
@@ -75,7 +75,7 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space new <name>` creates one, `pi-space rename <old> <new>` renames one, `pi-space remove <name>` deletes one, and `pi-space list` lists them. `pi-space list|update|install|uninstall <name|--every> ...` runs Pi's package commands in a space, or in every space. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces, and `--setup` (or `PI_SPACES_SETUP`) gives that program's command to prepare a new space: `pi-space new` runs it, and `pi-space setup <name|--every>` runs it again. It only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` opens a picker of the spaces (of every profile, with a config file) and starts Pi in the one you choose, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space new <name>` creates one, `pi-space rename <old> <new>` renames one, `pi-space remove <name>` deletes one, and `pi-space list` lists them. `pi-space list|update|install|uninstall <name|--every> ...` runs Pi's package commands in a space, or in every space. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces, and `--setup` (or `PI_SPACES_SETUP`) gives that program's command to prepare a new space: `pi-space new` runs it, and `pi-space setup <name|--every>` runs it again. It only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Profiles
 

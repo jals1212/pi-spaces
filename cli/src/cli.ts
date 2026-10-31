@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
+import { type PickerItem, type PickerTerminal, runPicker } from "./picker.ts";
 import {
 	BACKUPS,
 	BASE,
@@ -22,6 +23,7 @@ import {
 	removeSpace,
 	renameSpace,
 	SpaceError,
+	samePath,
 	spacesDir,
 	validateName,
 } from "@jals1212/pi-spaces/spaces";
@@ -429,8 +431,8 @@ export interface SpawnResult {
 }
 
 export interface CliIo {
-	stdin: NodeJS.ReadableStream & { isTTY?: boolean };
-	stdout: { write(text: string): unknown };
+	stdin: PickerTerminal["stdin"];
+	stdout: PickerTerminal["stdout"];
 	stderr: { write(text: string): unknown };
 	env: Env;
 	/** The environment for the started Pi when --dir, --setup or --config is given or a profile supplies a dir or setup; otherwise it inherits this process's. */
@@ -576,6 +578,7 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "complete":
 			return complete(command.words, io);
 	}
+	const callerIo = io;
 	let settings: Settings;
 	try {
 		settings = resolveSettings(command, io);
@@ -607,7 +610,7 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "launch":
 			return launch(command.name, command.args, dir, io, commandSource);
 		case "picker":
-			return pick(dir, io, commandSource);
+			return pick(command, settings, callerIo);
 	}
 }
 
@@ -1037,7 +1040,48 @@ async function runSetup(target: PackageTarget, dir: string, io: CliIo, setupSour
 	io.exit(0);
 }
 
-async function pick(dir: string, io: CliIo, commandSource: string): Promise<void> {
+/** A picker item and where it starts: a profile of the config file, or the settings of this call. */
+interface PickerChoice extends PickerItem {
+	profile?: string;
+}
+
+/**
+ * The choices of the picker: base and the spaces of this call, then, when the call names no profile, folder or
+ * command and there is a config file, those of every other profile, each under its name; a profile whose spaces
+ * folder is already listed is skipped. The space this Pi runs in (PI_SPACE_HOME) is the active one.
+ */
+function pickerChoices(call: CallOptions, settings: Settings, callerIo: CliIo): PickerChoice[] {
+	const { dir, config, profile, io } = settings;
+	const activeHome = io.env.PI_SPACE_HOME;
+	const group = (groupName: string | undefined, profileName: string | undefined, spaces: string, baseHome: string): PickerChoice[] =>
+		[BASE, ...listSpaces(spaces)].map((name) => {
+			const home = name === BASE ? baseHome : join(spaces, name);
+			return {
+				name,
+				...(groupName !== undefined ? { group: groupName } : {}),
+				...(profileName !== undefined ? { profile: profileName } : {}),
+				...(activeHome && samePath(home, activeHome) ? { active: true } : {}),
+			};
+		});
+	const baseHome = profile?.home ?? (io.env.PI_SPACES_BASE_HOME || agentHome(io.env, io.home));
+	const others = config !== undefined && call.profile === undefined && call.dir === undefined && call.command === undefined
+		? profileNames(config)
+				.map((name) => profileByName(config, name, callerIo.env, callerIo.home))
+				.filter((other, index, all) => !samePath(other.dir, dir) && all.findIndex((first) => samePath(first.dir, other.dir)) === index)
+		: [];
+	if (others.length === 0) return group(undefined, undefined, dir, baseHome);
+	// The current one keeps the settings of this call; its header is its profile's name.
+	const current = group(profile?.name ?? "current", undefined, dir, baseHome);
+	return [...current, ...others.flatMap((other) => group(other.name, other.name, other.dir, other.home))];
+}
+
+/**
+ * A bare `pi-space` on a terminal: the picker, then Pi in the chosen space. A space of another profile starts
+ * with that profile's settings (and the --config of this call). Esc or the end of input exit 0; Ctrl-C exits 130.
+ */
+async function pick(call: CallOptions, settings: Settings, callerIo: CliIo): Promise<void> {
+	const { dir, commandSource } = settings;
+	const io = settings.io;
 	if (!io.stdin.isTTY) {
 		io.stderr.write(USAGE);
 		return io.exit(2);
@@ -1049,28 +1093,18 @@ async function pick(dir: string, io: CliIo, commandSource: string): Promise<void
 		io.stderr.write(`pi-space: ${commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
 	}
-	const names = [BASE, ...listSpaces(dir)];
-	io.stdout.write(`${[`Spaces in ${dir}:`, ...names.map((name, index) => `${index + 1}) ${name}`)].join("\n")}\nSpace number: `);
-	const line = await readLine(io.stdin);
-	const answer = line?.trim() ?? "";
-	if (answer === "") return io.exit(0);
-	const number = /^\d+$/.test(answer) ? Number(answer) : 0;
-	if (number < 1 || number > names.length) {
-		io.stderr.write(`pi-space: Choose a number from 1 to ${names.length}.\n`);
-		return io.exit(1);
+	const { item, interrupted } = await runPicker(pickerChoices(call, settings, callerIo), io);
+	if (item === undefined) return io.exit(interrupted ? 130 : 0);
+	const choice = item as PickerChoice;
+	if (choice.profile === undefined) return launch(choice.name, [], dir, io, commandSource);
+	let chosen: Settings;
+	try {
+		chosen = resolveSettings({ ...(call.config !== undefined ? { config: call.config } : {}), profile: choice.profile }, callerIo);
+	} catch (error) {
+		if (!(error instanceof ConfigError)) throw error;
+		io.stderr.write(`pi-space: ${error.message}\n`);
+		return io.exit(2);
 	}
-	return launch(names[number - 1], [], dir, io, commandSource);
-}
-
-/** One line from the stream, or undefined at end of input. */
-function readLine(input: NodeJS.ReadableStream): Promise<string | undefined> {
-	return new Promise((resolve) => {
-		const rl = createInterface({ input });
-		rl.once("line", (line) => {
-			// Resolve first: close() emits "close" synchronously.
-			resolve(line);
-			rl.close();
-		});
-		rl.once("close", () => resolve(undefined));
-	});
+	// Its command was not checked before the picker: launch reports an unclosed quote.
+	return launch(choice.name, [], chosen.dir, chosen.io, chosen.commandSource);
 }
