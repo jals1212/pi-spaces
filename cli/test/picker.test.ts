@@ -101,10 +101,10 @@ test("renderPicker: a long list shows a window around the cursor that fits the t
 });
 
 /** A terminal for runPicker: keys written in, what it draws read out, raw mode recorded. */
-function terminal(chunks: string[]) {
+function terminal(chunks: string[], columns?: number) {
 	const stdin = Object.assign(new PassThrough({ encoding: "utf8" }), { isTTY: true, raw: [] as boolean[], setRawMode(mode: boolean) { this.raw.push(mode); return this; } });
 	let out = "";
-	const stdout = { rows: 24, write: (text: string) => void (out += text) };
+	const stdout = { rows: 24, columns, write: (text: string) => void (out += text) };
 	// Each chunk on its own tick, the way a terminal sends key presses.
 	queueMicrotask(async () => {
 		for (const chunk of chunks) {
@@ -135,4 +135,61 @@ test("runPicker: typing filters and Enter picks the match; Esc and Ctrl-C give n
 	const ended = terminal([]);
 	queueMicrotask(() => setImmediate(() => ended.stdin.end()));
 	assert.deepEqual(await runPicker(ITEMS, ended), { item: undefined, interrupted: false });
+});
+
+test("renderPicker: every line is cut to the terminal width by code points, ending with an ellipsis", () => {
+	const wide = [{ name: "a-very-long-space-name-ñññ", active: true }, { name: "short" }];
+	const lines = renderPicker(initialState(wide), 24, 12);
+	assert.ok(lines.every((line) => [...line].length <= 12), JSON.stringify(lines));
+	assert.deepEqual(lines.slice(1), ["> ", "  > a-very-…", "    short"]);
+	// Wide enough, nothing changes; the default width is 80.
+	assert.deepEqual(renderPicker(initialState(wide), 24, 80), renderPicker(initialState(wide), 24));
+});
+
+test("runPicker: frames are drawn at the terminal width", async () => {
+	const term = terminal(["\r"], 10);
+	await runPicker([{ name: "abcdefghijklmnop" }], term);
+	assert.match(term.out(), /  > abcde…/);
+	assert.doesNotMatch(term.out(), /abcdef/);
+});
+
+test("runPicker: an escape sequence split across chunks is not taken as Esc", async () => {
+	assert.deepEqual(await runPicker(ITEMS, terminal(["\x1b", "[B", "\r"])), { item: ITEMS[2], interrupted: false });
+});
+
+test("runPicker: a lone ESC cancels once the wait runs out; the picker stops listening", async () => {
+	const term = terminal(["\x1b"]);
+	assert.deepEqual(await runPicker(ITEMS, term, 10), { item: undefined, interrupted: false });
+	assert.deepEqual(term.stdin.raw, [true, false]);
+	assert.equal(term.stdin.listenerCount("data"), 0);
+});
+
+test("runPicker: a throw while drawing restores the terminal and rejects with the error", async () => {
+	const term = terminal(["\x1b[B", "\r"]);
+	let writes = 0;
+	const boom = new Error("boom");
+	// The hide-cursor write and the first frame work; every write after that throws, even the ones that restore.
+	term.stdout.write = (text: string) => {
+		writes += 1;
+		if (writes > 2) throw boom;
+		return text;
+	};
+	const exits = process.listenerCount("exit");
+	const running = runPicker(ITEMS, term);
+	assert.equal(process.listenerCount("exit"), exits + 1);
+	await assert.rejects(running, boom);
+	assert.deepEqual(term.stdin.raw, [true, false]);
+	assert.equal(term.stdin.listenerCount("data"), 0);
+	assert.equal(process.listenerCount("exit"), exits);
+});
+
+test("runPicker: if the process exits while it runs, raw mode is turned off and the cursor shown", async () => {
+	const term = terminal([]);
+	const running = runPicker(ITEMS, term);
+	const [onExit] = process.listeners("exit").slice(-1) as [() => void];
+	onExit();
+	assert.deepEqual(term.stdin.raw, [true, false]);
+	assert.ok(term.out().endsWith("\x1b[?25h"));
+	term.stdin.end();
+	await running;
 });
