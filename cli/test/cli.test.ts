@@ -1581,7 +1581,7 @@ test("__complete: the first word offers the commands with their summary, base an
 		"option\t--setup\tthe setup command instead of $PI_SPACES_SETUP; {home} and {name} become the space's folder and name",
 		"option\t--profile\tthe profile of the config file instead of its \"default\"",
 		"option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)",
-		"option\t--help\tprint the help",
+		"option\t--help\tprint the help, or a command's: --help <command>",
 		"option\t--version\tprint the version",
 	]);
 });
@@ -1595,6 +1595,15 @@ test("__complete: the first word leaves out the call options already typed, and 
 test("__complete: completion is not offered as a command, but completion <TAB> still offers zsh", async () => {
 	assert.ok(!(await complete([])).some((line) => line.includes("completion")));
 	assert.deepEqual(await completeLines(["completion"]), ["shell\tzsh\tthe zsh completion script", "option\t--help\tthe help of this command"]);
+});
+
+test("__complete: after --help or -h it offers every command with its summary, completion too; nothing after one", async () => {
+	const commands = [...FIRST_COMMANDS, "command completion"];
+	assert.deepEqual(await complete(["--help"], { spaces: ["work"] }), commands);
+	assert.deepEqual(await complete(["-h"]), commands);
+	assert.deepEqual(await complete(["--profile", "pi", "--help"]), commands);
+	assert.equal((await completeLines(["--help"]))[0], "command\tlist\tlist the spaces, or the packages of one");
+	assert.deepEqual(await complete(["--help", "list"]), []);
 });
 
 test("__complete: a profile name after --profile carries its command, or profile", async () => {
@@ -1622,13 +1631,13 @@ test("__complete: remove, rename and setup offer the spaces; setup also --every;
 		"option\t--help\tthe help of this command",
 	]);
 	assert.deepEqual(await complete(["rename"], { spaces }), ["space alpha", "space work", "option --help"]);
-	assert.deepEqual(await completeLines(["setup"], { spaces }), ["space\talpha\tspace", "space\twork\tspace", "space\t--every\tevery space", "option\t--help\tthe help of this command"]);
+	assert.deepEqual(await completeLines(["setup"], { spaces }), ["space\talpha\tspace", "space\twork\tspace", "target\t--every\tevery space", "option\t--help\tthe help of this command"]);
 	for (const verb of ["list", "update", "install", "uninstall"]) {
 		assert.deepEqual(await completeLines([verb], { spaces }), [
 			"space\tbase\tthe home Pi starts with",
 			"space\talpha\tspace",
 			"space\twork\tspace",
-			"space\t--every\tevery space (base first)",
+			"target\t--every\tevery space (base first)",
 			"option\t--help\tthe help of this command",
 		], verb);
 	}
@@ -1644,16 +1653,16 @@ test("__complete honors --profile, --config and --dir already typed: it lists th
 	const options = { spaces: ["work"], files: COMPLETE_FILES, env: { PI_SPACES_DIR: "<root>/spaces" } };
 	assert.deepEqual((await complete(["--profile", "other"], options)).filter((line) => !line.startsWith("option ")), [...FIRST_COMMANDS, "space base", "space zed"]);
 	assert.deepEqual(await complete(["--profile", "other", "remove"], options), ["space zed", "option --yes", "option --no-backup", "option --help"]);
-	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space base", "space zed", "space --every", "option --help"]);
+	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space base", "space zed", "target --every", "option --help"]);
 	const alt = { "alt.json": { schema: SCHEMA, profiles: { alt: { dir: "~/other-spaces" } } }, ...COMPLETE_FILES };
-	assert.deepEqual(await complete(["--config", "<root>/alt.json", "--profile", "alt", "setup"], { files: alt, env: { PI_SPACES_DIR: "<root>/spaces" } }), ["space zed", "space --every", "option --help"]);
+	assert.deepEqual(await complete(["--config", "<root>/alt.json", "--profile", "alt", "setup"], { files: alt, env: { PI_SPACES_DIR: "<root>/spaces" } }), ["space zed", "target --every", "option --help"]);
 });
 
 test("__complete never fails loudly: a broken config or an unknown profile print nothing and exit 0; a missing folder has no spaces", async () => {
 	assert.deepEqual(await complete(["--profile"], { files: { [CONFIG]: "{nope" } }), []);
 	assert.deepEqual(await complete([], { files: { [CONFIG]: { schema: "pi-spaces.config/v9" } } }), []);
 	assert.deepEqual(await complete(["--profile", "ghost", "list"]), []);
-	assert.deepEqual(await complete(["--dir", "<root>/missing", "list"]), ["space base", "space --every", "option --help"]);
+	assert.deepEqual(await complete(["--dir", "<root>/missing", "list"]), ["space base", "target --every", "option --help"]);
 });
 
 const ZSH_SKIP = spawnSync("zsh", ["--version"]).error !== undefined && "zsh is not installed";
@@ -1690,12 +1699,13 @@ function zshComplete(script: string, lines: string[], prefix: string): string[] 
 	}
 }
 
-test("the zsh script splits the lines by group into commands, spaces, profiles and options for _describe, and escapes a colon", { skip: ZSH_SKIP }, async () => {
+test("the zsh script splits the lines by group into commands, spaces, targets, profiles and options for _describe, and escapes a colon", { skip: ZSH_SKIP }, async () => {
 	const script = (await run(["completion", "zsh"])).out;
-	const lines = ["command\tlist\tlist the spaces", "command\tnew\tcreate a space", "space\tbase\tthe home Pi starts with", "space\tmy:work\tspace", "profile\tml\tmy-launcher --", "shell\tzsh\tthe zsh completion script", "option\t--yes\tdo not ask", "option\t--help\tthe help of this command"];
+	const lines = ["command\tlist\tlist the spaces", "command\tnew\tcreate a space", "space\tbase\tthe home Pi starts with", "space\tmy:work\tspace", "target\t--every\tevery space", "profile\tml\tmy-launcher --", "shell\tzsh\tthe zsh completion script", "option\t--yes\tdo not ask", "option\t--help\tthe help of this command"];
 	assert.deepEqual(zshComplete(script, lines, "-"), [
 		"_describe commands:", "list:list the spaces", "new:create a space",
 		"_describe spaces:", "base:the home Pi starts with", "my\\:work:space",
+		"_describe targets:", "--every:every space",
 		"_describe profiles:", "ml:my-launcher --",
 		"_describe shells:", "zsh:the zsh completion script",
 		"_describe options:", "--yes:do not ask", "--help:the help of this command",
@@ -1705,6 +1715,7 @@ test("the zsh script splits the lines by group into commands, spaces, profiles a
 	assert.deepEqual(zshComplete(script, lines, ""), [
 		"_describe commands:", "list:list the spaces", "new:create a space",
 		"_describe spaces:", "base:the home Pi starts with", "my\\:work:space",
+		"_describe targets:", "--every:every space",
 		"_describe profiles:", "ml:my-launcher --",
 		"_describe shells:", "zsh:the zsh completion script",
 		"status 0",
