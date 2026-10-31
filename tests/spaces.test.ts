@@ -35,13 +35,25 @@ test("spacesDir sits next to the base home unless PI_SPACES_DIR is set", () => {
 	assert.equal(spacesDir({ PI_SPACES_DIR: "rel/s" }, "/home/u"), path("/home/u", "rel", "s"));
 });
 
+test("spacesDir precedence: PI_SPACES_DIR, then the profile's dir, then the folder next to the base home", () => {
+	const path = (...parts: string[]) => resolve(join(...parts));
+	const profileDir = path("/p/spaces");
+	assert.equal(spacesDir({ PI_SPACES_DIR: "/x/spaces" }, "/home/u", profileDir), path("/x/spaces"));
+	assert.equal(spacesDir({ PI_SPACES_DIR: "~/s" }, "/home/u", profileDir), path("/home/u", "s"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u", profileDir), profileDir);
+	assert.equal(spacesDir({ PI_SPACES_BASE_HOME: "/h/.tool/agent" }, "/home/u", profileDir), profileDir);
+	// Without a profile, or with an empty dir, the sibling rule as before.
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u", undefined), path("/h/.tool", "spaces"));
+	assert.equal(spacesDir({ PI_CODING_AGENT_DIR: "/h/.tool/agent" }, "/home/u", ""), path("/h/.tool", "spaces"));
+});
+
 test("validateName accepts the documented names and rejects the rest", () => {
 	for (const ok of ["work", "a", "9", "my-space_2", "a".repeat(64)]) assert.equal(validateName(ok), undefined, ok);
 	const invalid = (n: string) =>
 		`Invalid space name "${n}": use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters).`;
 	for (const bad of ["", "Work", "-a", "_a", "a b", "a/b", "..", ".a", "a".repeat(65)]) assert.equal(validateName(bad), invalid(bad), bad);
 	assert.equal(validateName("base"), '"base" is reserved for the home Pi started with.');
-	for (const verb of ["list", "new", "remove", "rename", "switch", "update", "install", "uninstall", "setup"]) {
+	for (const verb of ["list", "new", "remove", "rename", "switch", "update", "install", "uninstall", "setup", "completion"]) {
 		assert.equal(validateName(verb), `"${verb}" is reserved: it is a pi-space or /space command.`, verb);
 	}
 });

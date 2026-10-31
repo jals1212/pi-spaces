@@ -1,5 +1,6 @@
 // The /space command, kept apart from Pi's extension API so it can be tested directly.
 import { join } from "node:path";
+import type { Profile } from "./config.ts";
 import { type Command, parseSpaceFlag, relaunchEnv, resolveSwitch } from "./relaunch.ts";
 import {
 	activeSpace,
@@ -40,6 +41,8 @@ export interface SpaceCommandDeps {
 	/** The agent home this Pi process runs with. */
 	currentHome(): string;
 	env: Env;
+	/** The profile that matches the base home, if any: its spaceEnv applies to switches and its setup to the `new` notice. */
+	profile?: Profile;
 	/** This package's declaration for a new space's settings.json. */
 	declaration(): PackageDeclaration;
 	/** The command that starts this Pi process again. */
@@ -58,7 +61,7 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 			const path = createSpace(deps.dir, rest[0], deps.declaration());
 			const name = rest[0];
 			ctx.ui.notify(
-				hasSetupCommand(deps.env)
+				hasSetupCommand(deps.env) || Boolean(deps.profile?.setup)
 					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${name}. Then enter it with /space switch ${name}.`
 					: `Created space "${name}" at ${path}. Enter it with /space switch ${name}.`,
 				"info",
@@ -153,7 +156,7 @@ function switchTo(name: string, deps: SpaceCommandDeps): void {
 	if (ctx.mode !== "tui") throw new SpaceError("/space switch needs the interactive terminal.");
 	const currentHome = deps.currentHome();
 	const target = resolveSwitch({ dir: deps.dir, name, currentHome, env: deps.env });
-	deps.relaunch(deps.command(), relaunchEnv(deps.env, { ...target, currentHome }));
+	deps.relaunch(deps.command(), relaunchEnv(deps.env, { ...target, currentHome, spaceEnv: deps.profile?.spaceEnv }));
 	ctx.ui.notify(
 		target.space === undefined ? "Switching to the base home; Pi restarts in it." : `Switching to space "${target.space}"; Pi restarts in it.`,
 		"info",

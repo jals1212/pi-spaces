@@ -1,6 +1,7 @@
 // The optional `pi-space` command: pick a space and start Pi in it, and manage the spaces and their packages.
 // It only passes `--space <name>` (and, for a package command, Pi's command after it); the extension does the
 // switch, so it sets PI_CODING_AGENT_DIR only for the setup command, which is not Pi and does no switch.
+// Profiles of the config file (--profile, "default") stand in for the command, the spaces folder and the setup.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -24,8 +25,18 @@ import {
 	spacesDir,
 	validateName,
 } from "@jals1212/pi-spaces/spaces";
+import {
+	ConfigError,
+	type Config,
+	configPath,
+	loadConfig,
+	type Profile,
+	profileByName,
+	profileNames,
+	spaceEnvFor,
+} from "@jals1212/pi-spaces/config";
 
-export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] [<name> [pi args...] | <command> ...]
+export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] [--profile <name>] [--config <path>] [<name> [pi args...] | <command> ...]
        pi-space --help | --version
   pi-space                                    pick a space and start Pi in it
   pi-space <name> [pi args...]                start Pi in a space ("base" for the home Pi starts with)
@@ -39,6 +50,7 @@ export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup 
   pi-space update <name|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <name|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <name|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space completion zsh                     print the zsh completion script (source <(pi-space completion zsh))
   pi-space --help                             print this help
   pi-space --version                          print the version
   --every takes the place of the name: base first (not for setup), then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
@@ -46,16 +58,20 @@ Options before the command, for this call only:
   --command <cmd>                             the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
   --dir <path>                                the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
   --setup <cmd>                               the setup command instead of $PI_SPACES_SETUP; {home} and {name} become the space's folder and name
+  --profile <name>                            the profile of the config file to use instead of its "default": its command, spaces folder, setup and spaceEnv
+  --config <path>                             the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
 /** This package's version; package.json sits one folder above both src/ and dist/. */
 export const VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
-/** --command, --dir and --setup: for this call only, so nothing has to be exported into the shell. */
+/** --command, --dir, --setup, --profile and --config: for this call only, so nothing has to be exported into the shell. */
 export interface CallOptions {
 	command?: string;
 	dir?: string;
 	setup?: string;
+	profile?: string;
+	config?: string;
 }
 
 /** The Pi commands that pi-space runs in one space or in every space. */
@@ -83,18 +99,21 @@ export type CliCommand = (
 	| { kind: "setup"; target: PackageTarget }
 	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
+	| { kind: "completion"; shell?: string }
+	| { kind: "complete"; words: string[] }
 	| { kind: "picker" }
 	| { kind: "usage" }
 	| { kind: "launch"; name: string; args: string[] }
 ) &
 	CallOptions;
 
-const CALL_OPTIONS = { "--command": "command", "--dir": "dir", "--setup": "setup" } as const;
+const CALL_OPTIONS = { "--command": "command", "--dir": "dir", "--setup": "setup", "--profile": "profile", "--config": "config" } as const;
 
 /**
- * --command, --dir and --setup come first; after a space name every argument belongs to Pi.
- * The commands (list, new, setup, remove, rename, update, install, uninstall) are reserved words, so they are read
- * before a name: the core never lets a space have one of them as its name.
+ * The call options (--command, --dir, --setup, --profile, --config) come first; after a space name every argument belongs to Pi.
+ * The commands (list, new, setup, remove, rename, update, install, uninstall, completion) are reserved words, so they
+ * are read before a name: the core never lets a space have one of them as its name. `__complete` is the hidden
+ * command the completion script calls; it starts with "_", which no space name does.
  * A space name never starts with "-", so any other option in first place is unknown, not a name.
  */
 export function parseCli(args: string[]): CliCommand {
@@ -123,6 +142,8 @@ function parseCommand(args: string[]): CliCommand {
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
 	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
 	if (first === "setup") return parseSetup(rest);
+	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
+	if (first === "__complete") return { kind: "complete", words: rest };
 	if (first === "rename") return rest.length === 2 ? { kind: "rename", from: rest[0], to: rest[1] } : { kind: "usage" };
 	if (first === "remove") {
 		const flags = rest.filter((arg) => arg.startsWith("-"));
@@ -211,10 +232,11 @@ const EXTENSION = "@jals1212/pi-spaces";
 
 /**
  * The extension's declaration for a new space's settings.json: the one in the base home's settings.json
- * (PI_SPACES_BASE_HOME, else PI_CODING_AGENT_DIR, else ~/.pi/agent), else npm:@jals1212/pi-spaces.
+ * (the selected profile's home, else PI_SPACES_BASE_HOME, else PI_CODING_AGENT_DIR, else ~/.pi/agent),
+ * else npm:@jals1212/pi-spaces.
  */
-export function newSpaceDeclaration(env: Env, home: string): PackageDeclaration {
-	const baseHome = env.PI_SPACES_BASE_HOME || agentHome(env, home);
+export function newSpaceDeclaration(env: Env, home: string, profileHome?: string): PackageDeclaration {
+	const baseHome = profileHome || env.PI_SPACES_BASE_HOME || agentHome(env, home);
 	let packageRoot: string;
 	try {
 		packageRoot = dirname(fileURLToPath(import.meta.resolve(`${EXTENSION}/package.json`)));
@@ -231,7 +253,7 @@ function agentHome(env: Env, home: string): string {
 
 export interface SpawnOptions {
 	stdio: "inherit";
-	/** Set with --dir or --setup, and for a setup command; otherwise the child inherits this process's environment unchanged. */
+	/** Set with --dir, --setup or --config, when a profile supplies the dir or setup, and for a setup command; otherwise the child inherits this process's environment unchanged. */
 	env?: Env;
 }
 
@@ -245,7 +267,7 @@ export interface CliIo {
 	stdout: { write(text: string): unknown };
 	stderr: { write(text: string): unknown };
 	env: Env;
-	/** The environment for the started Pi when --dir or --setup is given; otherwise it inherits this process's. */
+	/** The environment for the started Pi when --dir, --setup or --config is given or a profile supplies a dir or setup; otherwise it inherits this process's. */
 	childEnv?: Env;
 	home: string;
 	spawn(program: string, args: string[], options: SpawnOptions): Promise<SpawnResult>;
@@ -280,21 +302,86 @@ export function processIo(proc: NodeJS.Process = process): CliIo {
 	};
 }
 
+/** Where a setting came from, which decides what the started Pi is told and how an error names it. */
+type Origin = "option" | "profile" | "env";
+
+/** What one call settled: its environment, the spaces folder, the profile it runs under and where each setting came from. */
+interface Settings {
+	/** The io with this call's environment and the environment of the started Pi. */
+	io: CliIo;
+	dir: string;
+	config: Config | undefined;
+	/** The profile asked for with --profile, else the config's default; undefined without either. */
+	profile: Profile | undefined;
+	commandSource: string;
+	setupSource: string;
+}
+
+/** Whether the file itself gives the profile a `dir` (the resolved one always has one). */
+function hasOwnDir(config: Config | undefined, profile: Profile): boolean {
+	return config?.profiles.find((spec) => spec.name === profile.name)?.dir !== undefined;
+}
+
+/**
+ * The command or setup of this call, with where it came from: the call option, then the --profile profile, then
+ * the environment variable, then the default profile. A blank variable is none.
+ */
+function choose(field: "command" | "setup", call: CallOptions, asked: Profile | undefined, fallback: Profile | undefined, env: Env): { value: string; origin: Origin; source: string } | undefined {
+	const variable = field === "command" ? "PI_SPACES_COMMAND" : "PI_SPACES_SETUP";
+	const named = (profile: Profile | undefined) => `profile "${profile?.name}" ${field}`;
+	const candidates: [string | undefined, Origin, string][] = [
+		[call[field], "option", `--${field}`],
+		[asked?.[field], "profile", named(asked)],
+		[env[variable]?.trim() ? env[variable] : undefined, "env", variable],
+		[fallback?.[field], "profile", named(fallback)],
+	];
+	const found = candidates.find(([value]) => value !== undefined);
+	return found && { value: found[0] as string, origin: found[1], source: found[2] };
+}
+
+/**
+ * Reads the config file, picks the profile and applies the precedence: call option > --profile > PI_SPACES_* >
+ * the default profile > built-in. The call's own environment gets the winners (so the rest of the CLI reads
+ * PI_SPACES_COMMAND, PI_SPACES_DIR and PI_SPACES_SETUP as ever); the started Pi gets --dir, --setup, --config and
+ * what a profile supplies for the folder and the setup, but never --command. Throws a ConfigError.
+ */
+function resolveSettings(call: CallOptions, io: CliIo): Settings {
+	const configFile = call.config !== undefined ? resolve(call.config) : configPath(io.env, io.home);
+	const config = loadConfig(configFile);
+	const asked = call.profile !== undefined ? profileByName(config, call.profile, io.env, io.home) : undefined;
+	// With --profile the default is not consulted: a profile never borrows from another.
+	const fallback = asked === undefined && config?.default !== undefined ? profileByName(config, config.default, io.env, io.home) : undefined;
+	const env: Env = { ...io.env };
+	const forChild: Env = {};
+	if (call.config !== undefined) forChild.PI_SPACES_CONFIG = configFile;
+	if (call.dir !== undefined) {
+		// Absolute: a relative one is relative to where the command runs.
+		forChild.PI_SPACES_DIR = resolve(call.dir);
+	} else if (asked) {
+		env.PI_SPACES_DIR = asked.dir;
+		// The Pi would find the same folder by itself unless the file names it or PI_SPACES_DIR would win there.
+		if (hasOwnDir(config, asked) || io.env.PI_SPACES_DIR) forChild.PI_SPACES_DIR = asked.dir;
+	} else if (fallback && !io.env.PI_SPACES_DIR && hasOwnDir(config, fallback)) {
+		forChild.PI_SPACES_DIR = fallback.dir;
+	}
+	const command = choose("command", call, asked, fallback, io.env);
+	const setup = choose("setup", call, asked, fallback, io.env);
+	if (command && command.origin !== "env") env.PI_SPACES_COMMAND = command.value;
+	if (setup && setup.origin !== "env") forChild.PI_SPACES_SETUP = env.PI_SPACES_SETUP = setup.value;
+	Object.assign(env, forChild);
+	const dir = spacesDir(env, io.home, fallback?.dir);
+	return {
+		io: { ...io, env, childEnv: Object.keys(forChild).length > 0 ? { ...io.env, ...forChild } : undefined },
+		dir,
+		config,
+		profile: asked ?? fallback,
+		commandSource: command?.source ?? "PI_SPACES_COMMAND",
+		setupSource: setup?.source ?? "PI_SPACES_SETUP",
+	};
+}
+
 export async function main(argv: string[], io: CliIo): Promise<void> {
 	const command = parseCli(argv);
-	if (command.dir !== undefined || command.command !== undefined || command.setup !== undefined) {
-		// env is this call's view; the started Pi also gets --dir (absolute: a relative one is relative to where
-		// the command runs) and --setup, but not --command, which only says how to start it.
-		const forChild: Env = {};
-		if (command.dir !== undefined) forChild.PI_SPACES_DIR = resolve(command.dir);
-		if (command.setup !== undefined) forChild.PI_SPACES_SETUP = command.setup;
-		const env = { ...io.env, ...forChild };
-		if (command.command !== undefined) env.PI_SPACES_COMMAND = command.command;
-		io = { ...io, env, childEnv: Object.keys(forChild).length > 0 ? { ...io.env, ...forChild } : undefined };
-	}
-	const commandSource = command.command !== undefined ? "--command" : "PI_SPACES_COMMAND";
-	const setupSource = command.setup !== undefined ? "--setup" : "PI_SPACES_SETUP";
-	const dir = spacesDir(io.env, io.home);
 	switch (command.kind) {
 		case "help":
 			io.stdout.write(USAGE);
@@ -311,6 +398,22 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "usage":
 			io.stderr.write(USAGE);
 			return io.exit(2);
+		case "completion":
+			return printCompletion(command.shell, io);
+		case "complete":
+			return complete(command.words, io);
+	}
+	let settings: Settings;
+	try {
+		settings = resolveSettings(command, io);
+	} catch (error) {
+		if (!(error instanceof ConfigError)) throw error;
+		io.stderr.write(`pi-space: ${error.message}\n`);
+		return io.exit(2);
+	}
+	const { dir, profile, commandSource, setupSource } = settings;
+	io = settings.io;
+	switch (command.kind) {
 		case "list": {
 			const spaces = listSpaces(dir);
 			const lines = [`Spaces in ${dir}:`, `  ${BASE}`, ...spaces.map((name) => `  ${name}`)];
@@ -321,18 +424,116 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "packages":
 			return runPackages(command.verb, command.target, command.args, dir, io, commandSource);
 		case "new":
-			return create(command.name, dir, io, setupSource);
+			return create(command.name, dir, io, setupSource, profile);
 		case "setup":
-			return runSetup(command.target, dir, io, setupSource);
+			return runSetup(command.target, dir, io, setupSource, profile);
 		case "rename":
-			return rename(command.from, command.to, dir, io);
+			return rename(command.from, command.to, dir, io, profile);
 		case "remove":
-			return remove(command.name, command.yes, command.backup, dir, io);
+			return remove(command.name, command.yes, command.backup, dir, io, profile);
 		case "launch":
 			return launch(command.name, command.args, dir, io, commandSource);
 		case "picker":
 			return pick(dir, io, commandSource);
 	}
+}
+
+const SHELLS = ["zsh"];
+
+/** `pi-space completion <shell>`: the script on stdout, or exit 2 for a shell it does not know. */
+function printCompletion(shell: string | undefined, io: CliIo): void {
+	if (shell === undefined) {
+		io.stderr.write(`pi-space: Name a shell: pi-space completion zsh (supported shells: ${SHELLS.join(", ")}).\n`);
+		return io.exit(2);
+	}
+	if (shell !== "zsh") {
+		io.stderr.write(`pi-space: Unsupported shell "${shell}"; supported shells: ${SHELLS.join(", ")}.\n`);
+		return io.exit(2);
+	}
+	io.stdout.write(ZSH_COMPLETION);
+	return io.exit(0);
+}
+
+/** What `__complete` prints when the shell should complete a file or folder itself. */
+const FILES = "__files__";
+
+/**
+ * The zsh script: it asks `pi-space __complete <the words before the cursor>` for candidates, one per line,
+ * and falls back to the shell's file completion on the marker. An abbreviation or alias has already expanded
+ * by then, so `my-space <TAB>` completes the words of what it stands for.
+ */
+const ZSH_COMPLETION = [
+	"#compdef pi-space",
+	"# zsh completion for pi-space. Load it from .zshrc with: source <(pi-space completion zsh)",
+	"_pi_space() {",
+	"  local -a lines",
+	'  lines=("${(@f)$(command "${words[1]}" __complete "${(@)words[2,CURRENT-1]}" 2>/dev/null)}")',
+	`  if [[ "\${lines[1]}" == ${FILES} ]]; then`,
+	"    _files",
+	"    return",
+	"  fi",
+	'  lines=("${(@)lines:#}")',
+	"  compadd -a lines",
+	"}",
+	"compdef _pi_space pi-space",
+	"",
+].join("\n");
+
+const COMMAND_WORDS = ["list", "new", "setup", "rename", "remove", "update", "install", "uninstall", "completion"];
+
+/**
+ * The hidden `__complete <words before the cursor>`: one candidate per line, honoring the call options already
+ * typed. It never fails loudly: whatever goes wrong, it prints nothing and exits 0.
+ */
+function complete(words: string[], io: CliIo): void {
+	let lines: string[] = [];
+	try {
+		lines = candidates(words, io);
+	} catch {
+		lines = [];
+	}
+	if (lines.length > 0) io.stdout.write(`${lines.join("\n")}\n`);
+	return io.exit(0);
+}
+
+function candidates(words: string[], io: CliIo): string[] {
+	const call: CallOptions = {};
+	let index = 0;
+	while (Object.hasOwn(CALL_OPTIONS, words[index] ?? "")) {
+		const option = words[index] as keyof typeof CALL_OPTIONS;
+		// The option is the last word: the cursor is on its value.
+		if (index + 1 >= words.length) return optionValues(option, call, io);
+		call[CALL_OPTIONS[option]] = words[index + 1];
+		index += 2;
+	}
+	const { dir } = resolveSettings(call, io);
+	const rest = words.slice(index);
+	const spaces = listSpaces(dir);
+	if (rest.length === 0) return [...COMMAND_WORDS, BASE, ...spaces];
+	if (rest.length > 1) return [];
+	switch (rest[0]) {
+		case "remove":
+		case "rename":
+			return spaces;
+		case "setup":
+			return [...spaces, "--every"];
+		case "list":
+		case "update":
+		case "install":
+		case "uninstall":
+			return [BASE, ...spaces, "--every"];
+		case "completion":
+			return SHELLS;
+		default:
+			return [];
+	}
+}
+
+/** The candidates for the value of a call option: profile names, the shell's files for a path, nothing for a command. */
+function optionValues(option: keyof typeof CALL_OPTIONS, call: CallOptions, io: CliIo): string[] {
+	if (option === "--profile") return profileNames(resolveSettings(call, io).config);
+	if (option === "--config" || option === "--dir") return [FILES];
+	return [];
 }
 
 /** Prints the reason and returns false when the setup command has an unclosed quote. */
@@ -346,9 +547,11 @@ function checkSetup(io: CliIo, source: string): boolean {
 	}
 }
 
-/** Runs a setup command in a space, as that space's agent home, and returns its exit status. */
-function spawnSetup(setup: { program: string; args: string[] }, name: string, home: string, io: CliIo): Promise<number> {
-	return spawnPi(setup.program, setup.args, io, { ...io.env, PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home });
+/** Runs a setup command in a space, as that space's agent home (with the profile's spaceEnv), and returns its exit status. */
+function spawnSetup(setup: { program: string; args: string[] }, name: string, home: string, io: CliIo, profile: Profile | undefined): Promise<number> {
+	// The profile's spaceEnv, for this space, then the three variables of the space, which a profile cannot set.
+	const spaceEnv = profile ? spaceEnvFor(profile, home, name) : {};
+	return spawnPi(setup.program, setup.args, io, { ...io.env, ...spaceEnv, PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home });
 }
 
 /** The setup command for one space, from PI_SPACES_SETUP after the call options; checkSetup has accepted it. */
@@ -356,17 +559,17 @@ function setupFor(name: string, home: string, io: CliIo): { program: string; arg
 	return setupCommand(io.env.PI_SPACES_SETUP ?? "", home, name);
 }
 
-async function create(name: string, dir: string, io: CliIo, setupSource: string): Promise<void> {
+async function create(name: string, dir: string, io: CliIo, setupSource: string, profile: Profile | undefined): Promise<void> {
 	const withSetup = hasSetupCommand(io.env);
 	// A bad setup command is reported before anything is created.
 	if (withSetup && !checkSetup(io, setupSource)) return io.exit(2);
 	try {
-		const path = createSpace(dir, name, newSpaceDeclaration(io.env, io.home));
+		const path = createSpace(dir, name, newSpaceDeclaration(io.env, io.home, profile?.home));
 		io.stdout.write(`Created space "${name}" at ${path}.\n`);
 		if (withSetup) {
 			const setup = setupFor(name, path, io);
 			io.stdout.write(`Setting it up: ${[setup.program, ...setup.args].join(" ")}\n`);
-			const status = await spawnSetup(setup, name, path, io);
+			const status = await spawnSetup(setup, name, path, io, profile);
 			if (status !== 0) {
 				io.stderr.write(`pi-space: Setup failed in space "${name}" (exit status ${status}); the space is kept. Run it again with: pi-space setup ${name}\n`);
 				return io.exit(status);
@@ -381,10 +584,15 @@ async function create(name: string, dir: string, io: CliIo, setupSource: string)
 	}
 }
 
+/** The base homes a space must not be: the one Pi started with, and the selected profile's. */
+function protectedHomes(io: CliIo, profile: Profile | undefined): string[] {
+	return [io.env.PI_SPACES_BASE_HOME, profile?.home].filter((home): home is string => Boolean(home));
+}
+
 /** Renames a space after the same checks as remove: not base, not the active space, not one that holds the base home. */
-function rename(from: string, to: string, dir: string, io: CliIo): void {
+function rename(from: string, to: string, dir: string, io: CliIo, profile: Profile | undefined): void {
 	try {
-		const protect = io.env.PI_SPACES_BASE_HOME ? [io.env.PI_SPACES_BASE_HOME] : [];
+		const protect = protectedHomes(io, profile);
 		renameSpace(dir, from, to, agentHome(io.env, io.home), protect, io.home);
 		io.stdout.write(`Renamed space "${from}" to "${to}".\n`);
 		return io.exit(0);
@@ -398,9 +606,9 @@ function rename(from: string, to: string, dir: string, io: CliIo): void {
  * Without --yes it asks to remove ([y/N]), then, without --no-backup, whether to keep a backup ([Y/n]).
  * With --yes it asks nothing and keeps a backup unless --no-backup.
  */
-async function remove(name: string, yes: boolean, backup: boolean, dir: string, io: CliIo): Promise<void> {
+async function remove(name: string, yes: boolean, backup: boolean, dir: string, io: CliIo, profile: Profile | undefined): Promise<void> {
 	const current = agentHome(io.env, io.home);
-	const protect = io.env.PI_SPACES_BASE_HOME ? [io.env.PI_SPACES_BASE_HOME] : [];
+	const protect = protectedHomes(io, profile);
 	let reader: LineReader | undefined;
 	try {
 		// Fail before asking when the space cannot be removed anyway.
@@ -550,7 +758,7 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
  * Runs the setup command in a space, or in every space with --every (never base), as `pi-space setup`.
  * With --every each run gets a `== <name>` header, one failure does not stop the rest, and the status is 1 if any failed.
  */
-async function runSetup(target: PackageTarget, dir: string, io: CliIo, setupSource: string): Promise<void> {
+async function runSetup(target: PackageTarget, dir: string, io: CliIo, setupSource: string, profile: Profile | undefined): Promise<void> {
 	if (!hasSetupCommand(io.env)) {
 		io.stderr.write("pi-space: There is no setup command; set PI_SPACES_SETUP or give --setup <cmd>.\n");
 		return io.exit(2);
@@ -563,7 +771,7 @@ async function runSetup(target: PackageTarget, dir: string, io: CliIo, setupSour
 		}
 		if (!checkSpace(target.name, dir, io)) return io.exit(1);
 		const home = join(dir, target.name);
-		return io.exit(await spawnSetup(setupFor(target.name, home, io), target.name, home, io));
+		return io.exit(await spawnSetup(setupFor(target.name, home, io), target.name, home, io, profile));
 	}
 	const names = listSpaces(dir);
 	if (names.length === 0) {
@@ -574,7 +782,7 @@ async function runSetup(target: PackageTarget, dir: string, io: CliIo, setupSour
 	for (const name of names) {
 		io.stdout.write(`== ${name}\n`);
 		const home = join(dir, name);
-		if ((await spawnSetup(setupFor(name, home, io), name, home, io)) !== 0) failed.push(name);
+		if ((await spawnSetup(setupFor(name, home, io), name, home, io, profile)) !== 0) failed.push(name);
 	}
 	if (failed.length > 0) {
 		io.stderr.write(`pi-space: setup failed in: ${failed.join(", ")}\n`);

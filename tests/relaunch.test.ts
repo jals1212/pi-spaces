@@ -85,6 +85,104 @@ test("relaunchEnv points Pi at the target and rewrites every variable inside the
 	assert.deepEqual(back, { PI_CODING_AGENT_DIR: home, PI_SPACES_BASE_HOME: home, PI_SPACES_DIR: join(target, "x") });
 });
 
+test("relaunchEnv with spaceEnv sets it for a space, removes it for base, and recomputes it between spaces", () => {
+	const path = (...parts: string[]) => resolve(join(...parts));
+	const base = path("/h/agent");
+	const dir = path("/h/spaces");
+	const spaceEnv = { HOST_CFG: "{home}/cfg", HOST_LABEL: "label-{name}" };
+	const plain = { PI_CODING_AGENT_DIR: base, UNRELATED: path("/elsewhere") };
+
+	// Entering a space: set from the templates, even when the base already had the variable.
+	const entered = relaunchEnv({ ...plain, HOST_CFG: path("/shared/cfg") }, { currentHome: base, targetHome: join(dir, "work"), baseHome: base, space: "work", spaceEnv });
+	assert.deepEqual(entered, {
+		PI_CODING_AGENT_DIR: join(dir, "work"),
+		UNRELATED: path("/elsewhere"),
+		// The template's own "/" stays as written, on every platform.
+		HOST_CFG: `${join(dir, "work")}/cfg`,
+		HOST_LABEL: "label-work",
+		PI_SPACES_BASE_HOME: base,
+		PI_SPACE: "work",
+		// The base's own values of those variables, kept to be put back on the way back to base.
+		PI_SPACES_BASE_ENV: JSON.stringify({ HOST_CFG: path("/shared/cfg") }),
+	});
+
+	// Between spaces: recomputed for the target, not moved from the old space.
+	const between = relaunchEnv(
+		{ ...entered, PI_CODING_AGENT_DIR: join(dir, "work"), HOST_CFG: join(dir, "work", "cfg"), HOST_LABEL: "label-work", HOST_OTHER: join(dir, "work", "x") },
+		{ currentHome: join(dir, "work"), targetHome: join(dir, "play"), baseHome: base, space: "play", spaceEnv },
+	);
+	assert.equal(between.HOST_CFG, `${join(dir, "play")}/cfg`);
+	assert.equal(between.HOST_LABEL, "label-play");
+	// A variable that is not in spaceEnv still moves with the home.
+	assert.equal(between.HOST_OTHER, join(dir, "play", "x"));
+	// The base's values travel unchanged from space to space.
+	assert.equal(between.PI_SPACES_BASE_ENV, entered.PI_SPACES_BASE_ENV);
+
+	// A value that pointed into the old space but whose template does not use {home} is replaced, not moved.
+	const replaced = relaunchEnv(
+		{ PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACES_BASE_HOME: base, PI_SPACE: "work", FIXED: join(dir, "work", "f") },
+		{ currentHome: join(dir, "work"), targetHome: join(dir, "play"), baseHome: base, space: "play", spaceEnv: { FIXED: "/fixed/{name}" } },
+	);
+	assert.equal(replaced.FIXED, "/fixed/play");
+
+	// Back to base: the variables are removed and the rest is as without spaceEnv.
+	const back = relaunchEnv(
+		{ PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACES_BASE_HOME: base, PI_SPACE: "work", HOST_CFG: join(dir, "work", "cfg"), HOST_LABEL: "label-work", UNRELATED: "u" },
+		{ currentHome: join(dir, "work"), targetHome: base, baseHome: base, space: undefined, spaceEnv },
+	);
+	assert.deepEqual(back, { PI_CODING_AGENT_DIR: base, PI_SPACES_BASE_HOME: base, UNRELATED: "u" });
+
+	// Back to base after a trip through two spaces: the base gets its own values again, untouched.
+	const restored = relaunchEnv({ ...between, PI_CODING_AGENT_DIR: join(dir, "play") }, { currentHome: join(dir, "play"), targetHome: base, baseHome: base, space: undefined, spaceEnv });
+	assert.equal(restored.HOST_CFG, path("/shared/cfg"));
+	assert.equal("HOST_LABEL" in restored, false);
+	assert.equal("PI_SPACES_BASE_ENV" in restored, false);
+
+	// A value with $ stays literal.
+	const dollar = relaunchEnv(plain, { currentHome: base, targetHome: join(dir, "work"), baseHome: base, space: "work", spaceEnv: { COST: "$&{name}$1" } });
+	assert.equal(dollar.COST, "$&work$1");
+});
+
+test("relaunchEnv without spaceEnv, or with an empty one, is the same as before", () => {
+	const path = (...parts: string[]) => resolve(join(...parts));
+	const base = path("/h/agent");
+	const input = { PI_CODING_AGENT_DIR: base, HOST_CFG: join(base, "cfg"), KEEP: "k" };
+	const target = { currentHome: base, targetHome: path("/s/work"), baseHome: base, space: "work" };
+	const without = relaunchEnv(input, target);
+	assert.deepEqual(without, { PI_CODING_AGENT_DIR: path("/s/work"), HOST_CFG: join(path("/s/work"), "cfg"), KEEP: "k", PI_SPACES_BASE_HOME: base, PI_SPACE: "work" });
+	assert.deepEqual(relaunchEnv(input, { ...target, spaceEnv: {} }), without);
+});
+
+test("planStartup passes the profile's spaceEnv to the environment of the relaunch", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "work"), { recursive: true });
+	const base = join(root, "agent");
+	const proc = (args: string[]) => ({ execPath: "/n/node", execArgv: [], argv: ["/n/node", "/p/cli.js", ...args] });
+	const spaceEnv = { HOST_CFG: "{home}/cfg" };
+
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work"]), dir, currentHome: base, env: { PI_CODING_AGENT_DIR: base }, spaceEnv }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js"] },
+		env: { PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", PI_SPACES_BASE_HOME: base, HOST_CFG: `${join(dir, "work")}/cfg`, PI_SPACES_BASE_ENV: "{}" },
+	});
+	// Base again: removed.
+	assert.deepEqual(
+		planStartup({
+			proc: proc(["--space", "base", "update"]),
+			dir,
+			currentHome: join(dir, "work"),
+			env: { PI_SPACES_BASE_HOME: base, PI_CODING_AGENT_DIR: join(dir, "work"), PI_SPACE: "work", HOST_CFG: join(dir, "work", "cfg") },
+			spaceEnv,
+		}),
+		{
+			kind: "relaunch",
+			command: { command: "/n/node", args: ["/p/cli.js", "update"] },
+			env: { PI_SPACES_BASE_HOME: base, PI_CODING_AGENT_DIR: base },
+		},
+	);
+});
+
 test("relaunchCommand reruns the same runtime and entry script with the filtered arguments", () => {
 	assert.deepEqual(relaunchCommand({ execPath: "/n/node", execArgv: ["--no-warnings"], argv: ["/n/node", "/p/cli.js", "-c", "--model", "m", "hi"] }), {
 		command: "/n/node",
