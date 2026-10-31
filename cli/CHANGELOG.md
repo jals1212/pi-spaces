@@ -6,6 +6,23 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.5.0
+
+### Added
+
+- A setup command for new spaces: `--setup <cmd>` or `PI_SPACES_SETUP`. `pi-space
+  new` runs it in the new space, and `pi-space setup <name|--every>` runs it
+  again (never in `base`). `{home}` and `{name}` become the space's folder and
+  name, and it runs with `PI_CODING_AGENT_DIR`, `PI_SPACE_HOME` and `PI_SPACE`
+  set to the space, so a program that runs Pi can install what it needs there,
+  for example `pi-space --setup 'my-launcher --home {home} setup' new work`. A
+  failed setup keeps the space and names the command to run it again.
+- `--setup` reaches the started Pi as `PI_SPACES_SETUP`.
+
+### Changed
+
+- Needs `@jals1212/pi-spaces` 0.5.0, which reserves the name `setup`.
+
 ## 0.4.0
 
 ### Added
