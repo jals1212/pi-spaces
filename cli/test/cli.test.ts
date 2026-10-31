@@ -1329,7 +1329,8 @@ test("new runs the profile's setup with its spaceEnv in the setup's environment,
 	assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: ml-setup --home ${home} --space work\nStart Pi in it with: pi-space work\n`);
 	assert.deepEqual(programsOf(r), [{ program: "ml-setup", args: ["--home", home, "--space", "work"] }]);
 	const env = setupEnvOf(r);
-	assert.equal(env.ML_CONFIG, join(home, "config"));
+	// The template's own "/" stays as written, on every platform.
+	assert.equal(env.ML_CONFIG, `${home}/config`);
 	assert.equal(env.ML_NAME, "work");
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.PI_SPACE, "work");
@@ -1339,10 +1340,10 @@ test("new runs the profile's setup with its spaceEnv in the setup's environment,
 test("setup <name> and setup --every run the profile's setup with its spaceEnv, each space with its own folder", async () => {
 	const one = await run(["--profile", "ml", "setup", "work"], { spaces: ["work"], files: PROFILE_SETUP });
 	assert.equal(one.code, 0, one.err);
-	assert.equal(setupEnvOf(one).ML_CONFIG, join(one.dir, "work", "config"));
+	assert.equal(setupEnvOf(one).ML_CONFIG, `${join(one.dir, "work")}/config`);
 	const every = await run(["--profile", "ml", "setup", "--every"], { spaces: ["a", "b"], files: PROFILE_SETUP });
 	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_NAME), ["a", "b"]);
-	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_CONFIG), [join(every.dir, "a", "config"), join(every.dir, "b", "config")]);
+	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_CONFIG), [`${join(every.dir, "a")}/config`, `${join(every.dir, "b")}/config`]);
 });
 
 test("the setup: --setup, then --profile, then PI_SPACES_SETUP, then the default profile; the selected profile's spaceEnv applies whichever it is", async () => {
