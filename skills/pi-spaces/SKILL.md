@@ -35,7 +35,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Remove a space | User request only: `pi-space remove <name> --yes` keeps a backup in `.backups` |
 | Packages of a space | `pi-space update <name|base|--every> --extensions`, `pi-space install <name> <source>`, `pi-space uninstall <name> <source>`, `pi-space list <name>`; without the CLI, `$PI_SPACES_COMMAND --space <name|base> update --extensions` |
 
-Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup`) are reserved.
+Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup`, `completion`) are reserved.
 
 ## Execution Steps
 

@@ -30,6 +30,8 @@ commands and options and a patch version fixes.
 
 ### Changed
 
+- `completion` is a reserved name, for `pi-space completion`. A space already
+  named `completion` is no longer listed; rename its folder by hand.
 - The spaces folder is `PI_SPACES_DIR`, else the matching profile's `dir`, else
   `spaces` next to the base home. `spacesDir` takes the profile's dir as an
   optional third argument.
