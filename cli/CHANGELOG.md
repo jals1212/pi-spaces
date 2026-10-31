@@ -6,6 +6,39 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.6.0
+
+### Added
+
+- Profiles: `--profile <name>` and `--config <path>`, before the command, use a
+  named profile of the config file (`~/.pi-spaces/config.json`, or
+  `PI_SPACES_CONFIG`, or `--config`) for the command, the spaces folder and the
+  setup command, and the file's `default` profile is used without `--profile`.
+  Each setting is taken from the call option, then the `--profile` profile,
+  then `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP`, then the
+  default profile, then the built-in. The built-in profile `pi` always exists.
+  With no file, nothing changes.
+- A profile's `spaceEnv` is added, filled in for the space, to the environment
+  of the setup command (`new` and `setup`), whichever setup command runs.
+- A profile's `home` is the base home a new space's declaration of the extension
+  is taken from, and `remove` and `rename` refuse the space that holds it.
+- The started Pi gets `--config` as `PI_SPACES_CONFIG`, and a profile's `dir`
+  and `setup` as `PI_SPACES_DIR` and `PI_SPACES_SETUP`, as `--dir` and `--setup`
+  do.
+- `pi-space completion zsh` prints a zsh completion script (`source
+  <(pi-space completion zsh)`): commands, profile names after `--profile`,
+  files after `--config` and `--dir`, and the spaces of the profile, config or
+  folder already typed. It calls the hidden `pi-space __complete`, which never
+  prints an error.
+- A config file that is wrong, or an unknown profile, exits with status 2 and
+  prints the problem.
+
+### Changed
+
+- `completion` is a command word, so it can no longer name a space.
+- Needs `@jals1212/pi-spaces` 0.6.0, which reads the config file
+  (`@jals1212/pi-spaces/config`) and reserves the name `completion`.
+
 ## 0.5.0
 
 ### Added
