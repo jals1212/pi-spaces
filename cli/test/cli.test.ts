@@ -6,15 +6,16 @@ import { dirname, join, normalize } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { launchCommand, main, parseCli, splitCommand, type CliIo } from "../src/cli.ts";
+import { launchCommand, main, parseCli, setupCommand, splitCommand, type CliIo } from "../src/cli.ts";
 
-const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args...] | <command> ...]
+const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] [<name> [pi args...] | <command> ...]
        pi-space --help | --version
   pi-space                                    pick a space and start Pi in it
   pi-space <name> [pi args...]                start Pi in a space ("base" for the home Pi starts with)
   pi-space list                               list the spaces
   pi-space list <name|--every>                list the packages of a space
-  pi-space new <name>                         create a space
+  pi-space new <name>                         create a space, then run the setup command in it when there is one
+  pi-space setup <name|--every>               run the setup command in a space, or in every space (never in base)
   pi-space rename <old> <new>                 rename a space
   pi-space remove <name>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                               (--yes skips the questions; --no-backup deletes without a backup)
@@ -23,10 +24,11 @@ const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [<name> [pi args
   pi-space uninstall <name|--every> <source>  remove a package from a space (more words go to Pi)
   pi-space --help                             print this help
   pi-space --version                          print the version
-  --every takes the place of the name: base first, then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
+  --every takes the place of the name: base first (not for setup), then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
 Options before the command, for this call only:
   --command <cmd>                             the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"
   --dir <path>                                the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too
+  --setup <cmd>                               the setup command instead of $PI_SPACES_SETUP; {home} and {name} become the space's folder and name
 `;
 
 interface Run {
@@ -94,10 +96,11 @@ async function run(
 			home: root,
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
-				const space = args[args.indexOf("--space") + 1];
-				if (options.echo) result.out += `ran ${space}\n`;
-				const failure = options.spawnErrors?.[space] ?? options.spawnError;
-				return failure ? { status: null, error: new Error(failure) } : { status: options.statuses?.[space] ?? options.status ?? 0 };
+				// A setup command has no --space: its space is in PI_SPACE.
+				const target = args.includes("--space") ? args[args.indexOf("--space") + 1] : (spawnOptions.env?.PI_SPACE ?? "");
+				if (options.echo) result.out += `ran ${target}\n`;
+				const failure = options.spawnErrors?.[target] ?? options.spawnError;
+				return failure ? { status: null, error: new Error(failure) } : { status: options.statuses?.[target] ?? options.status ?? 0 };
 			},
 			exit: (code) => void (result.code = code),
 		};
@@ -225,7 +228,7 @@ test("parseCli: --command and --dir come first, in any order, and apply to whate
 });
 
 test("parseCli: --command or --dir without a value, or given twice, is a usage error", () => {
-	for (const argv of [["--command"], ["--dir"], ["--command", ""], ["--dir", "", "work"], ["--dir", "/a", "--dir", "/b"], ["--command", "x", "--command", "y"]]) {
+	for (const argv of [["--command"], ["--dir"], ["--command", ""], ["--dir", "", "work"], ["--dir", "/a", "--dir", "/b"], ["--command", "x", "--command", "y"], ["--command", "  "], ["--dir", " ", "list"]]) {
 		assert.deepEqual(parseCli(argv), { kind: "usage" }, JSON.stringify(argv));
 	}
 });
@@ -1001,4 +1004,147 @@ test("bin/pi-space.mjs reports a program that does not exist with exit 1", () =>
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+const SETUP = "my-launcher --home {home} setup";
+
+test("parseCli: setup takes one name or --every and nothing else; --setup comes first with the other call options", () => {
+	assert.deepEqual(parseCli(["setup", "work"]), { kind: "setup", target: { name: "work" } });
+	assert.deepEqual(parseCli(["setup", "--every"]), { kind: "setup", target: { every: true } });
+	assert.deepEqual(parseCli(["setup", "-x"]), { kind: "unknown-option", option: "-x" });
+	for (const argv of [["setup"], ["setup", "a", "b"], ["setup", "--every", "x"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	assert.deepEqual(parseCli(["--setup", SETUP, "--dir", "/d", "new", "w"]), { kind: "new", name: "w", setup: SETUP, dir: "/d" });
+	for (const argv of [["--setup"], ["--setup", ""], ["--setup", "  ", "new", "w"], ["--setup", "a", "--setup", "b"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	assert.deepEqual(parseCli(["work", "--setup", "x"]), { kind: "launch", name: "work", args: ["--setup", "x"] });
+});
+
+test("setupCommand: splits like --command and puts the space's folder and name in place of {home} and {name} in every word", () => {
+	assert.deepEqual(setupCommand(SETUP, "/s/work", "work"), { program: "my-launcher", args: ["--home", "/s/work", "setup"] });
+	assert.deepEqual(setupCommand(`env "CFG={home}/my config" run --space={name} {home}`, "/s/my space", "w"), {
+		program: "env",
+		args: ["CFG=/s/my space/my config", "run", "--space=w", "/s/my space"],
+	});
+	assert.deepEqual(setupCommand("run {homes} {HOME}", "/h", "n"), { program: "run", args: ["{homes}", "{HOME}"] });
+	assert.throws(() => setupCommand("run 'a", "/h", "n"), /unclosed ' quote/);
+	// A folder or name with "$" is put in as written, never read as a replacement pattern.
+	assert.deepEqual(setupCommand("run {home} {name}", "/s/a$&b$'c$$", "x$1"), { program: "run", args: ["/s/a$&b$'c$$", "x$1"] });
+});
+
+function setupEnvOf(r: Run, index = 0): Record<string, string> {
+	return r.spawned[index].options.env as Record<string, string>;
+}
+
+test("new runs the setup command in the new space after creating it, with the space as the agent home", async () => {
+	for (const [argv, env] of [
+		[["--setup", SETUP, "new", "work"], {}],
+		[["new", "work"], { PI_SPACES_SETUP: SETUP }],
+	] as [string[], Record<string, string>][]) {
+		const r = await run(argv, { env: { ...env, PI_CODING_AGENT_DIR: "/some/home", OTHER: "kept" } });
+		const home = join(r.dir, "work");
+		assert.equal(r.code, 0, r.err);
+		assert.equal(r.err, "");
+		assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: my-launcher --home ${home} setup\nStart Pi in it with: pi-space work\n`);
+		assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+		assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "my-launcher", args: ["--home", home, "setup"] }]);
+		assert.equal(r.spawned[0].options.stdio, "inherit");
+		const childEnv = setupEnvOf(r);
+		assert.equal(childEnv.PI_CODING_AGENT_DIR, home);
+		assert.equal(childEnv.PI_SPACE, "work");
+		assert.equal(childEnv.PI_SPACE_HOME, home);
+		assert.equal(childEnv.PI_SPACES_DIR, r.dir);
+		assert.equal(childEnv.PI_SPACES_SETUP, SETUP);
+		assert.equal(childEnv.OTHER, "kept");
+	}
+});
+
+test("new without a setup command, or with a blank one, runs nothing", async () => {
+	for (const env of [{}, { PI_SPACES_SETUP: "  " }]) {
+		const r = await run(["new", "work"], { env });
+		assert.equal(r.code, 0, r.err);
+		assert.equal(r.out, `Created space "work" at ${join(r.dir, "work")}.\nStart Pi in it with: pi-space work\n`);
+		assert.equal(r.spawned.length, 0);
+	}
+});
+
+test("new keeps the space when its setup fails, exits with the setup's status and says how to run it again", async () => {
+	const failed = await run(["--setup", SETUP, "new", "work"], { status: 5 });
+	assert.equal(failed.code, 5);
+	assert.deepEqual(failed.left, ["work"]);
+	assert.equal(failed.err, 'pi-space: Setup failed in space "work" (exit status 5); the space is kept. Run it again with: pi-space setup work\n');
+	const missing = await run(["--setup", SETUP, "new", "work"], { spawnError: "spawn my-launcher ENOENT" });
+	assert.equal(missing.code, 1);
+	assert.deepEqual(missing.left, ["work"]);
+	assert.equal(
+		missing.err,
+		'pi-space: could not start my-launcher: spawn my-launcher ENOENT\npi-space: Setup failed in space "work" (exit status 1); the space is kept. Run it again with: pi-space setup work\n',
+	);
+});
+
+test("new with an unclosed quote in the setup command exits 2 naming its source and creates nothing", async () => {
+	const option = await run(["--setup", "run 'a", "new", "work"]);
+	assert.equal(option.code, 2);
+	assert.equal(option.err, "pi-space: --setup: the command has an unclosed ' quote.\n");
+	assert.deepEqual(option.left, []);
+	const variable = await run(["new", "work"], { env: { PI_SPACES_SETUP: '"x' } });
+	assert.equal(variable.code, 2);
+	assert.equal(variable.err, 'pi-space: PI_SPACES_SETUP: the command has an unclosed " quote.\n');
+	assert.deepEqual(variable.left, []);
+	assert.equal(variable.spawned.length, 0);
+});
+
+test("setup <name> runs the setup command in that space and exits with its status", async () => {
+	const r = await run(["setup", "work"], { spaces: ["work"], status: 3, env: { PI_SPACES_SETUP: SETUP } });
+	const home = join(r.dir, "work");
+	assert.equal(r.code, 3);
+	assert.equal(r.out, "");
+	assert.equal(r.err, "");
+	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "my-launcher", args: ["--home", home, "setup"] }]);
+	assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, home);
+	assert.equal(setupEnvOf(r).PI_SPACE, "work");
+});
+
+test("setup refuses base, an unknown or invalid space with exit 1, and a missing setup command with exit 2, running nothing", async () => {
+	const base = await run(["setup", "base"], { env: { PI_SPACES_SETUP: SETUP } });
+	assert.equal(base.code, 1);
+	assert.equal(base.err, "pi-space: setup runs only in spaces, not in base (the home Pi starts with).\n");
+	const ghost = await run(["setup", "ghost"], { spaces: ["work"], env: { PI_SPACES_SETUP: SETUP } });
+	assert.equal(ghost.code, 1);
+	assert.equal(ghost.err, 'pi-space: Space "ghost" does not exist.\n');
+	const invalid = await run(["setup", "Bad Name"], { env: { PI_SPACES_SETUP: SETUP } });
+	assert.equal(invalid.code, 1);
+	assert.match(invalid.err, /^pi-space: Invalid space name "Bad Name"/);
+	for (const env of [{}, { PI_SPACES_SETUP: " " }]) {
+		const none = await run(["setup", "work"], { spaces: ["work"], env });
+		assert.equal(none.code, 2);
+		assert.equal(none.err, "pi-space: There is no setup command; set PI_SPACES_SETUP or give --setup <cmd>.\n");
+	}
+	const quote = await run(["--setup", "x 'y", "setup", "--every"], { spaces: ["work"] });
+	assert.equal(quote.code, 2);
+	assert.equal(quote.out, "");
+	assert.equal(quote.err, "pi-space: --setup: the command has an unclosed ' quote.\n");
+	for (const r of [base, ghost, invalid, quote]) assert.equal(r.spawned.length, 0);
+});
+
+test("setup --every runs in every space in order, never in base, goes on after a failure and exits 1 naming the failed ones", async () => {
+	const r = await run(["--setup", SETUP, "setup", "--every"], { spaces: ["work", "alpha", "beta"], echo: true, statuses: { beta: 2 } });
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "== alpha\nran alpha\n== beta\nran beta\n== work\nran work\n");
+	assert.equal(r.err, "pi-space: setup failed in: beta\n");
+	assert.deepEqual(r.spawned.map(({ args }) => args[1]), ["alpha", "beta", "work"].map((name) => join(r.dir, name)));
+	const ok = await run(["--setup", SETUP, "setup", "--every"], { spaces: ["work"] });
+	assert.equal(ok.code, 0, ok.err);
+	const none = await run(["--setup", SETUP, "setup", "--every"]);
+	assert.equal(none.code, 0);
+	assert.equal(none.out, "No spaces yet. Create one with pi-space new <name>.\n");
+	assert.equal(none.spawned.length, 0);
+});
+
+test("--setup reaches the started Pi as PI_SPACES_SETUP, so /space new can name it; nothing else changes", async () => {
+	const r = await run(["--setup", SETUP, "work", "-c"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.spawned[0].args, ["--space", "work", "-c"]);
+	assert.equal(setupEnvOf(r).PI_SPACES_SETUP, SETUP);
+	assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, "/some/home");
+	const packages = await run(["--setup", SETUP, "update", "work"], { spaces: ["work"] });
+	assert.equal(setupEnvOf(packages).PI_SPACES_SETUP, SETUP);
 });

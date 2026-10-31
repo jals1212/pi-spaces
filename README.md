@@ -59,7 +59,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | --- | --- |
 | `/space` | Opens a list of the other spaces and restarts Pi in the one you pick. Without the interactive terminal it lists them instead. |
 | `/space list` | Lists `base` and every space, with `*` on the active one. |
-| `/space new <name>` | Creates an empty space. |
+| `/space new <name>` | Creates an empty space. When a setup command is set (`PI_SPACES_SETUP`), it names `pi-space setup <name>` to run from a shell. |
 | `/space switch <name>` | Restarts Pi in that space. `base` is the home Pi started with. |
 | `/space switch` | Same as `/space`. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
@@ -71,11 +71,11 @@ The status line shows `◆ <name>` while a space is active. In the base home it 
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 
-**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved, and so are the command words `list`, `new`, `remove`, `rename`, `switch`, `update`, `install` and `uninstall`.
+**Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved, and so are the command words `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall` and `setup`.
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space new <name>` creates one, `pi-space rename <old> <new>` renames one, `pi-space remove <name>` deletes one, and `pi-space list` lists them. `pi-space list|update|install|uninstall <name|--every> ...` runs Pi's package commands in a space, or in every space. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces. It only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell: `pi-space` picks a space from a numbered list and starts Pi in it, `pi-space <name> [pi args...]` starts Pi in a named space, `pi-space new <name>` creates one, `pi-space rename <old> <new>` renames one, `pi-space remove <name>` deletes one, and `pi-space list` lists them. `pi-space list|update|install|uninstall <name|--every> ...` runs Pi's package commands in a space, or in every space. `--command` and `--dir` (or `PI_SPACES_COMMAND` and `PI_SPACES_DIR`) make it run another program that runs Pi, with that program's spaces, and `--setup` (or `PI_SPACES_SETUP`) gives that program's command to prepare a new space: `pi-space new` runs it, and `pi-space setup <name|--every>` runs it again. It only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Configuration reference
 
@@ -91,6 +91,7 @@ Read:
 | --- | --- |
 | `PI_SPACES_DIR` | The spaces folder. A relative value is taken from your home folder. Default: `spaces` next to the base home. |
 | `PI_SPACES_COMMAND` | For the `pi-space` command ([`cli/README.md`](cli/README.md)): the program to run, before `--space <name>`. Default: `pi`. |
+| `PI_SPACES_SETUP` | For the `pi-space` command: the command that prepares a new space. `/space new` names `pi-space setup <name>` when it is set. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; its parent holds the default spaces folder. Default: `~/.pi/agent`. |
 
 Set for the Pi a switch starts:

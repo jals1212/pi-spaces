@@ -38,7 +38,12 @@ export function spacesDir(env: Env = process.env, home: string = osHomedir()): s
 }
 
 // The words of the pi-space and /space commands, so a space name never reads as one.
-const COMMANDS = new Set(["list", "new", "remove", "rename", "switch", "update", "install", "uninstall"]);
+const COMMANDS = new Set(["list", "new", "remove", "rename", "switch", "update", "install", "uninstall", "setup"]);
+
+/** True when PI_SPACES_SETUP holds a setup command, not just blanks. */
+export function hasSetupCommand(env: Env): boolean {
+	return (env.PI_SPACES_SETUP ?? "").trim() !== "";
+}
 
 /** Returns the error message for an unusable name, or undefined when the name is valid. */
 export function validateName(name: string): string | undefined {
