@@ -239,7 +239,14 @@ const COMMANDS: Record<string, CommandHelp> = {
 	},
 };
 
+/** --help after a command; GENERAL_OPTIONS has the --help that comes first. */
 const HELP_OPTION = { flag: "--help", alias: "-h", text: "the help of this command" };
+
+/** The options that stand alone in first place, as completion describes them. */
+const GENERAL_OPTIONS: [flag: string, text: string][] = [
+	["--help", "print the help, or a command's: --help <command>"],
+	["--version", "print the version"],
+];
 
 /** The help of one command: usage, what it does, arguments, options, the call options that apply, and examples. */
 function commandHelp(name: string): string {
@@ -284,7 +291,7 @@ export function parseCli(args: string[]): CliCommand {
 function parseCommand(args: string[]): CliCommand {
 	const [first, ...rest] = args;
 	if (first === undefined) return { kind: "picker" };
-	if (isHelpFlag(first)) return rest.length === 0 ? { kind: "help" } : rest.length === 1 ? { kind: "command-help", command: rest[0] } : { kind: "usage" };
+	if (isHelpFlag(first)) return parseHelp(rest);
 	if (first === "--version" || first === "-v") return { kind: "version" };
 	if (Object.hasOwn(REPLACED, first)) return { kind: "replaced", option: first, instead: REPLACED[first as keyof typeof REPLACED] };
 	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
@@ -306,6 +313,13 @@ function parseCommand(args: string[]): CliCommand {
 		return { kind: "remove", name: names[0], yes: yes === 1, backup: noBackup === 0 };
 	}
 	return { kind: "launch", name: first, args: rest };
+}
+
+/** `--help` alone is the general help; `--help <command>` is that command's. */
+function parseHelp(rest: string[]): CliCommand {
+	if (rest.length === 0) return { kind: "help" };
+	if (rest.length === 1) return { kind: "command-help", command: rest[0] };
+	return { kind: "usage" };
 }
 
 /** `setup <name>` or `setup --every`: exactly one argument. */
@@ -627,7 +641,7 @@ const ZSH_COMPLETION = [
 	"#compdef pi-space",
 	"# zsh completion for pi-space. Load it from .zshrc with: source <(pi-space completion zsh)",
 	"_pi_space() {",
-	"  local -a lines cmds spaces profiles shells opts",
+	"  local -a lines cmds spaces targets profiles shells opts",
 	"  local line group value text ret=1",
 	'  lines=("${(@f)$(command "${words[1]}" __complete "${(@)words[2,CURRENT-1]}" 2>/dev/null)}")',
 	`  if [[ "\${lines[1]}" == ${FILES} ]]; then`,
@@ -645,6 +659,7 @@ const ZSH_COMPLETION = [
 	'    case "$group" in',
 	'      command) cmds+=("$value:$text") ;;',
 	'      space) spaces+=("$value:$text") ;;',
+	'      target) targets+=("$value:$text") ;;',
 	'      profile) profiles+=("$value:$text") ;;',
 	'      shell) shells+=("$value:$text") ;;',
 	'      option) [[ "$PREFIX" == -* ]] && opts+=("$value:$text") ;;',
@@ -652,6 +667,7 @@ const ZSH_COMPLETION = [
 	"  done",
 	"  (( $#cmds )) && _describe -t commands 'command' cmds && ret=0",
 	"  (( $#spaces )) && _describe -t spaces 'space' spaces && ret=0",
+	"  (( $#targets )) && _describe -t targets 'target' targets && ret=0",
 	"  (( $#profiles )) && _describe -t profiles 'profile' profiles && ret=0",
 	"  (( $#shells )) && _describe -t shells 'shell' shells && ret=0",
 	"  (( $#opts )) && _describe -t options 'option' opts && ret=0",
@@ -661,8 +677,8 @@ const ZSH_COMPLETION = [
 	"",
 ].join("\n");
 
-/** The groups of a `__complete` line. */
-type Group = "command" | "space" | "profile" | "shell" | "option";
+/** The groups of a `__complete` line; `target` is --every, which stands in for a space name. */
+type Group = "command" | "space" | "target" | "profile" | "shell" | "option";
 
 /** One `__complete` line; the description never holds a tab or a newline. */
 function candidate(group: Group, value: string, text: string): string {
@@ -684,10 +700,10 @@ function complete(words: string[], io: CliIo): void {
 	return io.exit(0);
 }
 
-/** The first-place commands: `completion` is left out (it still works typed in full). */
-function commandCandidates(): string[] {
+/** The commands with their summary; in first place `completion` is left out (it still works typed in full), after --help it is not. */
+function commandCandidates(withCompletion: boolean): string[] {
 	return Object.entries(COMMANDS)
-		.filter(([name]) => name !== "completion")
+		.filter(([name]) => withCompletion || name !== "completion")
 		.map(([name, help]) => candidate("command", name, help.summary));
 }
 
@@ -696,7 +712,7 @@ function firstOptions(call: CallOptions, alone: boolean): string[] {
 	const calls = Object.entries(CALL_OPTIONS)
 		.filter(([, key]) => call[key] === undefined)
 		.map(([flag, key]) => candidate("option", flag, CALL_HELP[key][1]));
-	const general = alone ? [candidate("option", "--help", "print the help"), candidate("option", "--version", "print the version")] : [];
+	const general = alone ? GENERAL_OPTIONS.map(([flag, text]) => candidate("option", flag, text)) : [];
 	return [...calls, ...general];
 }
 
@@ -707,7 +723,7 @@ function spaceCandidates(spaces: string[], withBase: boolean): string[] {
 
 /** What follows a command word: its target, its own options and --help. */
 function commandArguments(command: string, spaces: string[]): string[] {
-	const every = (text: string) => candidate("space", "--every", text);
+	const every = (text: string) => candidate("target", "--every", text);
 	const options = [...COMMANDS[command].options, HELP_OPTION].map((option) => candidate("option", option.flag, option.text));
 	switch (command) {
 		case "remove":
@@ -740,8 +756,10 @@ function candidates(words: string[], io: CliIo): string[] {
 	const { dir } = resolveSettings(call, io);
 	const rest = words.slice(index);
 	const spaces = listSpaces(dir);
-	if (rest.length === 0) return [...commandCandidates(), ...spaceCandidates(spaces, true), ...firstOptions(call, index === 0)];
-	if (rest.length > 1 || !Object.hasOwn(COMMANDS, rest[0])) return [];
+	if (rest.length === 0) return [...commandCandidates(false), ...spaceCandidates(spaces, true), ...firstOptions(call, index === 0)];
+	if (rest.length > 1) return [];
+	if (isHelpFlag(rest[0])) return commandCandidates(true);
+	if (!Object.hasOwn(COMMANDS, rest[0])) return [];
 	return commandArguments(rest[0], spaces);
 }
 
