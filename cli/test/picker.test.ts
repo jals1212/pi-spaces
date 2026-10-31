@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { initialState, parseKeys, type PickerItem, renderPicker, runPicker, step, visibleItems } from "../src/picker.ts";
+import { displayWidth, initialState, parseKeys, type PickerHost, type PickerItem, renderPicker, runPicker, splitIncomplete, step, visibleItems } from "../src/picker.ts";
 
 const ITEMS: PickerItem[] = [
 	{ group: "gentle", name: "base" },
@@ -192,4 +193,103 @@ test("runPicker: if the process exits while it runs, raw mode is turned off and 
 	assert.ok(term.out().endsWith("\x1b[?25h"));
 	term.stdin.end();
 	await running;
+});
+
+/** A host for runPicker that records the signals it is asked to raise, so no test kills the runner. */
+function fakeHost() {
+	const killed: Array<[number, string]> = [];
+	const host = Object.assign(new EventEmitter(), { pid: 4242, kill: (pid: number, signal: string) => void killed.push([pid, signal]) });
+	return { host: host as PickerHost & EventEmitter, killed };
+}
+
+const SIGNALS = ["SIGTERM", "SIGHUP", "SIGINT"];
+
+test("runPicker: SIGTERM, SIGHUP or SIGINT while it runs restore the terminal, then raise the same signal again", async () => {
+	for (const signal of SIGNALS) {
+		const term = terminal([]);
+		const { host, killed } = fakeHost();
+		void runPicker(ITEMS, term, 50, host);
+		assert.equal(host.listenerCount(signal), 1, signal);
+		host.emit(signal);
+		assert.deepEqual(term.stdin.raw, [true, false], signal);
+		assert.ok(term.out().endsWith("\x1b[J\x1b[?25h"), signal);
+		assert.deepEqual(killed, [[4242, signal]], signal);
+		assert.deepEqual(host.eventNames(), [], signal);
+		assert.equal(term.stdin.listenerCount("data"), 0, signal);
+	}
+});
+
+test("runPicker: after a normal finish no signal or exit listener is left on the host", async () => {
+	const { host, killed } = fakeHost();
+	const running = runPicker(ITEMS, terminal(["\r"]), 50, host);
+	assert.deepEqual(host.eventNames().map(String).sort(), ["SIGHUP", "SIGINT", "SIGTERM", "exit"]);
+	await running;
+	assert.deepEqual(host.eventNames(), []);
+	assert.deepEqual(killed, []);
+});
+
+test("runPicker: the host's exit listener restores the terminal", async () => {
+	const term = terminal([]);
+	const { host } = fakeHost();
+	const running = runPicker(ITEMS, term, 50, host);
+	host.emit("exit");
+	assert.deepEqual(term.stdin.raw, [true, false]);
+	assert.ok(term.out().endsWith("\x1b[?25h"));
+	term.stdin.end();
+	await running;
+});
+
+test("splitIncomplete: holds an ESC, ESC O, or ESC [ with no final byte yet, and nothing else", () => {
+	assert.deepEqual(splitIncomplete("ab\x1b"), ["ab", "\x1b"]);
+	assert.deepEqual(splitIncomplete("\x1bO"), ["", "\x1bO"]);
+	assert.deepEqual(splitIncomplete("a\x1b["), ["a", "\x1b["]);
+	assert.deepEqual(splitIncomplete("\x1b[1;5"), ["", "\x1b[1;5"]);
+	assert.deepEqual(splitIncomplete("\x1b[ "), ["", "\x1b[ "]);
+	assert.deepEqual(splitIncomplete("\x1b[A"), ["\x1b[A", ""]);
+	assert.deepEqual(splitIncomplete("\x1b[3~"), ["\x1b[3~", ""]);
+	assert.deepEqual(splitIncomplete("\x1bOB"), ["\x1bOB", ""]);
+	assert.deepEqual(splitIncomplete("\x1bx"), ["\x1bx", ""]);
+	assert.deepEqual(splitIncomplete("abc"), ["abc", ""]);
+	assert.deepEqual(splitIncomplete(""), ["", ""]);
+});
+
+test("runPicker: a sequence split after its start is joined with the rest, not taken as Esc or text", async () => {
+	assert.deepEqual(await runPicker(ITEMS, terminal(["\x1b[", "B", "\r"])), { item: ITEMS[2], interrupted: false });
+	assert.deepEqual(await runPicker(ITEMS, terminal(["\x1bO", "B", "\r"])), { item: ITEMS[2], interrupted: false });
+	// An unknown sequence split inside its parameters is skipped as one: the cursor stays on the active item.
+	assert.deepEqual(await runPicker(ITEMS, terminal(["\x1b[1;5", "A", "\r"])), { item: ITEMS[1], interrupted: false });
+});
+
+test("runPicker: a held incomplete sequence other than a lone ESC is dropped when the wait runs out: no Esc, no move", async () => {
+	const plain = ITEMS.map(({ active, ...item }) => item);
+	const term = terminal(["\x1b["]);
+	const running = runPicker(plain, term, 10);
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	term.stdin.write("\r");
+	assert.deepEqual(await running, { item: plain[0], interrupted: false });
+});
+
+test("displayWidth: wide characters count 2, combining marks and joiners 0, the rest 1", () => {
+	assert.equal(displayWidth("abc"), 3);
+	assert.equal(displayWidth("日本語"), 6);
+	assert.equal(displayWidth("ＡＢ"), 4);
+	assert.equal(displayWidth("한글"), 4);
+	assert.equal(displayWidth("😀"), 2);
+	assert.equal(displayWidth("e\u0301"), 1);
+	assert.equal(displayWidth("a\u200db\ufe0f"), 2);
+	assert.equal(displayWidth("ñ…↑"), 3);
+});
+
+test("renderPicker: lines of wide characters are cut by display width, never splitting a wide character past the edge", () => {
+	const names = [{ name: "日本語のスペース名前", active: true }, { name: "漢字" }, { name: "emoji😀😀😀😀😀😀" }, { name: "cafe\u0301-cafe\u0301-cafe\u0301" }];
+	for (const columns of [8, 9, 10, 11, 12, 20]) {
+		const lines = renderPicker(initialState(names), 24, columns);
+		assert.ok(lines.every((line) => displayWidth(line) <= columns), `${columns}: ${JSON.stringify(lines)}`);
+	}
+	// "  > " takes 4 columns; 5 left minus the ellipsis is 4: two wide characters.
+	assert.equal(renderPicker(initialState(names), 24, 9)[2], "  > 日本…");
+	// An odd budget leaves a column empty rather than cutting a character in half.
+	assert.equal(renderPicker(initialState(names), 24, 10)[2], "  > 日本…");
+	// A combining mark does not count: 21 code points, 18 columns, so the whole line fits in 19.
+	assert.equal(renderPicker(initialState(names), 24, 19)[5], "    cafe\u0301-cafe\u0301-cafe\u0301");
 });

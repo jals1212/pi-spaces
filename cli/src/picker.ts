@@ -71,6 +71,19 @@ export function parseKeys(chunk: string): Key[] {
 	return keys;
 }
 
+/**
+ * A chunk split into what is complete and the incomplete escape sequence at its end (empty when none): a lone
+ * ESC, ESC O, or ESC [ with parameter and intermediate bytes but no final byte yet. A terminal may send the
+ * rest of such a sequence in the next chunk.
+ */
+export function splitIncomplete(chunk: string): [complete: string, tail: string] {
+	const start = chunk.lastIndexOf("\x1b");
+	if (start === -1) return [chunk, ""];
+	const tail = chunk.slice(start);
+	const incomplete = tail === "\x1b" || tail === "\x1bO" || (tail.startsWith("\x1b[") && /^[\x20-\x3f]*$/.test(tail.slice(2)));
+	return incomplete ? [chunk.slice(0, start), tail] : [chunk, ""];
+}
+
 /** The items whose name or group holds the query, case-insensitive, in order. */
 export function visibleItems(state: PickerState): PickerItem[] {
 	const query = state.query.toLowerCase();
@@ -112,11 +125,44 @@ export function step(state: PickerState, key: Key): Step {
 
 const HINT = "Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter";
 
-/** The line cut to `columns` code points, ending with "…" when it was longer, so it never wraps. */
+/** The terminal columns of one character: 0 for combining marks and joiners, 2 for East Asian wide ones and emoji, else 1. */
+function charWidth(char: string): number {
+	const code = char.codePointAt(0) as number;
+	if ((code >= 0x200b && code <= 0x200f) || (code >= 0xfe00 && code <= 0xfe0f) || /^[\p{Mn}\p{Me}]$/u.test(char)) return 0;
+	const wide =
+		(code >= 0x1100 && code <= 0x115f) ||
+		(code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+		(code >= 0xac00 && code <= 0xd7a3) ||
+		(code >= 0xf900 && code <= 0xfaff) ||
+		(code >= 0xfe30 && code <= 0xfe4f) ||
+		(code >= 0xff00 && code <= 0xff60) ||
+		(code >= 0xffe0 && code <= 0xffe6) ||
+		(code >= 0x1f300 && code <= 0x1f64f) ||
+		(code >= 0x1f900 && code <= 0x1f9ff) ||
+		(code >= 0x20000 && code <= 0x3fffd);
+	return wide ? 2 : 1;
+}
+
+/** The columns a text takes on a terminal. */
+export function displayWidth(text: string): number {
+	let width = 0;
+	for (const char of text) width += charWidth(char);
+	return width;
+}
+
+/** The line cut to `columns` terminal columns, ending with "…" when it was longer, so it never wraps. */
 function fit(line: string, columns: number): string {
-	const chars = [...line];
-	if (chars.length <= columns) return line;
-	return columns <= 1 ? chars.slice(0, Math.max(0, columns)).join("") : `${chars.slice(0, columns - 1).join("")}…`;
+	if (displayWidth(line) <= columns) return line;
+	// Keep one column for the "…" (none when there is room for just one); a wide character is never cut in half.
+	const room = columns <= 1 ? Math.max(0, columns) : columns - 1;
+	let kept = "";
+	let width = 0;
+	for (const char of line) {
+		if (width + charWidth(char) > room) break;
+		kept += char;
+		width += charWidth(char);
+	}
+	return columns <= 1 ? kept : `${kept}…`;
 }
 
 /**
@@ -158,6 +204,18 @@ export interface PickerTerminal {
 	stdout: { write(text: string): unknown; rows?: number; columns?: number };
 }
 
+/** What runPicker needs of the process: its listeners and the way to raise a signal; the real process by default. */
+export interface PickerHost {
+	pid: number;
+	on(event: string, listener: () => void): unknown;
+	once(event: string, listener: () => void): unknown;
+	off(event: string, listener: () => void): unknown;
+	kill(pid: number, signal: string): unknown;
+}
+
+/** The signals that end the picker's process: it restores the terminal, then dies of the same signal. */
+const SIGNALS = ["SIGTERM", "SIGHUP", "SIGINT"] as const;
+
 /** The chosen item, none when cancelled (Esc, Ctrl-D, the end of input), and whether it was Ctrl-C. */
 export interface PickerResult {
 	item: PickerItem | undefined;
@@ -170,10 +228,12 @@ const ESCAPE_WAIT_MS = 50;
 /**
  * Runs the picker on a terminal: raw mode while it runs, each frame drawn over the last, and everything put
  * back before it returns (raw mode off, the picker erased, the cursor shown, stdin paused) so Pi can start clean.
- * That also holds when drawing throws (the promise rejects) or the process exits while it runs.
- * A chunk ending in a bare ESC is held for `escapeWaitMs` to join the next chunk; if none comes, it is the Esc key.
+ * That also holds when drawing throws (the promise rejects) or the process exits while it runs; on SIGTERM,
+ * SIGHUP or SIGINT the terminal is restored and the signal raised again, so the process ends as it would have.
+ * A chunk ending in an incomplete escape sequence is held for `escapeWaitMs` to join the next chunk; if none
+ * comes, a held lone ESC is the Esc key and any other held sequence is dropped.
  */
-export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeWaitMs = ESCAPE_WAIT_MS): Promise<PickerResult> {
+export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeWaitMs = ESCAPE_WAIT_MS, host: PickerHost = process): Promise<PickerResult> {
 	const { stdin, stdout } = terminal;
 	let state = initialState(items);
 	let drawn = 0;
@@ -186,17 +246,26 @@ export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeW
 	};
 	return new Promise<PickerResult>((resolve, reject) => {
 		let finished = false;
-		// A bare ESC waiting for the rest of its sequence, and the timer that turns it into the Esc key.
+		// An incomplete escape sequence waiting for the rest of it, and the timer that ends the wait.
 		let pending = "";
 		let held: ReturnType<typeof setTimeout> | undefined;
 		const finish = (outcome: { result: PickerResult } | { error: unknown }) => {
 			if (finished) return;
 			finished = true;
 			clearTimeout(held);
-			process.off("exit", onExit);
+			stopListening();
+			restore();
+			if ("error" in outcome) reject(outcome.error);
+			else resolve(outcome.result);
+		};
+		const stopListening = () => {
+			host.off("exit", onExit);
+			for (const signal of SIGNALS) host.off(signal, onSignal[signal]);
 			stdin.off("data", onData);
 			stdin.off("end", onEnd);
-			// Restoring comes first and must not stop halfway: a write that fails here must not keep the terminal raw.
+		};
+		// Restoring must not stop halfway: a write that fails here must not keep the terminal raw.
+		const restore = () => {
 			try {
 				stdin.setRawMode?.(false);
 				stdin.pause();
@@ -207,9 +276,21 @@ export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeW
 			try {
 				stdout.write("\x1b[?25h");
 			} catch {}
-			if ("error" in outcome) reject(outcome.error);
-			else resolve(outcome.result);
 		};
+		// A signal: restore, stop listening so its default action applies, then raise it again. The promise never settles.
+		const onSignal = Object.fromEntries(
+			SIGNALS.map((signal) => [
+				signal,
+				() => {
+					if (finished) return;
+					finished = true;
+					clearTimeout(held);
+					stopListening();
+					restore();
+					host.kill(host.pid, signal);
+				},
+			]),
+		) as Record<(typeof SIGNALS)[number], () => void>;
 		// The process is going away without finish (exit, a throw elsewhere): leave the terminal usable.
 		const onExit = () => {
 			try {
@@ -242,20 +323,23 @@ export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeW
 				clearTimeout(held);
 				const text = pending + data.toString();
 				pending = "";
-				if (!text.endsWith("\x1b")) {
+				const [complete, tail] = splitIncomplete(text);
+				if (tail === "") {
 					handle(text);
 					return;
 				}
-				// A bare ESC at the end may be the start of a sequence the terminal split: hold it for the next chunk.
-				if (text.length > 1 && handle(text.slice(0, -1))) return;
-				pending = "\x1b";
+				// An incomplete sequence at the end may be one the terminal split: hold it for the next chunk.
+				if (complete !== "" && handle(complete)) return;
+				pending = tail;
 				held = setTimeout(() => guarded(() => {
 					pending = "";
-					handle("\x1b");
+					// A lone ESC is the Esc key; any other half sequence is dropped.
+					if (tail === "\x1b") handle("\x1b");
 				}), escapeWaitMs);
 			});
 		const onEnd = () => finish({ result: { item: undefined, interrupted: false } });
-		process.on("exit", onExit);
+		host.on("exit", onExit);
+		for (const signal of SIGNALS) host.once(signal, onSignal[signal]);
 		guarded(() => {
 			stdin.setRawMode?.(true);
 			stdout.write("\x1b[?25l");
