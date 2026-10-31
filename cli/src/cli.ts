@@ -1077,7 +1077,7 @@ function pickerChoices(call: CallOptions, settings: Settings, callerIo: CliIo): 
 
 /**
  * A bare `pi-space` on a terminal: the picker, then Pi in the chosen space. A space of another profile starts
- * with that profile's settings (and the --config of this call). Esc or the end of input exit 0; Ctrl-C exits 130.
+ * with that profile's settings (and the --config and --setup of this call). Esc or the end of input exit 0; Ctrl-C exits 130.
  */
 async function pick(call: CallOptions, settings: Settings, callerIo: CliIo): Promise<void> {
 	const { dir, commandSource } = settings;
@@ -1099,7 +1099,7 @@ async function pick(call: CallOptions, settings: Settings, callerIo: CliIo): Pro
 	if (choice.profile === undefined) return launch(choice.name, [], dir, io, commandSource);
 	let chosen: Settings;
 	try {
-		chosen = resolveSettings({ ...(call.config !== undefined ? { config: call.config } : {}), profile: choice.profile }, callerIo);
+		chosen = resolveSettings({ ...(call.config !== undefined ? { config: call.config } : {}), ...(call.setup !== undefined ? { setup: call.setup } : {}), profile: choice.profile }, callerIo);
 	} catch (error) {
 		if (!(error instanceof ConfigError)) throw error;
 		io.stderr.write(`pi-space: ${error.message}\n`);

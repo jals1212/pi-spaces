@@ -1011,6 +1011,31 @@ test("picker: a space of another profile starts with that profile's command and 
 	assert.deepEqual(own.spawned[0].args, ["--", "--space", "work"]);
 });
 
+test("picker: --setup of the call goes to a space of another profile, and does not hide the other profiles", async () => {
+	const r = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: "zed\r", files: PICKER_FILES });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.spawned.length, 1);
+	assert.equal(r.spawned[0].program, "other-launcher");
+	assert.equal((r.spawned[0].options.env as Record<string, string>).PI_SPACES_SETUP, "my-setup {home}");
+	const own = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
+	assert.equal((own.spawned[0].options.env as Record<string, string>).PI_SPACES_SETUP, "my-setup {home}");
+});
+
+test("picker: the command of another profile with an unclosed quote exits 2 naming its source, and nothing starts", async () => {
+	const files = { ...PICKER_FILES, [CONFIG]: { ...PICKER_FILES[CONFIG], profiles: { ...PICKER_FILES[CONFIG].profiles, other: { command: "other 'x", dir: "~/other-spaces" } } } };
+	const r = await run([], { spaces: ["work"], tty: true, input: "zed\r", files });
+	assert.equal(r.code, 2);
+	assert.match(r.err, /pi-space: .*profile.*other.*unclosed ' quote/);
+	assert.equal(r.spawned.length, 0);
+});
+
+test("picker: the program of another profile that cannot start exits 1", async () => {
+	const r = await run([], { spaces: ["work"], tty: true, input: "zed\r", files: PICKER_FILES, spawnErrors: { zed: "spawn other-launcher ENOENT" } });
+	assert.equal(r.code, 1);
+	assert.match(r.err, /could not start other-launcher/);
+	assert.equal(r.spawned.length, 1);
+});
+
 test("picker: --profile, --dir or --command keep it to the spaces of this call, with no groups", async () => {
 	for (const argv of [["--profile", "other"], ["--dir", "<root>/other-spaces"], ["--command", "x"]]) {
 		const r = await run(argv, { spaces: ["work"], tty: true, input: "\x1b", files: PICKER_FILES });

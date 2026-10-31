@@ -6,6 +6,27 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.7.1
+
+### Fixed
+
+- A bare `pi-space` with `--setup`: a space of another profile now starts with
+  that `--setup` (as `PI_SPACES_SETUP`), as the spaces of the current profile
+  already did.
+- A failure starting a space of another profile (a command with an unclosed
+  quote, a program that cannot start) is reported with the profile's command
+  and exits 2 or 1, with a test for each.
+- The picker puts the terminal back (raw mode off, cursor shown, picker
+  erased) on SIGTERM, SIGHUP and SIGINT, then ends the process with that
+  signal, instead of leaving the terminal raw.
+- An escape sequence a terminal splits after its start (`ESC [`, `ESC O`, or
+  `ESC [` with parameters) is joined with its rest instead of being read as Esc
+  and text. If the rest never comes, a lone Esc still cancels and any other
+  half sequence is ignored.
+- Lines with wide characters (Chinese, Japanese, Korean, fullwidth, emoji)
+  are cut by the columns they take, so they no longer wrap and break the
+  redraw; combining marks take none.
+
 ## 0.7.0
 
 ### Changed
