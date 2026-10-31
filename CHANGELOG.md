@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.5.0
+
+### Added
+
+- `/space new` names `pi-space setup <name>` when `PI_SPACES_SETUP` holds a
+  setup command, so a space a program needs prepared is not entered bare.
+
+### Changed
+
+- `setup` is a reserved name, as the other command words are. A space already
+  named `setup` is no longer listed; rename its folder by hand.
+
 ## 0.4.1
 
 ### Changed

@@ -83,6 +83,21 @@ test("new creates the space with this package's declaration", async () => {
 	assert.equal(existsSync(join(f.dir, "Bad")), false);
 });
 
+test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", async () => {
+	const f = fake();
+	f.deps.env.PI_SPACES_SETUP = "my-launcher --home {home} setup";
+	await runSpaceCommand("new work", f.deps);
+	assert.deepEqual(f.notes, [
+		["info", `Created space "work" at ${join(f.dir, "work")}. Prepare it from a shell with: pi-space setup work. Then enter it with /space switch work.`],
+	]);
+	assert.equal(f.relaunches.length, 0);
+
+	const blank = fake();
+	blank.deps.env.PI_SPACES_SETUP = "  ";
+	await runSpaceCommand("new work", blank.deps);
+	assert.deepEqual(blank.notes, [["info", `Created space "work" at ${join(blank.dir, "work")}. Enter it with /space switch work.`]]);
+});
+
 const KEEP = "Keep a backup";
 const DROP = "Delete without a backup";
 

@@ -9,6 +9,7 @@ import {
 	checkRemovable,
 	createSpace,
 	type Env,
+	hasSetupCommand,
 	listSpaces,
 	type PackageDeclaration,
 	removeSpace,
@@ -55,7 +56,13 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 		if (sub === "list" && rest.length === 0) return list(deps);
 		if (sub === "new" && rest.length === 1) {
 			const path = createSpace(deps.dir, rest[0], deps.declaration());
-			ctx.ui.notify(`Created space "${rest[0]}" at ${path}. Enter it with /space switch ${rest[0]}.`, "info");
+			const name = rest[0];
+			ctx.ui.notify(
+				hasSetupCommand(deps.env)
+					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${name}. Then enter it with /space switch ${name}.`
+					: `Created space "${name}" at ${path}. Enter it with /space switch ${name}.`,
+				"info",
+			);
 			return;
 		}
 		const removal = sub === "remove" ? parseRemove(rest) : undefined;
