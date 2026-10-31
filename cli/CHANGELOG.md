@@ -6,6 +6,29 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.6.1
+
+### Added
+
+- `pi-space <command> --help` (also `-h`, and `pi-space --help <command>`)
+  prints the help of one command: what it does, its arguments and options, the
+  call options that apply to it, and examples. `--help` anywhere after the
+  command word counts, so `pi-space remove work --help` prints the help and
+  removes nothing. After a space name it still belongs to Pi:
+  `pi-space work --help` starts Pi with `--help`. An unknown command exits with
+  status 2. It reads no config file and starts nothing.
+
+### Changed
+
+- Completion groups its candidates (commands, spaces, profiles, options) and
+  describes them: each command shows a one-line summary, `base` and the spaces
+  are told apart, a profile shows its command, and `remove` offers `--yes` and
+  `--no-backup`. `--help` is offered, as the options are, once the word starts
+  with `-`. The hidden `__complete` prints `<group>\t<value>\t<description>`
+  lines instead of bare words.
+- Completion no longer offers `completion` among the commands; it still works
+  typed in full, and `pi-space completion <TAB>` still offers `zsh`.
+
 ## 0.6.0
 
 ### Added

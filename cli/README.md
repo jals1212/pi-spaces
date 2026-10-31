@@ -28,8 +28,11 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | `pi-space install <name\|--every> <source> [pi install options...]` | Runs Pi's `install` in a space. The source is required. |
 | `pi-space uninstall <name\|--every> <source> [pi options...]` | Runs Pi's `uninstall` (its alias of `remove`) in a space. The source is required. |
 | `pi-space completion zsh` | Prints the zsh completion script (see [Shell completion](#shell-completion)). Any other shell, or none, exits with status 2. |
+| `pi-space <command> --help` | Shows the help of one command: what it does, its arguments and options, the call options that apply, and examples (`pi-space --help <command>` and `-h` work too). |
 | `pi-space --help` | Shows the usage. |
 | `pi-space --version` | Prints the version. |
+
+`--help` (or `-h`) anywhere after a command word shows that command's help and does nothing else: `pi-space remove work --help` removes nothing, and it reads no config file. After a space name every argument belongs to Pi, so `pi-space work --help` starts Pi with `--help`. An unknown command (`pi-space --help ghost`) exits with status 2 and lists the commands.
 
 `--new` and `--remove`, the options of 0.3, were replaced by `new` and `remove`; they exit with status 2 and name the command to use.
 
@@ -160,7 +163,7 @@ alias my-space='pi-space --profile my'     # any POSIX shell
 
 ## Shell completion
 
-`pi-space` completes its commands, the profile names after `--profile`, files after `--config` and `--dir`, and the spaces. For zsh, add to `~/.zshrc` (after `compinit`):
+`pi-space` completes its commands (each with a one-line summary), the profile names after `--profile`, files after `--config` and `--dir`, and the spaces. For zsh, add to `~/.zshrc` (after `compinit`):
 
 ```sh
 source <(pi-space completion zsh)
@@ -170,13 +173,17 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 
 | After | Candidates |
 | --- | --- |
-| `pi-space` (and the call options) | the commands, `base` and the spaces |
-| `--profile` | the profile names, `pi` included |
+| `pi-space` (and the call options) | the commands, then `base` and the spaces (`completion` is not offered, but works typed in full) |
+| `--profile` | the profile names, `pi` included, each with its command |
 | `--config`, `--dir` | files (the shell's own completion) |
 | `remove`, `rename` | the spaces |
 | `setup` | the spaces and `--every` |
 | `list`, `update`, `install`, `uninstall` | `base`, the spaces and `--every` |
 | `completion` | `zsh` |
+
+After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
+
+The candidates come in groups, each with a description, and zsh lists each group apart: commands, spaces (`base` is "the home Pi starts with"), profiles, shells and options. The hidden `pi-space __complete` prints one `<group>\t<value>\t<description>` line per candidate (or the single line `__files__` when the shell should complete a file), so a script for another shell can use it.
 
 Completion also works through an abbreviation or alias like the one above: they expand first, so `my-space <TAB>` completes what `pi-space --profile my <TAB>` would. A config file that is wrong, or a profile that does not exist, just gives no candidates; completion never prints an error.
 

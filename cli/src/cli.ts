@@ -51,6 +51,7 @@ export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup 
   pi-space install <name|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <name|--every> <source>  remove a package from a space (more words go to Pi)
   pi-space completion zsh                     print the zsh completion script (source <(pi-space completion zsh))
+  pi-space <command> --help                   the help of one command
   pi-space --help                             print this help
   pi-space --version                          print the version
   --every takes the place of the name: base first (not for setup), then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed.
@@ -90,6 +91,7 @@ const REPLACED = {
 
 export type CliCommand = (
 	| { kind: "help" }
+	| { kind: "command-help"; command: string }
 	| { kind: "version" }
 	| { kind: "unknown-option"; option: string }
 	| { kind: "replaced"; option: string; instead: string }
@@ -108,6 +110,154 @@ export type CliCommand = (
 	CallOptions;
 
 const CALL_OPTIONS = { "--command": "command", "--dir": "dir", "--setup": "setup", "--profile": "profile", "--config": "config" } as const;
+
+function isHelpFlag(word: string): boolean {
+	return word === "--help" || word === "-h";
+}
+
+/** What each call option is, for the help of the commands it applies to. */
+const CALL_HELP: Record<keyof CallOptions, [label: string, text: string]> = {
+	command: ["--command <cmd>", 'the program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. "my-launcher --"'],
+	dir: ["--dir <path>", "the spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too"],
+	setup: ["--setup <cmd>", "the setup command instead of $PI_SPACES_SETUP; {home} and {name} become the space's folder and name"],
+	profile: ["--profile <name>", 'the profile of the config file instead of its "default"'],
+	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)"],
+};
+
+/** The help of one command; the summary is the one line completion shows next to it. */
+interface CommandHelp {
+	summary: string;
+	/** What follows `pi-space ` on the Usage line. */
+	usage: string;
+	/** More about what it does, after the summary. */
+	about: string[];
+	args: [label: string, text: string][];
+	/** Its own options; --help is added to every command. */
+	options: { flag: string; alias?: string; text: string }[];
+	/** The call options that apply to it. */
+	calls: (keyof CallOptions)[];
+	examples: string[];
+}
+
+const PI_ARGS: [string, string] = ["[pi args...]", "more words go to Pi, e.g. --extensions, --all or a source"];
+const NAME_OR_EVERY: [string, string][] = [
+	["<name>", "base or a space"],
+	["--every", "base first, then every space in turn; a failure does not stop the rest, and the exit status is 1 if any failed"],
+];
+
+/** The commands, in the order completion lists them. They are reserved words: the core never lets a space be named one. */
+const COMMANDS: Record<string, CommandHelp> = {
+	list: {
+		summary: "list the spaces, or the packages of one",
+		usage: "list [<name|--every>]",
+		about: ["With a name it runs Pi's list in that space; with --every, in base and then every space."],
+		args: NAME_OR_EVERY,
+		options: [],
+		calls: ["command", "dir", "profile", "config"],
+		examples: ["pi-space list", "pi-space list work", "pi-space list --every"],
+	},
+	new: {
+		summary: "create a space",
+		usage: "new <name>",
+		about: ["Its settings.json declares the extension. It runs the setup command in it when there is one, and does not start Pi."],
+		args: [["<name>", "the name of the new space"]],
+		options: [],
+		calls: ["dir", "setup", "profile", "config"],
+		examples: ["pi-space new work", "pi-space --setup 'my-launcher --home {home} setup' new work"],
+	},
+	setup: {
+		summary: "run the setup command in a space",
+		usage: "setup <name|--every>",
+		about: ["It needs a setup command: --setup or $PI_SPACES_SETUP. It never runs in base."],
+		args: [
+			["<name>", "a space"],
+			["--every", "every space, never base; a failure does not stop the rest, and the exit status is 1 if any failed"],
+		],
+		options: [],
+		calls: ["dir", "setup", "profile", "config"],
+		examples: ["pi-space setup work", "pi-space setup --every", "pi-space --setup 'my-launcher --home {home} setup' setup --every"],
+	},
+	rename: {
+		summary: "rename a space",
+		usage: "rename <old> <new>",
+		about: ["It refuses what remove refuses: base, the space you are in, and a space that holds the base home."],
+		args: [
+			["<old>", "the space to rename"],
+			["<new>", "its new name"],
+		],
+		options: [],
+		calls: ["dir", "profile", "config"],
+		examples: ["pi-space rename work client"],
+	},
+	remove: {
+		summary: "delete a space, keeping a backup",
+		usage: "remove <name> [--yes|-y] [--no-backup]",
+		about: ["It deletes the space and everything in it, after asking, and keeps a backup in .backups unless told not to."],
+		args: [["<name>", "the space to delete"]],
+		options: [
+			{ flag: "--yes", alias: "-y", text: "do not ask; keep a backup" },
+			{ flag: "--no-backup", text: "delete without a backup" },
+		],
+		calls: ["dir", "profile", "config"],
+		examples: ["pi-space remove work", "pi-space remove work --yes", "pi-space remove work --yes --no-backup"],
+	},
+	update: {
+		summary: "update the packages of a space",
+		usage: "update <name|--every> [pi args...]",
+		about: ["It runs Pi's update in a space, or in base and then every space."],
+		args: [...NAME_OR_EVERY, PI_ARGS],
+		options: [],
+		calls: ["command", "dir", "profile", "config"],
+		examples: ["pi-space update work", "pi-space update base --extensions", "pi-space --command 'my-launcher --' update --every"],
+	},
+	install: {
+		summary: "install a package in a space",
+		usage: "install <name|--every> <source> [pi args...]",
+		about: ["It runs Pi's install in a space, or in base and then every space."],
+		args: [...NAME_OR_EVERY, ["<source>", "the package to install, e.g. npm:some-package"], PI_ARGS],
+		options: [],
+		calls: ["command", "dir", "profile", "config"],
+		examples: ["pi-space install work npm:some-package", "pi-space install --every npm:some-package"],
+	},
+	uninstall: {
+		summary: "remove a package from a space",
+		usage: "uninstall <name|--every> <source> [pi args...]",
+		about: ["It runs Pi's uninstall (its alias of remove) in a space, or in base and then every space."],
+		args: [...NAME_OR_EVERY, ["<source>", "the package to remove, e.g. npm:some-package"], PI_ARGS],
+		options: [],
+		calls: ["command", "dir", "profile", "config"],
+		examples: ["pi-space uninstall work npm:some-package", "pi-space uninstall --every npm:some-package"],
+	},
+	completion: {
+		summary: "print the shell completion script",
+		usage: "completion <shell>",
+		about: ["Supported shells: zsh."],
+		args: [["<shell>", "zsh"]],
+		options: [],
+		calls: [],
+		examples: ["pi-space completion zsh", "source <(pi-space completion zsh)"],
+	},
+};
+
+const HELP_OPTION = { flag: "--help", alias: "-h", text: "the help of this command" };
+
+/** The help of one command: usage, what it does, arguments, options, the call options that apply, and examples. */
+function commandHelp(name: string): string {
+	const help = COMMANDS[name];
+	const options = [...help.options, HELP_OPTION].map((option): [string, string] => [option.alias ? `${option.flag}, ${option.alias}` : option.flag, option.text]);
+	const calls = help.calls.map((call): [string, string] => CALL_HELP[call]);
+	const width = Math.max(...[...help.args, ...options, ...calls].map(([label]) => label.length)) + 2;
+	const rows = (list: [string, string][]) => list.map(([label, text]) => `  ${label.padEnd(width)}${text}`);
+	const sections: string[][] = [
+		[`Usage: pi-space ${help.usage}`],
+		[`${help.summary[0].toUpperCase()}${help.summary.slice(1)}.`, ...help.about],
+		["Arguments:", ...rows(help.args)],
+		["Options:", ...rows(options)],
+		...(calls.length > 0 ? [["Call options (before the command, for this call only):", ...rows(calls)]] : []),
+		["Examples:", ...help.examples.map((example) => `  ${example}`)],
+	];
+	return `${sections.map((section) => section.join("\n")).join("\n\n")}\n`;
+}
 
 /**
  * The call options (--command, --dir, --setup, --profile, --config) come first; after a space name every argument belongs to Pi.
@@ -134,10 +284,12 @@ export function parseCli(args: string[]): CliCommand {
 function parseCommand(args: string[]): CliCommand {
 	const [first, ...rest] = args;
 	if (first === undefined) return { kind: "picker" };
-	if (first === "--help" || first === "-h") return { kind: "help" };
+	if (isHelpFlag(first)) return rest.length === 0 ? { kind: "help" } : rest.length === 1 ? { kind: "command-help", command: rest[0] } : { kind: "usage" };
 	if (first === "--version" || first === "-v") return { kind: "version" };
 	if (Object.hasOwn(REPLACED, first)) return { kind: "replaced", option: first, instead: REPLACED[first as keyof typeof REPLACED] };
 	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
+	// --help after a command word is that command's help; after a space name it belongs to Pi (the launch below).
+	if (Object.hasOwn(COMMANDS, first) && rest.some(isHelpFlag)) return { kind: "command-help", command: first };
 	if (first === "list" && rest.length === 0) return { kind: "list" };
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
 	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
@@ -386,6 +538,13 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "help":
 			io.stdout.write(USAGE);
 			return io.exit(0);
+		case "command-help":
+			if (Object.hasOwn(COMMANDS, command.command)) {
+				io.stdout.write(commandHelp(command.command));
+				return io.exit(0);
+			}
+			io.stderr.write(`pi-space: No help for "${command.command}"; commands: ${Object.keys(COMMANDS).join(", ")}.\n`);
+			return io.exit(2);
 		case "version":
 			io.stdout.write(`${VERSION}\n`);
 			return io.exit(0);
@@ -458,28 +617,57 @@ function printCompletion(shell: string | undefined, io: CliIo): void {
 const FILES = "__files__";
 
 /**
- * The zsh script: it asks `pi-space __complete <the words before the cursor>` for candidates, one per line,
- * and falls back to the shell's file completion on the marker. An abbreviation or alias has already expanded
- * by then, so `my-space <TAB>` completes the words of what it stands for.
+ * The zsh script: it asks `pi-space __complete <the words before the cursor>` for candidates, one per line as
+ * `<group>\t<value>\t<description>`, and hands each group to _describe (a ":" in a value is escaped for it).
+ * The `__files__` marker falls back to the shell's file completion. An abbreviation or alias has already
+ * expanded by then, so `my-space <TAB>` completes the words of what it stands for.
+ * The options show only for a word that starts with "-", so `pi-space new <TAB>` never inserts a lone --help.
  */
 const ZSH_COMPLETION = [
 	"#compdef pi-space",
 	"# zsh completion for pi-space. Load it from .zshrc with: source <(pi-space completion zsh)",
 	"_pi_space() {",
-	"  local -a lines",
+	"  local -a lines cmds spaces profiles shells opts",
+	"  local line group value text ret=1",
 	'  lines=("${(@f)$(command "${words[1]}" __complete "${(@)words[2,CURRENT-1]}" 2>/dev/null)}")',
 	`  if [[ "\${lines[1]}" == ${FILES} ]]; then`,
 	"    _files",
 	"    return",
 	"  fi",
-	'  lines=("${(@)lines:#}")',
-	"  compadd -a lines",
+	'  for line in "${(@)lines}"; do',
+	'    [[ -n "$line" ]] || continue',
+	"    group=${line%%$'\\t'*}",
+	"    line=${line#*$'\\t'}",
+	"    value=${line%%$'\\t'*}",
+	"    text=${line#*$'\\t'}",
+	"    [[ \"$text\" == \"$line\" ]] && text=",
+	"    value=${value//:/\\\\:}",
+	'    case "$group" in',
+	'      command) cmds+=("$value:$text") ;;',
+	'      space) spaces+=("$value:$text") ;;',
+	'      profile) profiles+=("$value:$text") ;;',
+	'      shell) shells+=("$value:$text") ;;',
+	'      option) [[ "$PREFIX" == -* ]] && opts+=("$value:$text") ;;',
+	"    esac",
+	"  done",
+	"  (( $#cmds )) && _describe -t commands 'command' cmds && ret=0",
+	"  (( $#spaces )) && _describe -t spaces 'space' spaces && ret=0",
+	"  (( $#profiles )) && _describe -t profiles 'profile' profiles && ret=0",
+	"  (( $#shells )) && _describe -t shells 'shell' shells && ret=0",
+	"  (( $#opts )) && _describe -t options 'option' opts && ret=0",
+	"  return ret",
 	"}",
 	"compdef _pi_space pi-space",
 	"",
 ].join("\n");
 
-const COMMAND_WORDS = ["list", "new", "setup", "rename", "remove", "update", "install", "uninstall", "completion"];
+/** The groups of a `__complete` line. */
+type Group = "command" | "space" | "profile" | "shell" | "option";
+
+/** One `__complete` line; the description never holds a tab or a newline. */
+function candidate(group: Group, value: string, text: string): string {
+	return `${group}\t${value}\t${text.replace(/\s+/g, " ")}`;
+}
 
 /**
  * The hidden `__complete <words before the cursor>`: one candidate per line, honoring the call options already
@@ -496,6 +684,40 @@ function complete(words: string[], io: CliIo): void {
 	return io.exit(0);
 }
 
+/** The first-place commands: `completion` is left out (it still works typed in full). */
+function commandCandidates(): string[] {
+	return Object.entries(COMMANDS)
+		.filter(([name]) => name !== "completion")
+		.map(([name, help]) => candidate("command", name, help.summary));
+}
+
+/** `base`, if asked, then the spaces. */
+function spaceCandidates(spaces: string[], withBase: boolean): string[] {
+	return [...(withBase ? [candidate("space", BASE, "the home Pi starts with")] : []), ...spaces.map((name) => candidate("space", name, "space"))];
+}
+
+/** What follows a command word: its target, its own options and --help. */
+function commandArguments(command: string, spaces: string[]): string[] {
+	const every = (text: string) => candidate("space", "--every", text);
+	const options = [...COMMANDS[command].options, HELP_OPTION].map((option) => candidate("option", option.flag, option.text));
+	switch (command) {
+		case "remove":
+		case "rename":
+			return [...spaceCandidates(spaces, false), ...options];
+		case "setup":
+			return [...spaceCandidates(spaces, false), every("every space"), ...options];
+		case "list":
+		case "update":
+		case "install":
+		case "uninstall":
+			return [...spaceCandidates(spaces, true), every("every space (base first)"), ...options];
+		case "completion":
+			return [...SHELLS.map((shell) => candidate("shell", shell, `the ${shell} completion script`)), ...options];
+		default:
+			return options;
+	}
+}
+
 function candidates(words: string[], io: CliIo): string[] {
 	const call: CallOptions = {};
 	let index = 0;
@@ -509,31 +731,28 @@ function candidates(words: string[], io: CliIo): string[] {
 	const { dir } = resolveSettings(call, io);
 	const rest = words.slice(index);
 	const spaces = listSpaces(dir);
-	if (rest.length === 0) return [...COMMAND_WORDS, BASE, ...spaces];
-	if (rest.length > 1) return [];
-	switch (rest[0]) {
-		case "remove":
-		case "rename":
-			return spaces;
-		case "setup":
-			return [...spaces, "--every"];
-		case "list":
-		case "update":
-		case "install":
-		case "uninstall":
-			return [BASE, ...spaces, "--every"];
-		case "completion":
-			return SHELLS;
-		default:
-			return [];
-	}
+	if (rest.length === 0) return [...commandCandidates(), ...spaceCandidates(spaces, true)];
+	if (rest.length > 1 || !Object.hasOwn(COMMANDS, rest[0])) return [];
+	return commandArguments(rest[0], spaces);
 }
 
-/** The candidates for the value of a call option: profile names, the shell's files for a path, nothing for a command. */
+/** The candidates for the value of a call option: profile names with their command, the shell's files for a path, nothing for a command. */
 function optionValues(option: keyof typeof CALL_OPTIONS, call: CallOptions, io: CliIo): string[] {
-	if (option === "--profile") return profileNames(resolveSettings(call, io).config);
+	if (option === "--profile") {
+		const { config } = resolveSettings(call, io);
+		return profileNames(config).map((name) => candidate("profile", name, profileText(config, name, io)));
+	}
 	if (option === "--config" || option === "--dir") return [FILES];
 	return [];
+}
+
+/** A profile's command, else "profile". */
+function profileText(config: Config | undefined, name: string, io: CliIo): string {
+	try {
+		return profileByName(config, name, io.env, io.home).command || "profile";
+	} catch {
+		return "profile";
+	}
 }
 
 /** Prints the reason and returns false when the setup command has an unclosed quote. */
