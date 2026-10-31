@@ -26,6 +26,9 @@ commands and options and a patch version fixes.
   `--no-backup`. `--help` is offered, as the options are, once the word starts
   with `-`. The hidden `__complete` prints `<group>\t<value>\t<description>`
   lines instead of bare words.
+- `pi-space -<TAB>` offers the call options not typed yet (`--profile`,
+  `--dir`, `--config`, `--command`, `--setup`), and `--help` and `--version`
+  when nothing comes before.
 - Completion no longer offers `completion` among the commands; it still works
   typed in full, and `pi-space completion <TAB>` still offers `zsh`.
 

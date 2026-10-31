@@ -181,7 +181,7 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 | `list`, `update`, `install`, `uninstall` | `base`, the spaces and `--every` |
 | `completion` | `zsh` |
 
-After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
+In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
 
 The candidates come in groups, each with a description, and zsh lists each group apart: commands, spaces (`base` is "the home Pi starts with"), profiles, shells and options. The hidden `pi-space __complete` prints one `<group>\t<value>\t<description>` line per candidate (or the single line `__files__` when the shell should complete a file), so a script for another shell can use it.
 

@@ -1576,7 +1576,20 @@ test("__complete: the first word offers the commands with their summary, base an
 		"space\tbase\tthe home Pi starts with",
 		"space\talpha\tspace",
 		"space\twork\tspace",
+		"option\t--command\tthe program to run instead of $PI_SPACES_COMMAND (default: pi), e.g. \"my-launcher --\"",
+		"option\t--dir\tthe spaces folder instead of $PI_SPACES_DIR; the Pi it starts gets it too",
+		"option\t--setup\tthe setup command instead of $PI_SPACES_SETUP; {home} and {name} become the space's folder and name",
+		"option\t--profile\tthe profile of the config file instead of its \"default\"",
+		"option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)",
+		"option\t--help\tprint the help",
+		"option\t--version\tprint the version",
 	]);
+});
+
+test("__complete: the first word leaves out the call options already typed, and --help and --version after one", async () => {
+	const options = (lines: string[]) => lines.filter((line) => line.startsWith("option "));
+	assert.deepEqual(options(await complete(["--profile", "pi"])), ["option --command", "option --dir", "option --setup", "option --config"]);
+	assert.deepEqual(options(await complete(["--dir", "<root>/x", "--config", "<root>/c.json"])), ["option --command", "option --setup", "option --profile"]);
 });
 
 test("__complete: completion is not offered as a command, but completion <TAB> still offers zsh", async () => {
@@ -1629,7 +1642,7 @@ test("__complete: nothing after a name that is complete, nor a second word that 
 
 test("__complete honors --profile, --config and --dir already typed: it lists that profile's spaces", async () => {
 	const options = { spaces: ["work"], files: COMPLETE_FILES, env: { PI_SPACES_DIR: "<root>/spaces" } };
-	assert.deepEqual(await complete(["--profile", "other"], options), [...FIRST_COMMANDS, "space base", "space zed"]);
+	assert.deepEqual((await complete(["--profile", "other"], options)).filter((line) => !line.startsWith("option ")), [...FIRST_COMMANDS, "space base", "space zed"]);
 	assert.deepEqual(await complete(["--profile", "other", "remove"], options), ["space zed", "option --yes", "option --no-backup", "option --help"]);
 	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space base", "space zed", "space --every", "option --help"]);
 	const alt = { "alt.json": { schema: SCHEMA, profiles: { alt: { dir: "~/other-spaces" } } }, ...COMPLETE_FILES };

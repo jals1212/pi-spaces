@@ -691,6 +691,15 @@ function commandCandidates(): string[] {
 		.map(([name, help]) => candidate("command", name, help.summary));
 }
 
+/** The call options not typed yet, then --help and --version when nothing was typed before. */
+function firstOptions(call: CallOptions, alone: boolean): string[] {
+	const calls = Object.entries(CALL_OPTIONS)
+		.filter(([, key]) => call[key] === undefined)
+		.map(([flag, key]) => candidate("option", flag, CALL_HELP[key][1]));
+	const general = alone ? [candidate("option", "--help", "print the help"), candidate("option", "--version", "print the version")] : [];
+	return [...calls, ...general];
+}
+
 /** `base`, if asked, then the spaces. */
 function spaceCandidates(spaces: string[], withBase: boolean): string[] {
 	return [...(withBase ? [candidate("space", BASE, "the home Pi starts with")] : []), ...spaces.map((name) => candidate("space", name, "space"))];
@@ -731,7 +740,7 @@ function candidates(words: string[], io: CliIo): string[] {
 	const { dir } = resolveSettings(call, io);
 	const rest = words.slice(index);
 	const spaces = listSpaces(dir);
-	if (rest.length === 0) return [...commandCandidates(), ...spaceCandidates(spaces, true)];
+	if (rest.length === 0) return [...commandCandidates(), ...spaceCandidates(spaces, true), ...firstOptions(call, index === 0)];
 	if (rest.length > 1 || !Object.hasOwn(COMMANDS, rest[0])) return [];
 	return commandArguments(rest[0], spaces);
 }
