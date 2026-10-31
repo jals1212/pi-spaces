@@ -228,7 +228,7 @@ test("parseCli: --command and --dir come first, in any order, and apply to whate
 });
 
 test("parseCli: --command or --dir without a value, or given twice, is a usage error", () => {
-	for (const argv of [["--command"], ["--dir"], ["--command", ""], ["--dir", "", "work"], ["--dir", "/a", "--dir", "/b"], ["--command", "x", "--command", "y"]]) {
+	for (const argv of [["--command"], ["--dir"], ["--command", ""], ["--dir", "", "work"], ["--dir", "/a", "--dir", "/b"], ["--command", "x", "--command", "y"], ["--command", "  "], ["--dir", " ", "list"]]) {
 		assert.deepEqual(parseCli(argv), { kind: "usage" }, JSON.stringify(argv));
 	}
 });
@@ -1014,7 +1014,7 @@ test("parseCli: setup takes one name or --every and nothing else; --setup comes 
 	assert.deepEqual(parseCli(["setup", "-x"]), { kind: "unknown-option", option: "-x" });
 	for (const argv of [["setup"], ["setup", "a", "b"], ["setup", "--every", "x"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
 	assert.deepEqual(parseCli(["--setup", SETUP, "--dir", "/d", "new", "w"]), { kind: "new", name: "w", setup: SETUP, dir: "/d" });
-	for (const argv of [["--setup"], ["--setup", ""], ["--setup", "a", "--setup", "b"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	for (const argv of [["--setup"], ["--setup", ""], ["--setup", "  ", "new", "w"], ["--setup", "a", "--setup", "b"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
 	assert.deepEqual(parseCli(["work", "--setup", "x"]), { kind: "launch", name: "work", args: ["--setup", "x"] });
 });
 
@@ -1026,6 +1026,8 @@ test("setupCommand: splits like --command and puts the space's folder and name i
 	});
 	assert.deepEqual(setupCommand("run {homes} {HOME}", "/h", "n"), { program: "run", args: ["{homes}", "{HOME}"] });
 	assert.throws(() => setupCommand("run 'a", "/h", "n"), /unclosed ' quote/);
+	// A folder or name with "$" is put in as written, never read as a replacement pattern.
+	assert.deepEqual(setupCommand("run {home} {name}", "/s/a$&b$'c$$", "x$1"), { program: "run", args: ["/s/a$&b$'c$$", "x$1"] });
 });
 
 function setupEnvOf(r: Run, index = 0): Record<string, string> {

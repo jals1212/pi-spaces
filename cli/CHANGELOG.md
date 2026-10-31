@@ -19,6 +19,11 @@ commands and options and a patch version fixes.
   failed setup keeps the space and names the command to run it again.
 - `--setup` reaches the started Pi as `PI_SPACES_SETUP`.
 
+### Fixed
+
+- A blank `--command` or `--dir` (only spaces) is a usage error, as an empty one
+  already was, instead of being taken as given.
+
 ### Changed
 
 - Needs `@jals1212/pi-spaces` 0.5.0, which reserves the name `setup`.

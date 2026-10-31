@@ -103,7 +103,8 @@ export function parseCli(args: string[]): CliCommand {
 	while (Object.hasOwn(CALL_OPTIONS, args[index] ?? "")) {
 		const key = CALL_OPTIONS[args[index] as keyof typeof CALL_OPTIONS];
 		const value = args[index + 1];
-		if (!value || options[key] !== undefined) return { kind: "usage" };
+		// A blank value is as good as none: it would name no program, folder or command.
+		if (!value?.trim() || options[key] !== undefined) return { kind: "usage" };
 		options[key] = value;
 		index += 2;
 	}
@@ -169,7 +170,8 @@ export function launchCommand(env: Env, name: string, args: string[]): { program
  * {home} and {name} in each word replaced by the space's folder and name. Throws when it has an unclosed quote.
  */
 export function setupCommand(template: string, home: string, name: string): { program: string; args: string[] } {
-	const fill = (word: string) => word.replaceAll("{home}", home).replaceAll("{name}", name);
+	// Replacer functions, so a "$" in the folder or name is put in as written, never read as a pattern.
+	const fill = (word: string) => word.replaceAll("{home}", () => home).replaceAll("{name}", () => name);
 	const [program = "", ...args] = splitCommand(template).map(fill);
 	return { program, args };
 }
