@@ -2,6 +2,7 @@
 // running the same Pi command again with PI_CODING_AGENT_DIR pointing at the space.
 import { spawnSync } from "node:child_process";
 import { delimiter, join, resolve, sep } from "node:path";
+import { expandSpaceEnv } from "./config.ts";
 import { activeSpace, BASE, listSpaces, type Env, SpaceError, validateName } from "./spaces.ts";
 
 // Pi options that take a separate value, so the value is kept (or dropped) with them.
@@ -79,14 +80,18 @@ export function resolveSwitch(input: { dir: string; name: string; currentHome: s
 }
 
 // PWD and OLDPWD describe the working directory, which the relaunch keeps.
-const NOT_REWRITTEN = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME", "PWD", "OLDPWD"]);
+// PI_SPACES_BASE_ENV holds the base's own values, which must come back exactly as they were.
+const NOT_REWRITTEN = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV", "PWD", "OLDPWD"]);
 
 /**
  * The environment for the relaunched Pi. Every variable whose value is the current home,
  * or a path inside it, moves to the same path in the target home, so variables a host
  * set from the home stay consistent without this package knowing the host.
+ * With the profile's spaceEnv templates, those variables are then set for a space with `{home}` and `{name}`
+ * filled in, recomputed for each space. The base's own values of them are kept in PI_SPACES_BASE_ENV on the way
+ * out and put back on the way back, so the base home runs exactly as it was started.
  */
-export function relaunchEnv(env: Env, target: SwitchTarget & { currentHome: string }): Env {
+export function relaunchEnv(env: Env, target: SwitchTarget & { currentHome: string; spaceEnv?: Record<string, string> }): Env {
 	const from = resolve(target.currentHome);
 	const next: Env = {};
 	for (const [key, value] of Object.entries(env)) {
@@ -99,7 +104,35 @@ export function relaunchEnv(env: Env, target: SwitchTarget & { currentHome: stri
 	next.PI_SPACES_BASE_HOME = target.baseHome;
 	if (target.space === undefined) delete next.PI_SPACE;
 	else next.PI_SPACE = target.space;
+	if (target.spaceEnv && Object.keys(target.spaceEnv).length > 0) {
+		const saved = baseValues(env, target);
+		for (const key of Object.keys(target.spaceEnv)) delete next[key];
+		if (target.space !== undefined) {
+			Object.assign(next, expandSpaceEnv(target.spaceEnv, target.targetHome, target.space));
+			next.PI_SPACES_BASE_ENV = JSON.stringify(saved);
+		} else {
+			Object.assign(next, saved);
+			delete next.PI_SPACES_BASE_ENV;
+		}
+	}
 	return next;
+}
+
+/**
+ * The base home's own values of the spaceEnv variables: read from the environment when leaving the base home,
+ * else the ones kept in PI_SPACES_BASE_ENV (none when it is missing or unreadable).
+ */
+function baseValues(env: Env, target: SwitchTarget & { currentHome: string; spaceEnv?: Record<string, string> }): Record<string, string> {
+	const keys = Object.keys(target.spaceEnv ?? {});
+	if (resolve(target.currentHome) === resolve(target.baseHome)) {
+		return Object.fromEntries(keys.flatMap((key) => (env[key] === undefined ? [] : [[key, env[key] as string]])));
+	}
+	try {
+		const kept = JSON.parse(env.PI_SPACES_BASE_ENV ?? "{}");
+		return Object.fromEntries(keys.flatMap((key) => (typeof kept?.[key] === "string" ? [[key, kept[key]]] : [])));
+	} catch {
+		return {};
+	}
 }
 
 export interface Command {
@@ -164,9 +197,10 @@ export type StartupPlan = { kind: "none" } | { kind: "error"; message: string } 
  * space; otherwise run Pi again in the space with every other argument, since nothing has run yet.
  * `pi --space <name> <package command> ...` always runs Pi again, even in the current home, because
  * Pi runs a package command (install, remove, uninstall, update, list) only as its first argument.
+ * `spaceEnv` is the matched profile's variable templates, applied by relaunchEnv.
  */
-export function planStartup(input: { proc: Proc; dir: string; currentHome: string; env: Env }): StartupPlan {
-	const { proc, dir, currentHome, env } = input;
+export function planStartup(input: { proc: Proc; dir: string; currentHome: string; env: Env; spaceEnv?: Record<string, string> }): StartupPlan {
+	const { proc, dir, currentHome, env, spaceEnv } = input;
 	const parsed = parseSpaceFlag(proc.argv.slice(2));
 	if ("error" in parsed) return { kind: "error", message: parsed.error };
 	if (parsed.name === undefined) return { kind: "none" };
@@ -183,7 +217,7 @@ export function planStartup(input: { proc: Proc; dir: string; currentHome: strin
 		}
 		return { kind: "error", message: error.message };
 	}
-	return { kind: "relaunch", command: relaunchCommand(proc, args), env: relaunchEnv(env, { ...target, currentHome }) };
+	return { kind: "relaunch", command: relaunchCommand(proc, args), env: relaunchEnv(env, { ...target, currentHome, spaceEnv }) };
 }
 
 /** Runs the command now with inherited stdio and returns its exit code (1 when it cannot start). */

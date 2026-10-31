@@ -98,6 +98,55 @@ test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", a
 	assert.deepEqual(blank.notes, [["info", `Created space "work" at ${join(blank.dir, "work")}. Enter it with /space switch work.`]]);
 });
 
+test("new names pi-space setup when the matched profile has a setup, and not otherwise", async () => {
+	const prepared = (name: string, dir: string) =>
+		`Created space "${name}" at ${join(dir, name)}. Prepare it from a shell with: pi-space setup ${name}. Then enter it with /space switch ${name}.`;
+	const plain = (name: string, dir: string) => `Created space "${name}" at ${join(dir, name)}. Enter it with /space switch ${name}.`;
+
+	const withSetup = fake();
+	withSetup.deps.profile = { name: "gsh", home: withSetup.base, dir: withSetup.dir, setup: "my-launcher --home {home} setup" };
+	await runSpaceCommand("new work", withSetup.deps);
+	assert.deepEqual(withSetup.notes, [["info", prepared("work", withSetup.dir)]]);
+	assert.equal(withSetup.relaunches.length, 0);
+
+	const without = fake();
+	without.deps.profile = { name: "gsh", home: without.base, dir: without.dir, spaceEnv: { K: "{home}" } };
+	await runSpaceCommand("new work", without.deps);
+	assert.deepEqual(without.notes, [["info", plain("work", without.dir)]]);
+
+	// PI_SPACES_SETUP still counts, with or without a profile.
+	const viaEnv = fake();
+	viaEnv.deps.env.PI_SPACES_SETUP = "my-launcher setup";
+	viaEnv.deps.profile = { name: "pi", home: viaEnv.base, dir: viaEnv.dir, command: "pi" };
+	await runSpaceCommand("new work", viaEnv.deps);
+	assert.deepEqual(viaEnv.notes, [["info", prepared("work", viaEnv.dir)]]);
+});
+
+test("switch applies the profile's spaceEnv: set in a space, removed in base, recomputed between spaces", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	createSpace(f.dir, "play", "x");
+	f.deps.profile = { name: "gsh", home: f.base, dir: f.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.relaunches[0].env, {
+		PI_CODING_AGENT_DIR: join(f.dir, "work"),
+		PI_SPACES_BASE_HOME: f.base,
+		PI_SPACE: "work",
+		HOST_CFG: join(f.dir, "work", "cfg"),
+		PI_SPACES_BASE_ENV: "{}",
+	});
+
+	const inWork = fake({ home: (dir) => join(dir, "work") });
+	createSpace(inWork.dir, "work", "x");
+	createSpace(inWork.dir, "play", "x");
+	inWork.deps.profile = { name: "gsh", home: inWork.base, dir: inWork.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
+	inWork.deps.env = { PI_CODING_AGENT_DIR: join(inWork.dir, "work"), PI_SPACES_BASE_HOME: inWork.base, PI_SPACE: "work", HOST_CFG: join(inWork.dir, "work", "cfg") };
+	await runSpaceCommand("switch play", inWork.deps);
+	await runSpaceCommand("switch base", inWork.deps);
+	assert.equal(inWork.relaunches[0].env.HOST_CFG, join(inWork.dir, "play", "cfg"));
+	assert.deepEqual(inWork.relaunches[1].env, { PI_CODING_AGENT_DIR: inWork.base, PI_SPACES_BASE_HOME: inWork.base });
+});
+
 const KEEP = "Keep a backup";
 const DROP = "Delete without a backup";
 

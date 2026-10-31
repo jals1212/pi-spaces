@@ -6,6 +6,40 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.6.0
+
+### Added
+
+- Profiles in a config file (`~/.pi-spaces/config.json`, or `PI_SPACES_CONFIG`):
+  named descriptions of a program that runs Pi, with its base `home`,
+  `command`, spaces `dir`, `setup` command and `spaceEnv`. The format carries a
+  version (`"schema": "pi-spaces.config/v1"`); a newer version is refused with
+  a message that it needs a newer pi-spaces, and unknown keys are refused. A
+  built-in `pi` profile always exists and can be replaced. See the README.
+- `spaceEnv`: variables that exist only in spaces. Entering a space sets them
+  (`{home}` and `{name}` filled in) and moving between spaces recomputes
+  them. Going back to `base` puts back the values the base home had (kept in `PI_SPACES_BASE_ENV` meanwhile). Without
+  `spaceEnv`, whatever a program keeps outside its agent home stays shared with
+  the base home, as before. The variables pi-spaces sets itself are refused.
+- The extension applies the profile whose `home` is the base home: its
+  `spaceEnv` on `/space switch` and `pi --space`, its `dir` as the spaces
+  folder, and `/space new` names `pi-space setup <name>` when it has a `setup`.
+- `@jals1212/pi-spaces/config` exports the loader (`loadConfig`, `configPath`,
+  `profileByName`, `profileForHome`, `spaceEnvFor`, `activeProfile`,
+  `ConfigError`) for the `pi-space` command.
+
+### Changed
+
+- `completion` is a reserved name, for `pi-space completion`. A space already
+  named `completion` is no longer listed; rename its folder by hand.
+- The spaces folder is `PI_SPACES_DIR`, else the matching profile's `dir`, else
+  `spaces` next to the base home. `spacesDir` takes the profile's dir as an
+  optional third argument.
+- `relaunchEnv` and `planStartup` take an optional `spaceEnv`; without it they
+  behave exactly as before.
+- A config file that cannot be used never stops Pi: the extension warns once
+  when the session starts and behaves as with no file.
+
 ## 0.5.0
 
 ### Added
