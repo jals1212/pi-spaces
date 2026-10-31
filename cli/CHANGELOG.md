@@ -6,6 +6,17 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.6.2
+
+### Fixed
+
+- `pi-space --help <TAB>` (and `-h`) offers the commands with their summary,
+  `completion` included, so the help of a command is one Tab away.
+- `--every` is completed in its own `target` group instead of among the space
+  names, since it is not a space.
+- The completion text of the first `--help` says it also takes a command:
+  `print the help, or a command's: --help <command>`.
+
 ## 0.6.1
 
 ### Added
