@@ -17,21 +17,24 @@ export class SpaceError extends Error {
 export type Env = Record<string, string | undefined>;
 export type PackageDeclaration = string | ({ source: string } & Record<string, unknown>);
 
-function expandTilde(path: string, home: string): string {
+/** Expands a leading `~` to the given home folder. */
+export function expandTilde(path: string, home: string): string {
 	if (path === "~") return home;
 	if (path.startsWith("~/")) return join(home, path.slice(2));
 	return path;
 }
 
 /**
- * The folder that holds every space: PI_SPACES_DIR, else a `spaces` folder next to the base home
+ * The folder that holds every space: PI_SPACES_DIR, else the dir of the profile that matches the base home
+ * (an absolute path, from the config file), else a `spaces` folder next to the base home
  * (~/.pi/agent gives ~/.pi/spaces), so every program that runs Pi with its own home keeps its own spaces.
  * The base home is the one Pi started with (PI_SPACES_BASE_HOME inside a space), else Pi's agent home.
  */
-export function spacesDir(env: Env = process.env, home: string = osHomedir()): string {
+export function spacesDir(env: Env = process.env, home: string = osHomedir(), profileDir?: string): string {
 	const fromEnv = env.PI_SPACES_DIR;
 	// A relative value resolves against the user's home, never the working directory.
 	if (fromEnv) return resolve(home, expandTilde(fromEnv, home));
+	if (profileDir) return profileDir;
 	const agentHome = env.PI_CODING_AGENT_DIR ? expandTilde(env.PI_CODING_AGENT_DIR, home) : join(home, ".pi", "agent");
 	const baseHome = env.PI_SPACES_BASE_HOME || agentHome;
 	return join(dirname(resolve(baseHome)), "spaces");
@@ -235,7 +238,8 @@ function localPackageName(folder: string): string | undefined {
 	}
 }
 
-function samePath(a: string, b: string): boolean {
+/** True when both paths are the same place: real paths when they exist, resolved paths otherwise. */
+export function samePath(a: string, b: string): boolean {
 	return realOrResolved(a) === realOrResolved(b);
 }
 
