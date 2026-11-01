@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.1
+
 ### Fixed
 
 - PowerShell completion no longer offers the folder's files when pi-space
