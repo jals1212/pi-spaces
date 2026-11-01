@@ -37,6 +37,8 @@ Options before the command, for this call only:
 `;
 
 const SCHEMA = "pi-spaces.config/v1";
+/** The home a test passes as PI_CODING_AGENT_DIR, as the started Pi gets it: resolved (C:\\some\\home on Windows). */
+const SOME_HOME = resolve("/some/home");
 const CONFIG = ".pi-spaces/config.json";
 
 interface Run {
@@ -99,7 +101,15 @@ async function run(
 			writeFileSync(join(root, "agent", "settings.json"), JSON.stringify({ packages: options.basePackages }));
 		}
 		// A path written with "/" after <root> is normalized, so it reads the same as join() gives on Windows.
-		const fill = (text: string) => (text.includes("<root>") ? normalize(text.replaceAll("<root>", root)) : text);
+		const fill = (text: string): string => {
+			if (!text.includes("<root>")) return text;
+			// A JSON object (such as PI_SPACES_BASE_ENV) is filled value by value, so a Windows path stays valid JSON.
+			if (text.startsWith("{")) {
+				const parsed = JSON.parse(text) as Record<string, unknown>;
+				return JSON.stringify(Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, typeof value === "string" ? fill(value) : value])));
+			}
+			return normalize(text.replaceAll("<root>", root));
+		};
 		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, fill(value)]));
 		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root };
 		const io: CliIo = {
@@ -738,7 +748,7 @@ test("list <space> runs Pi's list in that space through the extension, with inhe
 	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "pi", args: ["--space", "work", "list"] }]);
 	assert.equal(r.spawned[0].options.stdio, "inherit");
 	// The started Pi gets the caller's environment with the profile's variables; PI_CODING_AGENT_DIR is not touched.
-	assert.deepEqual(setupEnvOf(r), { PI_CODING_AGENT_DIR: "/some/home", PI_SPACES_DIR: r.dir, PI_SPACES_COMMAND: "pi" });
+	assert.deepEqual(setupEnvOf(r), { PI_CODING_AGENT_DIR: SOME_HOME, PI_SPACES_DIR: r.dir, PI_SPACES_COMMAND: "pi" });
 });
 
 test("update, install and uninstall run `--space <name> <command> <args>` through the profile's command and --command", async () => {
@@ -765,11 +775,11 @@ test("a package command returns the exit status of Pi", async () => {
 test("a package command never sets PI_CODING_AGENT_DIR, and --dir reaches the child as PI_SPACES_DIR", async () => {
 	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: "/some/home" };
 	const plain = await run(["--dir", "<root>/spaces", "update", "pi/work"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "/some/home" } });
-	assert.deepEqual(setupEnvOf(plain), { PI_CODING_AGENT_DIR: "/some/home", PI_SPACES_DIR: plain.dir, PI_SPACES_COMMAND: "pi" });
+	assert.deepEqual(setupEnvOf(plain), { PI_CODING_AGENT_DIR: SOME_HOME, PI_SPACES_DIR: plain.dir, PI_SPACES_COMMAND: "pi" });
 	const withDir = await run(["--dir", "<root>/spaces", "update", "pi/work"], { spaces: ["work"], env });
 	const childEnv = withDir.spawned[0].options.env as Record<string, string>;
 	assert.equal(childEnv.PI_SPACES_DIR, withDir.dir);
-	assert.equal(childEnv.PI_CODING_AGENT_DIR, "/some/home");
+	assert.equal(childEnv.PI_CODING_AGENT_DIR, SOME_HOME);
 });
 
 test("a package command in an unknown or invalid space exits 1 and spawns nothing", async () => {
@@ -914,7 +924,7 @@ test("--dir uses that spaces folder instead of the profile's, and the started Pi
 	assert.deepEqual(launched.spawned[0].args, ["--space", "work"]);
 	const childEnv = launched.spawned[0].options.env as Record<string, string>;
 	assert.equal(childEnv.PI_SPACES_DIR, launched.dir);
-	assert.equal(childEnv.PI_CODING_AGENT_DIR, "/some/home");
+	assert.equal(childEnv.PI_CODING_AGENT_DIR, SOME_HOME);
 
 	const created = await run(["--dir", "<root>/spaces", "new", "pi/fresh"], { env });
 	assert.equal(created.code, 0, created.err);
@@ -948,7 +958,7 @@ test("an existing space launches the command with inherited stdio and the caller
 	assert.equal(r.spawned[0].program, "my-launcher");
 	assert.deepEqual(r.spawned[0].args, ["--", "--space", "work", "-c"]);
 	assert.equal(r.spawned[0].options.stdio, "inherit");
-	assert.deepEqual(setupEnvOf(r), { PI_CODING_AGENT_DIR: "/some/home", OTHER: "kept", PI_SPACES_DIR: r.dir, PI_SPACES_COMMAND: "my-launcher --" });
+	assert.deepEqual(setupEnvOf(r), { PI_CODING_AGENT_DIR: SOME_HOME, OTHER: "kept", PI_SPACES_DIR: r.dir, PI_SPACES_COMMAND: "my-launcher --" });
 });
 
 test("a command that cannot start prints the reason and exits 1", async () => {
@@ -1097,7 +1107,7 @@ test("bin/pi-space.mjs --dir and --command reach the real child: its PI_SPACES_D
 		const seen = JSON.parse(result.stdout);
 		assert.deepEqual(seen.argv, ["--space", "work", "-c"]);
 		assert.equal(seen.dir, dir);
-		assert.equal(seen.home, "/some/home");
+		assert.equal(seen.home, SOME_HOME);
 		// The child gets the command of this call, not the shell's value.
 		assert.equal(seen.command, `"${process.execPath}" "${script}"`);
 	} finally {
@@ -1127,7 +1137,7 @@ test("bin/pi-space.mjs runs the profile's command with --space and exits with it
 		assert.deepEqual(seen.argv, ["--space", "work", "-c"]);
 		assert.equal(seen.dir, dir);
 		assert.ok(existsSync(join(seen.dir, "work")));
-		assert.equal(seen.home, "/some/home");
+		assert.equal(seen.home, SOME_HOME);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -1350,7 +1360,7 @@ test("--setup reaches the started Pi as PI_SPACES_SETUP, so /space new can name 
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.spawned[0].args, ["--space", "work", "-c"]);
 	assert.equal(setupEnvOf(r).PI_SPACES_SETUP, SETUP);
-	assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, "/some/home");
+	assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, SOME_HOME);
 	const packages = await run(["--setup", SETUP, "update", "pi/work"], { spaces: ["work"] });
 	assert.equal(setupEnvOf(packages).PI_SPACES_SETUP, SETUP);
 });
