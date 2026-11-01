@@ -6,11 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.8.2
+
 ### Changed
 
 - Completion lists pi's spaces first, then those of the custom profiles
   (each in alphabetical order), then the commands and options; before, the
-  spaces of every profile were sorted together, so `gsh/work` came before
+  spaces of every profile were sorted together, so `gentle/base` came before
   `pi/base`.
 - The spaces stand apart from the commands and options: the zsh script
   sets `group-name ''` and a `[%d]` descriptions format for pi-space, so
