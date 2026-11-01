@@ -797,9 +797,9 @@ const POWERSHELL_COMPLETION = [
 	"  }",
 	"  $lines = @()",
 	// Returning nothing makes PowerShell complete the folder's files; only the marker asks for them. Otherwise, with no
-	// candidate, one result that leaves the line as it is (the word typed, or a space after a finished word) stops that.
-	"  $keep = { $text = if ($wordToComplete) { $wordToComplete } else { ' ' }; [System.Management.Automation.CompletionResult]::new($text, $text, 'ParameterValue', $text) }",
-	"  try { $lines = @(& $exe __complete @words 2>$null) } catch { return (& $keep) }",
+	// candidate, a lone "" stops that: PowerShell 7.7 reads it as no completion, and before 7.7 it makes the completion
+	// fail, which PSReadLine ignores, so Tab does nothing.
+	"  try { $lines = @(& $exe __complete @words 2>$null) } catch { return '' }",
 	`  if ($lines.Count -gt 0 -and $lines[0] -eq '${FILES}') { return }`,
 	"  $found = $false",
 	"  $pattern = [WildcardPattern]::Escape($wordToComplete) + '*'",
@@ -818,7 +818,7 @@ const POWERSHELL_COMPLETION = [
 	"    [System.Management.Automation.CompletionResult]::new($completion, $value, 'ParameterValue', $tip)",
 	"    $found = $true",
 	"  }",
-	"  if (-not $found) { & $keep }",
+	"  if (-not $found) { '' }",
 	"}",
 	"",
 ].join("\n");

@@ -273,7 +273,7 @@ What you see:
 - The description of a candidate is its tooltip (in the menu, at the bottom).
 - No group headers: PowerShell has none.
 - Files after `--config` and `--dir`: PowerShell's own path completion.
-- Nothing to offer (after a finished name, or a word that matches no candidate): Tab leaves the line as it is, instead of PowerShell's usual fallback to the folder's files.
+- Nothing to offer (after a finished name, or a word that matches no candidate): Tab does nothing, instead of PowerShell's usual fallback to the folder's files.
 
 The options show once the word starts with `-`. cmd has no programmable completion, so there is nothing to load there.
 

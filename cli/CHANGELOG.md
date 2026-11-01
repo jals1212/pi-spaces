@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- PowerShell completion with no candidate does nothing at all: 0.9.1 left
+  the line as it was but added a space after a finished name. The same when
+  `pi-space` cannot run.
+
 ## 0.9.1
 
 ### Fixed
