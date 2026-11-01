@@ -50,6 +50,18 @@ commands and options and a patch version fixes.
   `PI_SPACES_COMMAND` and `PI_SPACES_DIR` is gone: a profile in the config
   file names the program instead.
 
+### Fixed
+
+- The Pi that `pi-space` starts now runs in the named profile's home even when
+  you run `pi-space` from the shell of another Pi: `pi-space pi/base` inside a
+  gentle-shell Pi used to start Pi in the gentle home, and `pi-space pi/work`
+  looked for the space relative to it. The started Pi gets
+  `PI_CODING_AGENT_DIR` set to the profile's home, and when you run it from
+  inside a space, that space is unwound first (its `spaceEnv` values go back to
+  the base values, paths inside its folder move to the base home, and
+  `PI_SPACE`, `PI_SPACE_HOME`, `PI_SPACES_BASE_HOME` and `PI_SPACES_BASE_ENV`
+  are removed). The setup command is built on the same unwound base.
+
 ## 0.7.1
 
 ### Fixed

@@ -1,10 +1,13 @@
 // The optional `pi-space` command: pick a space and start Pi in it, and manage the spaces and their packages.
-// It only passes `--space <name>` (and, for a package command, Pi's command after it); the extension does the
-// switch, so it sets PI_CODING_AGENT_DIR only for the setup command, which is not Pi and does no switch.
+// It passes `--space <name>` (and, for a package command, Pi's command after it) and the extension does the switch,
+// but the Pi it starts runs as if started from a plain terminal for the named profile, whatever Pi the caller is in:
+// the caller's space (PI_SPACES_BASE_HOME, PI_SPACE, PI_SPACE_HOME, PI_SPACES_BASE_ENV, its spaceEnv values and the
+// paths inside its folder) is unwound back to its base, and PI_CODING_AGENT_DIR is the profile's home. The setup
+// command, which is not Pi and does no switch, gets the space's own home and variables on top of that same base.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
@@ -33,6 +36,7 @@ import {
 	loadConfig,
 	type Profile,
 	profileByName,
+	profileForHome,
 	profileNames,
 	spaceEnvFor,
 } from "@jals1212/pi-spaces/config";
@@ -415,6 +419,46 @@ export function newSpaceDeclaration(env: Env, home: string, profileHome?: string
 	return findOwnDeclaration(baseHome, EXTENSION, packageRoot, `npm:${EXTENSION}`);
 }
 
+// The variables unwinding never rewrites: PWD and OLDPWD describe the working directory, the others are PI_SPACES_* state.
+const KEPT_AS_IS = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV", "PWD", "OLDPWD"]);
+const SPACE_VARIABLES = ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"];
+
+/**
+ * The environment of a plain terminal for `profile`, from the caller's: inside a space (PI_SPACES_BASE_HOME is set and
+ * is not the current home) the space is unwound as the extension's relaunch does on the way back to base: every value
+ * that is the space's folder or a path inside it (each entry of a list on its own) moves to the base home, and the
+ * caller profile's spaceEnv variables get their base values from PI_SPACES_BASE_ENV (removed when it has none).
+ * Then the variables of a space are removed and PI_CODING_AGENT_DIR is the profile's home.
+ * This reimplements the small relaunchEnv step instead of exporting it: the core's exports are a public contract.
+ */
+function plainEnv(call: Call, profile: Profile): Env {
+	const { config, io } = call;
+	const { env } = io;
+	const base = env.PI_SPACES_BASE_HOME;
+	const current = agentHome(env, io.home);
+	let next: Env = { ...env };
+	if (base && !samePath(current, base)) {
+		const from = resolve(current);
+		const move = (part: string) => (part === from || part.startsWith(from + sep) ? resolve(base) + part.slice(from.length) : part);
+		next = {};
+		for (const [key, value] of Object.entries(env)) {
+			if (value !== undefined) next[key] = KEPT_AS_IS.has(key) ? value : value.split(delimiter).map(move).join(delimiter);
+		}
+		let kept: Record<string, unknown> = {};
+		try {
+			kept = JSON.parse(env.PI_SPACES_BASE_ENV ?? "{}") ?? {};
+		} catch {}
+		for (const key of Object.keys(profileForHome(config, base, env, io.home)?.spaceEnv ?? {})) {
+			delete next[key];
+			const value = kept[key];
+			if (typeof value === "string") next[key] = value;
+		}
+	}
+	for (const key of SPACE_VARIABLES) delete next[key];
+	next.PI_CODING_AGENT_DIR = profile.home;
+	return next;
+}
+
 /** The agent home Pi uses from this shell: PI_CODING_AGENT_DIR, else ~/.pi/agent. */
 function agentHome(env: Env, home: string): string {
 	return env.PI_CODING_AGENT_DIR ? env.PI_CODING_AGENT_DIR.replace(/^~(?=\/|$)/, home) : join(home, ".pi", "agent");
@@ -499,7 +543,9 @@ const EVERY = "--every";
  * The profile `name` under this call's options: the command, spaces folder and setup are the option's, else the
  * profile's; the caller's PI_SPACES_COMMAND, PI_SPACES_DIR and PI_SPACES_SETUP are never read. The started Pi gets
  * the caller's environment with those three set to what was settled (the command and the setup removed when there
- * is none), and PI_SPACES_CONFIG when --config was given. Throws a ConfigError for an unknown profile.
+ * is none), and PI_SPACES_CONFIG when --config was given. io.env stays the caller's (the protections of remove and
+ * rename read the Pi the caller is in); io.childEnv, what Pi and the setup command start from, is the caller's
+ * environment unwound to a plain terminal of the profile (see plainEnv). Throws a ConfigError for an unknown profile.
  */
 function scopeOf(call: Call, name: string): Scope {
 	const { options, config, configFile, io: caller } = call;
@@ -508,15 +554,18 @@ function scopeOf(call: Call, name: string): Scope {
 	const dir = options.dir !== undefined ? resolve(options.dir) : profile.dir;
 	const command = options.command ?? profile.command;
 	const setup = options.setup ?? profile.setup;
-	const env: Env = { ...caller.env, PI_SPACES_DIR: dir };
-	if (command !== undefined) env.PI_SPACES_COMMAND = command;
-	else delete env.PI_SPACES_COMMAND;
-	if (setup !== undefined) env.PI_SPACES_SETUP = setup;
-	else delete env.PI_SPACES_SETUP;
-	if (options.config !== undefined) env.PI_SPACES_CONFIG = configFile;
+	const handed = (from: Env): Env => {
+		const env: Env = { ...from, PI_SPACES_DIR: dir };
+		if (command !== undefined) env.PI_SPACES_COMMAND = command;
+		else delete env.PI_SPACES_COMMAND;
+		if (setup !== undefined) env.PI_SPACES_SETUP = setup;
+		else delete env.PI_SPACES_SETUP;
+		if (options.config !== undefined) env.PI_SPACES_CONFIG = configFile;
+		return env;
+	};
 	return {
 		profile,
-		io: { ...caller, env, childEnv: env },
+		io: { ...caller, env: handed(caller.env), childEnv: handed(plainEnv(call, profile)) },
 		dir,
 		commandSource: options.command !== undefined ? "--command" : `profile "${name}" command`,
 		setupSource: options.setup !== undefined ? "--setup" : `profile "${name}" setup`,
@@ -840,7 +889,7 @@ function checkSetup(io: CliIo, source: string): boolean {
 function spawnSetup(setup: { program: string; args: string[] }, name: string, home: string, io: CliIo, profile: Profile): Promise<number> {
 	// The profile's spaceEnv, for this space, then the three variables of the space, which a profile cannot set.
 	const spaceEnv = spaceEnvFor(profile, home, name);
-	return spawnPi(setup.program, setup.args, io, { ...io.env, ...spaceEnv, PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home });
+	return spawnPi(setup.program, setup.args, io, { ...(io.childEnv ?? io.env), ...spaceEnv, PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home });
 }
 
 /** The setup command for one space, from PI_SPACES_SETUP of this profile's io; checkSetup has accepted it. */
