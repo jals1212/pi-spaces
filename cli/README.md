@@ -203,7 +203,7 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 
 | After | Candidates |
 | --- | --- |
-| `pi-space` (and the call options) | `<profile>/base` and the spaces of every profile, in alphabetical order, then the commands (`completion` is not offered, but works typed in full) |
+| `pi-space` (and the call options) | `<profile>/base` and the spaces of every profile (pi's first, then the custom profiles', each in alphabetical order), then the commands (`completion` is not offered, but works typed in full) |
 | `--config`, `--dir` | files (the shell's own completion) |
 | `remove`, `rename` | the spaces of every profile (never `base`) |
 | `setup` | the spaces, `--every` ("every profile") and `<profile>/--every` |
@@ -212,7 +212,7 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 
 There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
 
-The candidates come in groups, each with a description, and zsh lists each group apart: spaces, commands, targets (`--every`), shells and options. A space says what it is and which program opens it: `gentle/base -- base home of gentle (gentle-shell --)`, `gentle/work -- space of gentle (gentle-shell --)`. Spaces always come first, in alphabetical order, and the commands follow in alphabetical order: the script sets `zstyle ':completion:*:pi-space:*' sort false`, so neither zsh nor fzf-tab sorts them again into one list. The hidden `pi-space __complete` prints one `<group>\t<value>\t<description>` line per candidate (or the single line `__files__` when the shell should complete a file), so a script for another shell can use it.
+The candidates come in groups, each with a description, and zsh lists each group apart: spaces, commands, targets (`--every`), shells and options. A space says what it is and which program opens it: `gentle/base -- base home of gentle (gentle-shell --)`, `gentle/work -- space of gentle (gentle-shell --)`. Spaces always come first, pi's before the custom profiles', each in alphabetical order, and the commands follow in alphabetical order: the script sets `zstyle ':completion:*:pi-space:*' sort false`, so neither zsh nor fzf-tab sorts them again into one list. It also sets `group-name ''` and a `[%d]` descriptions format for pi-space alone, so each group shows under its own header (`[spaces]`, `[commands]`, `[options]`): plain zsh lists them apart, and fzf-tab, which shows groups only with that format, gives each group its own color and lists the headers above the list. The hidden `pi-space __complete` prints one `<group>\t<value>\t<description>` line per candidate (or the single line `__files__` when the shell should complete a file), so a script for another shell can use it.
 
 Completion also works through an abbreviation or alias: they expand first, so what the alias stands for is what completes. A config file that is wrong just gives no candidates; completion never prints an error.
 
