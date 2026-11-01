@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- PowerShell completion no longer offers the folder's files when pi-space
+  has no candidate (after a complete name, or a word that matches none):
+  Tab leaves the line as it is. Only `--config` and `--dir` complete files.
+
 ## 0.9.0
 
 ### Added

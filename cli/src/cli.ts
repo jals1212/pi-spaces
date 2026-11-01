@@ -796,8 +796,12 @@ const POWERSHELL_COMPLETION = [
 	"    if ($element.Extent.EndOffset -lt $cursorPosition) { $words += (& $text $element) }",
 	"  }",
 	"  $lines = @()",
-	"  try { $lines = @(& $exe __complete @words 2>$null) } catch { return }",
+	// Returning nothing makes PowerShell complete the folder's files; only the marker asks for them. Otherwise, with no
+	// candidate, one result that leaves the line as it is (the word typed, or a space after a finished word) stops that.
+	"  $keep = { $text = if ($wordToComplete) { $wordToComplete } else { ' ' }; [System.Management.Automation.CompletionResult]::new($text, $text, 'ParameterValue', $text) }",
+	"  try { $lines = @(& $exe __complete @words 2>$null) } catch { return (& $keep) }",
 	`  if ($lines.Count -gt 0 -and $lines[0] -eq '${FILES}') { return }`,
+	"  $found = $false",
 	"  $pattern = [WildcardPattern]::Escape($wordToComplete) + '*'",
 	"  foreach ($line in $lines) {",
 	"    if (-not $line) { continue }",
@@ -812,7 +816,9 @@ const POWERSHELL_COMPLETION = [
 	// A value with a space or a special character is quoted, so the line stays one word.
 	"    $completion = if ($value -match '[\\s\\x27\\x22`$&;|<>(){}\\[\\],@#]') { \"'\" + $value.Replace(\"'\", \"''\") + \"'\" } else { $value }",
 	"    [System.Management.Automation.CompletionResult]::new($completion, $value, 'ParameterValue', $tip)",
+	"    $found = $true",
 	"  }",
+	"  if (-not $found) { & $keep }",
 	"}",
 	"",
 ].join("\n");
