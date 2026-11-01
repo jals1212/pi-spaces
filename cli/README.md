@@ -12,12 +12,12 @@ Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi e
 
 ### Windows
 
-Everything but shell completion works the same on Windows:
+Everything works the same on Windows, and [shell completion](#powershell) works in PowerShell:
 
 - **The config file** is `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`). `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
 - **The commands** run as on macOS and Linux, and the CI runs the tests on Windows. A program installed by npm as a `.cmd` shim (such as `pi.cmd`) is found without its extension.
 - **The picker** (`pi-space` alone) needs a terminal that supports raw mode and ANSI escape codes, as Windows Terminal and PowerShell 7 do. It has not been tested on a real Windows console: the CI has no terminal.
-- **Shell completion** is zsh only, so it works in WSL but not in PowerShell or cmd. Use the picker there, or write a completer on top of `pi-space __complete` (see [Shell completion](#shell-completion)).
+- **Shell completion** works in PowerShell 7 and Windows PowerShell 5.1 (see [PowerShell](#powershell)), and in zsh under WSL. cmd has no programmable completion: use the picker there.
 
 ## Naming a space
 
@@ -51,7 +51,7 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | `pi-space update <profile>/<name>` | Runs Pi's `update` in a space; `<profile>/--every` and `--every` run it in many (see below). What follows is Pi's: `--extensions`, `--all`, a source. With nothing after the space it is Pi's default. |
 | `pi-space install <profile>/<name> <source> [pi install options...]` | Runs Pi's `install` in a space (or `<profile>/--every`, `--every`). The source is required. |
 | `pi-space uninstall <profile>/<name> <source> [pi options...]` | Runs Pi's `uninstall` (its alias of `remove`) in a space (or `<profile>/--every`, `--every`). The source is required. |
-| `pi-space completion zsh` | Prints the zsh completion script (see [Shell completion](#shell-completion)). Any other shell, or none, exits with status 2. |
+| `pi-space completion <shell>` | Prints the completion script of a shell: `zsh` or `powershell` (see [Shell completion](#shell-completion)). Any other shell, or none, exits with status 2. |
 | `pi-space <command> --help` | Shows the help of one command: what it does, its arguments and options, the call options that apply, and examples (`pi-space --help <command>` and `-h` work too). |
 | `pi-space --help` | Shows the usage. |
 | `pi-space --version` | Prints the version. |
@@ -202,11 +202,13 @@ abbr myw="pi-space my/work"            # zsh-abbr: typing `myw` expands to the c
 
 ## Shell completion
 
-`pi-space` completes its commands (each with a one-line summary), the spaces of every profile as `<profile>/<name>`, `--every` and `<profile>/--every`, and files after `--config` and `--dir`. For zsh, add to `~/.zshrc` (after `compinit`):
+`pi-space` completes its commands (each with a one-line summary), the spaces of every profile as `<profile>/<name>`, `--every` and `<profile>/--every`, and files after `--config` and `--dir`. It works in zsh and in PowerShell. For zsh, add to `~/.zshrc` (after `compinit`):
 
 ```sh
 source <(pi-space completion zsh)
 ```
+
+For PowerShell, see [PowerShell](#powershell) below.
 
 It asks the command itself for the candidates each time, through the hidden `pi-space __complete`, so it always sees your current config and spaces. `pi-space <TAB>` gives the same spaces as the picker, with each profile's `base` included. Options already typed are honored: `--config` makes it read that file, and `--dir` makes it list the spaces of that folder under each profile's prefix. It lists:
 
@@ -217,9 +219,9 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 | `remove`, `rename` | the spaces of every profile (never `base`) |
 | `setup` | the spaces, `--every` ("every profile") and `<profile>/--every` |
 | `list`, `update`, `install`, `uninstall` | `<profile>/base`, the spaces, `--every` and `<profile>/--every` |
-| `completion` | `zsh` |
+| `completion` | `zsh`, `powershell` |
 
-There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
+There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh and PowerShell show them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
 
 Completion also works through an abbreviation or alias: they expand first, so what the alias stands for is what completes. A config file that is wrong just gives no candidates; completion never prints an error.
 
@@ -251,9 +253,32 @@ You lose fuzzy search there: type the start of a name and press Tab again to nar
 
 The candidates come from `pi-space` at each Tab, so a new version's order and descriptions show at once. A change to the script itself (its styles, say) shows in a new shell: `source <(pi-space completion zsh)` reads the script when the shell starts. If you keep the script in a file instead, write it again after each update (`pi-space completion zsh > <file>`), or regenerate it when the `pi-space` binary is newer than the file.
 
+### PowerShell
+
+Works in PowerShell 7 and in Windows PowerShell 5.1. Add to your profile (`notepad $PROFILE`):
+
+```powershell
+pi-space completion powershell | Out-String | Invoke-Expression
+```
+
+To pick from a menu when you press Tab, add this line too:
+
+```powershell
+Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
+```
+
+What you see:
+
+- One list, in pi-space's order: the spaces, the commands, then the options.
+- The description of a candidate is its tooltip (in the menu, at the bottom).
+- No group headers: PowerShell has none.
+- Files after `--config` and `--dir`: PowerShell's own path completion.
+
+The options show once the word starts with `-`. cmd has no programmable completion, so there is nothing to load there.
+
 ### Other shells
 
-The hidden `pi-space __complete <words before the cursor>` prints one `<group>\t<value>\t<description>` line per candidate, in the order to show, or the single line `__files__` when the shell should complete a file. A completer for another shell (bash, fish, PowerShell) can be written on top of it.
+The zsh and PowerShell scripts are built in. The hidden `pi-space __complete <words before the cursor>` prints one `<group>\t<value>\t<description>` line per candidate, in the order to show, or the single line `__files__` when the shell should complete a file. A completer for another shell (bash, fish) can be written on top of it.
 
 ## Preparing a new space
 
