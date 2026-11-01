@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.2
+
 ### Fixed
 
 - PowerShell completion with no candidate does nothing at all: 0.9.1 left
