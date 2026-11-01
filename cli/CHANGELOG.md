@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.0
+
 ### Added
 
 - `pi-space completion powershell` prints a PowerShell completion script
