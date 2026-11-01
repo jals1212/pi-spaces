@@ -6,6 +6,22 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.0
+
+### Added
+
+- `pi-space completion powershell` prints a PowerShell completion script
+  (PowerShell 7 and Windows PowerShell 5.1): `pi-space completion powershell |
+  Out-String | Invoke-Expression` in `$PROFILE`. It lists the same candidates, in
+  the same order, as zsh; the description is the tooltip.
+
+### Documentation
+
+- The README says how the CLI works on Windows (where the config file is,
+  the picker, PowerShell completion), how the completion headers show
+  in plain zsh (separators) and in fzf-tab (a legend), how to use zsh's own
+  menu for pi-space alone, and what to do after an update.
+
 ## 0.8.2
 
 ### Changed

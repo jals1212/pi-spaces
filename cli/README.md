@@ -8,7 +8,16 @@ The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, cr
 npm install -g @jals1212/pi-spaces-cli
 ```
 
-Node 20 or later. The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]`, and the extension does the switch. For the package commands (`list <profile>/<name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
+Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]`, and the extension does the switch. For the package commands (`list <profile>/<name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
+
+### Windows
+
+Everything works the same on Windows, and [shell completion](#powershell) works in PowerShell:
+
+- **The config file** is `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`). `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
+- **The commands** run as on macOS and Linux, and the CI runs the tests on Windows. A program installed by npm as a `.cmd` shim (such as `pi.cmd`) is found without its extension.
+- **The picker** (`pi-space` alone) needs a terminal that supports raw mode and ANSI escape codes, as Windows Terminal and PowerShell 7 do. It has not been tested on a real Windows console: the CI has no terminal.
+- **Shell completion** works in PowerShell 7 and Windows PowerShell 5.1 (see [PowerShell](#powershell)), and in zsh under WSL. cmd has no programmable completion: use the picker there.
 
 ## Naming a space
 
@@ -42,7 +51,7 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | `pi-space update <profile>/<name>` | Runs Pi's `update` in a space; `<profile>/--every` and `--every` run it in many (see below). What follows is Pi's: `--extensions`, `--all`, a source. With nothing after the space it is Pi's default. |
 | `pi-space install <profile>/<name> <source> [pi install options...]` | Runs Pi's `install` in a space (or `<profile>/--every`, `--every`). The source is required. |
 | `pi-space uninstall <profile>/<name> <source> [pi options...]` | Runs Pi's `uninstall` (its alias of `remove`) in a space (or `<profile>/--every`, `--every`). The source is required. |
-| `pi-space completion zsh` | Prints the zsh completion script (see [Shell completion](#shell-completion)). Any other shell, or none, exits with status 2. |
+| `pi-space completion <shell>` | Prints the completion script of a shell: `zsh` or `powershell` (see [Shell completion](#shell-completion)). Any other shell, or none, exits with status 2. |
 | `pi-space <command> --help` | Shows the help of one command: what it does, its arguments and options, the call options that apply, and examples (`pi-space --help <command>` and `-h` work too). |
 | `pi-space --help` | Shows the usage. |
 | `pi-space --version` | Prints the version. |
@@ -193,11 +202,13 @@ abbr myw="pi-space my/work"            # zsh-abbr: typing `myw` expands to the c
 
 ## Shell completion
 
-`pi-space` completes its commands (each with a one-line summary), the spaces of every profile as `<profile>/<name>`, `--every` and `<profile>/--every`, and files after `--config` and `--dir`. For zsh, add to `~/.zshrc` (after `compinit`):
+`pi-space` completes its commands (each with a one-line summary), the spaces of every profile as `<profile>/<name>`, `--every` and `<profile>/--every`, and files after `--config` and `--dir`. It works in zsh and in PowerShell. For zsh, add to `~/.zshrc` (after `compinit`):
 
 ```sh
 source <(pi-space completion zsh)
 ```
+
+For PowerShell, see [PowerShell](#powershell) below.
 
 It asks the command itself for the candidates each time, through the hidden `pi-space __complete`, so it always sees your current config and spaces. `pi-space <TAB>` gives the same spaces as the picker, with each profile's `base` included. Options already typed are honored: `--config` makes it read that file, and `--dir` makes it list the spaces of that folder under each profile's prefix. It lists:
 
@@ -208,13 +219,66 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 | `remove`, `rename` | the spaces of every profile (never `base`) |
 | `setup` | the spaces, `--every` ("every profile") and `<profile>/--every` |
 | `list`, `update`, `install`, `uninstall` | `<profile>/base`, the spaces, `--every` and `<profile>/--every` |
-| `completion` | `zsh` |
+| `completion` | `zsh`, `powershell` |
 
-There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh shows them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
-
-The candidates come in groups, each with a description, and zsh lists each group apart: spaces, commands, targets (`--every`), shells and options. A space says what it is and which program opens it: `gentle/base -- base home of gentle (gentle-shell --)`, `gentle/work -- space of gentle (gentle-shell --)`. Spaces always come first, pi's before the custom profiles', each in alphabetical order, and the commands follow in alphabetical order: the script sets `zstyle ':completion:*:pi-space:*' sort false`, so neither zsh nor fzf-tab sorts them again into one list. It also sets `group-name ''` and a `[%d]` descriptions format for pi-space alone, so each group shows under its own header (`[spaces]`, `[commands]`, `[options]`): plain zsh lists them apart, and fzf-tab, which shows groups only with that format, gives each group its own color and lists the headers above the list. The hidden `pi-space __complete` prints one `<group>\t<value>\t<description>` line per candidate (or the single line `__files__` when the shell should complete a file), so a script for another shell can use it.
+There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh and PowerShell show them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
 
 Completion also works through an abbreviation or alias: they expand first, so what the alias stands for is what completes. A config file that is wrong just gives no candidates; completion never prints an error.
+
+### What you see
+
+The candidates come in groups, each with a description: spaces, commands, targets (`--every`), shells and options. A space says what it is and which program opens it: `gentle/base -- base home of gentle (gentle-shell --)`, `gentle/work -- space of gentle (gentle-shell --)`.
+
+The order is fixed: the spaces first, pi's before the custom profiles', each in alphabetical order; then the commands, in alphabetical order; then the options. The script sets `zstyle ':completion:*:pi-space:*' sort false`, so neither zsh nor fzf-tab sorts them again into one list.
+
+### Plain zsh or fzf-tab
+
+The script also sets, for pi-space alone, `group-name ''` and the descriptions format `[%d]`, so every group has a header. How the header shows depends on what draws the list:
+
+| Menu | The headers | Example |
+| --- | --- | --- |
+| Plain zsh | Separators: each header sits above its group | `[spaces]`, the spaces, `[commands]`, the commands |
+| [fzf-tab](https://github.com/Aloxaf/fzf-tab) | A legend: one line above the list names the groups, each in the color its candidates have | `[spaces]  [commands]` on top, spaces in one color, commands in another |
+
+fzf-tab shows a single flat list, so it has no separator line between groups; `zstyle ':fzf-tab:*' switch-group '<' '>'` lets you jump from one group to the next. To get zsh's own menu, with the headers as separators, for pi-space alone and fzf-tab everywhere else, add to `~/.zshrc`:
+
+```sh
+zstyle ':fzf-tab:complete:pi-space:*' disabled-on any   # fzf-tab off for pi-space
+zstyle ':completion:*:pi-space:*' menu select           # move with the arrows, Enter picks
+```
+
+You lose fuzzy search there: type the start of a name and press Tab again to narrow it.
+
+### After an update
+
+The candidates come from `pi-space` at each Tab, so a new version's order and descriptions show at once. A change to the script itself (its styles, say) shows in a new shell: `source <(pi-space completion zsh)` reads the script when the shell starts. If you keep the script in a file instead, write it again after each update (`pi-space completion zsh > <file>`), or regenerate it when the `pi-space` binary is newer than the file.
+
+### PowerShell
+
+Works in PowerShell 7 and in Windows PowerShell 5.1. Add to your profile (`notepad $PROFILE`):
+
+```powershell
+pi-space completion powershell | Out-String | Invoke-Expression
+```
+
+To pick from a menu when you press Tab, add this line too:
+
+```powershell
+Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
+```
+
+What you see:
+
+- One list, in pi-space's order: the spaces, the commands, then the options.
+- The description of a candidate is its tooltip (in the menu, at the bottom).
+- No group headers: PowerShell has none.
+- Files after `--config` and `--dir`: PowerShell's own path completion.
+
+The options show once the word starts with `-`. cmd has no programmable completion, so there is nothing to load there.
+
+### Other shells
+
+The zsh and PowerShell scripts are built in. The hidden `pi-space __complete <words before the cursor>` prints one `<group>\t<value>\t<description>` line per candidate, in the order to show, or the single line `__files__` when the shell should complete a file. A completer for another shell (bash, fish) can be written on top of it.
 
 ## Preparing a new space
 

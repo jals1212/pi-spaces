@@ -24,6 +24,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
   pi-space completion zsh                      print the zsh completion script (source <(pi-space completion zsh))
+  pi-space completion powershell               print the PowerShell completion script (pi-space completion powershell | Out-String | Invoke-Expression)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
@@ -443,7 +444,9 @@ test("the help of each command says what it takes: arguments, options, the call 
 	assert.match(await help("setup"), /<profile>\/--every {2,}every space of that profile, never base/);
 	for (const command of Object.keys(HELP_USAGE)) assert.doesNotMatch(await help(command), /--profile <name>|"default"|\$PI_SPACES_(COMMAND|DIR|SETUP)/, command);
 	const completion = await help("completion");
-	assert.match(completion, /zsh/);
+	assert.match(completion, /Supported shells: zsh, powershell\./);
+	assert.match(completion, /zsh or powershell/);
+	assert.match(completion, /pi-space completion powershell \| Out-String \| Invoke-Expression/);
 	assert.doesNotMatch(completion, /--profile|--dir|--config|--command|--setup/);
 });
 
@@ -1779,12 +1782,33 @@ test("completion zsh prints a script that registers pi-space and asks __complete
 	const fish = await run(["completion", "fish"]);
 	assert.equal(fish.code, 2);
 	assert.equal(fish.out, "");
-	assert.equal(fish.err, 'pi-space: Unsupported shell "fish"; supported shells: zsh.\n');
+	assert.equal(fish.err, 'pi-space: Unsupported shell "fish"; supported shells: zsh, powershell.\n');
 	const none = await run(["completion"]);
 	assert.equal(none.code, 2);
 	assert.equal(none.out, "");
-	assert.equal(none.err, "pi-space: Name a shell: pi-space completion zsh (supported shells: zsh).\n");
+	assert.equal(none.err, "pi-space: Name a shell: pi-space completion zsh (supported shells: zsh, powershell).\n");
 	const extra = await run(["completion", "zsh", "x"]);
+	assert.equal(extra.code, 2);
+	assert.equal(extra.err, USAGE);
+});
+
+test("completion powershell prints a script that registers the pi-space completer and asks __complete", async () => {
+	const r = await run(["completion", "powershell"]);
+	assert.equal(r.code, 0);
+	assert.equal(r.err, "");
+	assert.match(r.out, /Register-ArgumentCompleter -Native -CommandName pi-space -ScriptBlock/);
+	assert.match(r.out, /__complete/);
+	assert.match(r.out, /__files__/);
+	assert.match(r.out, /pi-space completion powershell \| Out-String \| Invoke-Expression/);
+	assert.match(r.out, /Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete/);
+	assert.doesNotMatch(r.out, /compdef/);
+	assert.equal(r.spawned.length, 0);
+	assert.notEqual(r.out, (await run(["completion", "zsh"])).out);
+	const upper = await run(["completion", "PowerShell"]);
+	assert.equal(upper.code, 2);
+	assert.equal(upper.out, "");
+	assert.equal(upper.err, 'pi-space: Unsupported shell "PowerShell"; supported shells: zsh, powershell.\n');
+	const extra = await run(["completion", "powershell", "x"]);
 	assert.equal(extra.code, 2);
 	assert.equal(extra.err, USAGE);
 });
@@ -1891,9 +1915,9 @@ test("__complete: the first word leaves out the call options already typed, and 
 	assert.deepEqual(options(await complete(["--setup", "s {home}"])), ["option --command", "option --dir", "option --config"]);
 });
 
-test("__complete: completion is not offered as a command, but completion <TAB> still offers zsh", async () => {
+test("__complete: completion is not offered as a command, but completion <TAB> still offers both shells", async () => {
 	assert.ok(!(await complete([])).some((line) => line.includes("completion")));
-	assert.deepEqual(await completeLines(["completion"]), ["shell\tzsh\tthe zsh completion script", "option\t--help\tthe help of this command"]);
+	assert.deepEqual(await completeLines(["completion"]), ["shell\tzsh\tthe zsh completion script", "shell\tpowershell\tthe powershell completion script", "option\t--help\tthe help of this command"]);
 });
 
 test("__complete: after --help or -h it offers every command with its summary, completion too; nothing after one", async () => {
@@ -2066,6 +2090,99 @@ test("the zsh script falls back to _files on the marker, and offers nothing for 
 	const script = (await run(["completion", "zsh"])).out;
 	assert.deepEqual(zshComplete(script, ["__files__"], ""), ["_files", "status 0"]);
 	assert.deepEqual(zshComplete(script, [], ""), ["status 1"]);
+});
+
+const PWSH_SKIP = spawnSync("pwsh", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"]).error !== undefined && "pwsh is not installed";
+
+/** What one completion result shows: the text it inserts, the text in the list, and the tooltip. */
+interface PwshMatch {
+	text: string;
+	list: string;
+	tip: string;
+}
+
+/**
+ * Runs the completion script under pwsh with a fake pi-space on PATH that prints `lines` (`{args}` in a line becomes
+ * the words it was called with), then asks TabExpansion2 for each input with the cursor at its end, in a folder that
+ * holds alpha.txt. Returns the matches of each input, in the order PowerShell gives them.
+ */
+function pwshComplete(script: string, lines: string[], inputs: string[]): PwshMatch[][] {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pwsh-")));
+	try {
+		writeFileSync(join(root, "script.ps1"), script);
+		mkdirSync(join(root, "bin"));
+		mkdirSync(join(root, "cwd"));
+		writeFileSync(join(root, "cwd", "alpha.txt"), "");
+		const fake = join(root, "bin", "fake.mjs");
+		writeFileSync(fake, `if (process.argv[2] !== "__complete") process.exit(3);\nfor (const line of ${JSON.stringify(lines)}) console.log(line.replaceAll("{args}", process.argv.slice(2).join(" ")));\n`);
+		if (process.platform === "win32") {
+			writeFileSync(join(root, "bin", "pi-space.cmd"), `@"${process.execPath}" "%~dp0fake.mjs" %*\r\n`);
+		} else {
+			writeFileSync(join(root, "bin", "pi-space"), `#!/bin/sh\nexec '${process.execPath}' '${fake}' "$@"\n`);
+			chmodSync(join(root, "bin", "pi-space"), 0o755);
+		}
+		const quote = (text: string) => `'${text.replaceAll("'", "''")}'`;
+		const command = [
+			"$ErrorActionPreference = 'Stop'",
+			`$env:PATH = ${quote(join(root, "bin"))} + [System.IO.Path]::PathSeparator + $env:PATH`,
+			`Set-Location -LiteralPath ${quote(join(root, "cwd"))}`,
+			`Get-Content -Raw -LiteralPath ${quote(join(root, "script.ps1"))} | Invoke-Expression`,
+			`foreach ($typed in @(${inputs.map(quote).join(", ")})) {`,
+			"  $result = TabExpansion2 -inputScript $typed -cursorColumn $typed.Length",
+			"  $items = @($result.CompletionMatches | ForEach-Object { [pscustomobject]@{ text = $_.CompletionText; list = $_.ListItemText; tip = $_.ToolTip } })",
+			"  Write-Output (ConvertTo-Json -InputObject $items -Compress)",
+			"}",
+		].join("\n");
+		const result = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")], { encoding: "utf8" });
+		assert.equal(result.status, 0, result.stderr + result.stdout);
+		const outputs = result.stdout.trim().split(/\r?\n/);
+		assert.equal(outputs.length, inputs.length, result.stdout);
+		return outputs.map((output) => JSON.parse(output) as PwshMatch[]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+}
+
+test("the powershell script lists the candidates in pi-space's order, shows options only for a dash, filters by prefix, and passes the words before the cursor", { skip: PWSH_SKIP }, async () => {
+	const script = (await run(["completion", "powershell"])).out;
+	const lines = [
+		"space\tpi/base\tbase home of pi (pi)",
+		"space\tpi/my work\tspace of pi (pi)",
+		"command\tlist\tlist the spaces",
+		"command\tnew\tcreate a space",
+		"command\techo\targs {args}",
+		"target\t--every\tevery profile, base first",
+		"shell\tpowershell\tthe powershell completion script",
+		"option\t--yes\t",
+		"option\t--help\tthe help of this command",
+	];
+	const [all, dash, prefix, upper, slash, wildcard, words, word] = pwshComplete(script, lines, ["pi-space ", "pi-space -", "pi-space n", "pi-space PI/B", "pi-space pi/", "pi-space n*", "pi-space new pi/work ", "pi-space new e"]);
+	const texts = (matches: PwshMatch[]) => matches.map((match) => match.text);
+	// pi-space gives the order (spaces first): PowerShell must not sort it. A value with a space is quoted; the list shows it as it is.
+	assert.deepEqual(texts(all), ["pi/base", "'pi/my work'", "list", "new", "echo", "--every", "powershell"]);
+	assert.equal(all[1].list, "pi/my work");
+	assert.deepEqual(all.slice(0, 3).map((match) => match.tip), ["base home of pi (pi)", "space of pi (pi)", "list the spaces"]);
+	// The options show only once the word starts with "-"; a missing description shows the value.
+	assert.deepEqual(texts(dash), ["--every", "--yes", "--help"]);
+	assert.deepEqual(dash.map((match) => match.tip), ["every profile, base first", "--yes", "the help of this command"]);
+	assert.deepEqual(texts(prefix), ["new"]);
+	assert.deepEqual(texts(upper), ["pi/base"]);
+	assert.deepEqual(texts(slash), ["pi/base", "'pi/my work'"]);
+	// A wildcard is a plain character, never a pattern.
+	assert.ok(!texts(wildcard).includes("new"), texts(wildcard).join(","));
+	// The words before the cursor are passed to __complete; the word being completed is not.
+	assert.equal(words.find((match) => match.text === "echo")?.tip, "args __complete new pi/work");
+	assert.deepEqual(word.map((match) => [match.text, match.tip]), [["echo", "args __complete new"]]);
+	assert.equal(all.find((match) => match.text === "echo")?.tip, "args __complete");
+});
+
+test("the powershell script falls back to PowerShell's own file completion on the marker, and offers nothing for no candidates", { skip: PWSH_SKIP }, async () => {
+	const script = (await run(["completion", "powershell"])).out;
+	const [files] = pwshComplete(script, ["__files__"], ["pi-space "]);
+	assert.ok(files.some((match) => match.text.includes("alpha.txt")), JSON.stringify(files));
+	assert.ok(!files.some((match) => match.text.includes("pi/")), JSON.stringify(files));
+	const [none] = pwshComplete(script, [], ["pi-space "]);
+	assert.ok(none.every((match) => match.text.includes("alpha.txt")), JSON.stringify(none));
 });
 
 test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the profile's dir, and completion zsh prints the script", () => {

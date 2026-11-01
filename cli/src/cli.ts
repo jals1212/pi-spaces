@@ -57,6 +57,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
   pi-space completion zsh                      print the zsh completion script (source <(pi-space completion zsh))
+  pi-space completion powershell               print the PowerShell completion script (pi-space completion powershell | Out-String | Invoke-Expression)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
@@ -238,11 +239,11 @@ const COMMANDS: Record<string, CommandHelp> = {
 	completion: {
 		summary: "print the shell completion script",
 		usage: "completion <shell>",
-		about: ["Supported shells: zsh."],
-		args: [["<shell>", "zsh"]],
+		about: ["Supported shells: zsh, powershell."],
+		args: [["<shell>", "zsh or powershell"]],
 		options: [],
 		calls: [],
-		examples: ["pi-space completion zsh", "source <(pi-space completion zsh)"],
+		examples: ["pi-space completion zsh", "source <(pi-space completion zsh)", "pi-space completion powershell", "pi-space completion powershell | Out-String | Invoke-Expression"],
 	},
 };
 
@@ -698,7 +699,7 @@ function listProfiles(call: Call): void {
 	return call.io.exit(0);
 }
 
-const SHELLS = ["zsh"];
+const SHELLS = ["zsh", "powershell"];
 
 /** `pi-space completion <shell>`: the script on stdout, or exit 2 for a shell it does not know. */
 function printCompletion(shell: string | undefined, io: CliIo): void {
@@ -706,11 +707,11 @@ function printCompletion(shell: string | undefined, io: CliIo): void {
 		io.stderr.write(`pi-space: Name a shell: pi-space completion zsh (supported shells: ${SHELLS.join(", ")}).\n`);
 		return io.exit(2);
 	}
-	if (shell !== "zsh") {
+	if (shell !== "zsh" && shell !== "powershell") {
 		io.stderr.write(`pi-space: Unsupported shell "${shell}"; supported shells: ${SHELLS.join(", ")}.\n`);
 		return io.exit(2);
 	}
-	io.stdout.write(ZSH_COMPLETION);
+	io.stdout.write(shell === "zsh" ? ZSH_COMPLETION : POWERSHELL_COMPLETION);
 	return io.exit(0);
 }
 
@@ -767,6 +768,52 @@ const ZSH_COMPLETION = [
 	// rest; fzf-tab shows groups only when the descriptions have a format, and ignores escape sequences in it.
 	"zstyle ':completion:*:pi-space:*' group-name ''",
 	"zstyle ':completion:*:pi-space:*:descriptions' format '[%d]'",
+	"",
+].join("\n");
+
+/**
+ * The PowerShell script (PowerShell 7 and Windows PowerShell 5.1): the same idea as the zsh one. It asks
+ * `pi-space __complete <the words before the cursor>` and turns each line into a completion result, in the order
+ * received, so PowerShell shows one list in pi-space's order (the description is the tooltip; there are no group headers).
+ * The `__files__` marker returns nothing, so PowerShell falls back to its own path completion.
+ * The options show only for a word that starts with "-", as in zsh.
+ */
+const POWERSHELL_COMPLETION = [
+	"# PowerShell completion for pi-space. Load it from $PROFILE with: pi-space completion powershell | Out-String | Invoke-Expression",
+	"# To pick from a menu on Tab, add this to $PROFILE too: Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete",
+	"Register-ArgumentCompleter -Native -CommandName pi-space -ScriptBlock {",
+	"  param($wordToComplete, $commandAst, $cursorPosition)",
+	"  $wordToComplete = [string]$wordToComplete",
+	"  $text = { param($element) if ($element -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $element.Value } else { $element.Extent.Text } }",
+	// The first word is the command the user typed (pi-space, or a path to it); fall back to pi-space when it has no text.
+	"  $elements = @($commandAst.CommandElements)",
+	"  $exe = $null",
+	"  if ($elements.Count -gt 0) { $exe = & $text $elements[0] }",
+	"  if (-not $exe) { $exe = 'pi-space' }",
+	// The words before the cursor end before it. The word being completed ends at the cursor, so it is left out.
+	"  $words = @()",
+	"  foreach ($element in @($elements | Select-Object -Skip 1)) {",
+	"    if ($element.Extent.EndOffset -lt $cursorPosition) { $words += (& $text $element) }",
+	"  }",
+	"  $lines = @()",
+	"  try { $lines = @(& $exe __complete @words 2>$null) } catch { return }",
+	`  if ($lines.Count -gt 0 -and $lines[0] -eq '${FILES}') { return }`,
+	"  $pattern = [WildcardPattern]::Escape($wordToComplete) + '*'",
+	"  foreach ($line in $lines) {",
+	"    if (-not $line) { continue }",
+	"    $parts = ([string]$line).Split([char]9)",
+	"    $group = $parts[0]",
+	"    $value = if ($parts.Count -gt 1) { $parts[1] } else { '' }",
+	"    $tip = if ($parts.Count -gt 2) { $parts[2] } else { '' }",
+	"    if (-not $value) { continue }",
+	"    if ($group -eq 'option' -and $wordToComplete -notlike '-*') { continue }",
+	"    if ($value -notlike $pattern) { continue }",
+	"    if (-not $tip) { $tip = $value }",
+	// A value with a space or a special character is quoted, so the line stays one word.
+	"    $completion = if ($value -match '[\\s\\x27\\x22`$&;|<>(){}\\[\\],@#]') { \"'\" + $value.Replace(\"'\", \"''\") + \"'\" } else { $value }",
+	"    [System.Management.Automation.CompletionResult]::new($completion, $value, 'ParameterValue', $tip)",
+	"  }",
+	"}",
 	"",
 ].join("\n");
 
