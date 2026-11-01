@@ -222,6 +222,22 @@ test("the built-in pi profile uses PI_CODING_AGENT_DIR or ~/.pi/agent, command p
 	);
 });
 
+test("inside the Pi of another profile, the built-in pi profile keeps ~/.pi/agent instead of that profile's home", () => {
+	const config = load(v1({ profiles: { gsh: { home: "~/.gsh/agent" }, d: {} } }));
+	const gshHome = path(HOME, ".gsh", "agent");
+	const piHome = path(HOME, ".pi", "agent");
+	for (const env of [{ PI_CODING_AGENT_DIR: gshHome }, { PI_CODING_AGENT_DIR: path(HOME, ".gsh", "spaces", "work"), PI_SPACES_BASE_HOME: gshHome }]) {
+		const pi = profileByName(config, "pi", env, HOME);
+		assert.equal(pi.home, piHome, JSON.stringify(env));
+		assert.equal(pi.dir, path(HOME, ".pi", "spaces"), JSON.stringify(env));
+		// A profile without a home takes the built-in one's, so it stays in pi too.
+		assert.equal(profileByName(config, "d", env, HOME).home, piHome, JSON.stringify(env));
+		assert.equal(profileForHome(config, gshHome, env, HOME)?.name, "gsh", JSON.stringify(env));
+	}
+	// A home that no profile of the file claims is still the pi home.
+	assert.equal(profileByName(config, "pi", { PI_CODING_AGENT_DIR: "/h/agent" }, HOME).home, path("/h/agent"));
+});
+
 test("profiles.pi replaces the built-in one, keeping the home and command defaults for what it omits", () => {
 	const config = load(v1({ profiles: { pi: { setup: "my-launcher setup", spaceEnv: { A: "{name}" } } } }));
 	assert.deepEqual(profileByName(config, "pi", { PI_CODING_AGENT_DIR: "/h/agent" }, HOME), {

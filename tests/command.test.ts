@@ -88,7 +88,7 @@ test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", a
 	f.deps.env.PI_SPACES_SETUP = "my-launcher --home {home} setup";
 	await runSpaceCommand("new work", f.deps);
 	assert.deepEqual(f.notes, [
-		["info", `Created space "work" at ${join(f.dir, "work")}. Prepare it from a shell with: pi-space setup work. Then enter it with /space switch work.`],
+		["info", `Created space "work" at ${join(f.dir, "work")}. Prepare it from a shell with: pi-space setup pi/work. Then enter it with /space switch work.`],
 	]);
 	assert.equal(f.relaunches.length, 0);
 
@@ -99,14 +99,14 @@ test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", a
 });
 
 test("new names pi-space setup when the matched profile has a setup, and not otherwise", async () => {
-	const prepared = (name: string, dir: string) =>
-		`Created space "${name}" at ${join(dir, name)}. Prepare it from a shell with: pi-space setup ${name}. Then enter it with /space switch ${name}.`;
+	const prepared = (profile: string, name: string, dir: string) =>
+		`Created space "${name}" at ${join(dir, name)}. Prepare it from a shell with: pi-space setup ${profile}/${name}. Then enter it with /space switch ${name}.`;
 	const plain = (name: string, dir: string) => `Created space "${name}" at ${join(dir, name)}. Enter it with /space switch ${name}.`;
 
 	const withSetup = fake();
 	withSetup.deps.profile = { name: "gsh", home: withSetup.base, dir: withSetup.dir, setup: "my-launcher --home {home} setup" };
 	await runSpaceCommand("new work", withSetup.deps);
-	assert.deepEqual(withSetup.notes, [["info", prepared("work", withSetup.dir)]]);
+	assert.deepEqual(withSetup.notes, [["info", prepared("gsh", "work", withSetup.dir)]]);
 	assert.equal(withSetup.relaunches.length, 0);
 
 	const without = fake();
@@ -119,7 +119,7 @@ test("new names pi-space setup when the matched profile has a setup, and not oth
 	viaEnv.deps.env.PI_SPACES_SETUP = "my-launcher setup";
 	viaEnv.deps.profile = { name: "pi", home: viaEnv.base, dir: viaEnv.dir, command: "pi" };
 	await runSpaceCommand("new work", viaEnv.deps);
-	assert.deepEqual(viaEnv.notes, [["info", prepared("work", viaEnv.dir)]]);
+	assert.deepEqual(viaEnv.notes, [["info", prepared("pi", "work", viaEnv.dir)]]);
 });
 
 test("switch applies the profile's spaceEnv: set in a space, removed in base, recomputed between spaces", async () => {

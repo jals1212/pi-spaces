@@ -6,6 +6,64 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.8.0
+
+### Changed
+
+- **Breaking:** every space is named `<profile>/<name>`, `base` included
+  (`pi-space pi/work`, `pi-space new my/work`, `pi-space rename pi/work client`,
+  `pi-space update pi/base`): launch, `new`, `setup`, `rename`, `remove`,
+  `list`, `update`, `install` and `uninstall`. A bare name exits 2 and names
+  the form: `pi-space: Name the space with its profile, as <profile>/work
+  (profiles: my, pi).` `rename` takes the new name bare or with the same
+  profile; a space never changes profile.
+- **Breaking:** `--profile` is removed, replaced by the profile in the name:
+  `pi-space: --profile was replaced by: pi-space <profile>/<name>` (exit 2).
+  `--command`, `--dir`, `--setup` and `--config` stay, and `--command`,
+  `--dir` and `--setup` now override the named profile for one call.
+- **Breaking:** the config file's `default` is ignored, with a warning on
+  stderr (the file still works, `spaceEnv` included): `pi-space: <file>:
+  "default" is no longer used; name each space with its profile
+  (<profile>/<name>) and remove "default" from the file.`
+- **Breaking:** `PI_SPACES_COMMAND`, `PI_SPACES_DIR` and `PI_SPACES_SETUP` are
+  no longer read as settings. They are what `pi-space` hands to the Pi it
+  starts (the profile's command, spaces folder and setup, or the call
+  options; unset when there is none, so a caller's value never leaks), and
+  what the extension reads. `PI_SPACES_CONFIG` is still read.
+- **Breaking:** `pi-space list` alone lists every profile with its base and
+  spaces, grouped, as `profile/space`.
+- **Breaking:** `--every` is two targets: `<profile>/--every` runs in that
+  profile's base and spaces (for `setup`, only its spaces), and `--every`
+  alone runs in every profile (`setup --every` skips profiles with no setup
+  command). Each run's header and the failure list use `profile/space`.
+- **Breaking:** `--command` and `--dir` with something that spans profiles
+  (the picker, `list` alone, `--every` alone) exit 2: `pi-space: --command and
+  --dir apply to one profile; name it: <profile>/<name> or <profile>/--every.`
+  `--setup` applies to each profile.
+- The picker lists the spaces of every profile as `<profile>/<name>` (with a
+  group header when there is more than one profile), and a profile that shares
+  a folder with another is listed too, each with its own command.
+- Completion lists `<profile>/<name>` for every profile after `pi-space` and
+  after a command, plus `--every` and `<profile>/--every` where a target goes,
+  so `pi-space <TAB>` shows what the picker does. `--profile` is no longer
+  completed; `--config` makes it read that file and `--dir` lists that folder's
+  spaces under each profile's prefix.
+- The README and the help describe the new names. The advice to export
+  `PI_SPACES_COMMAND` and `PI_SPACES_DIR` is gone: a profile in the config
+  file names the program instead.
+
+### Fixed
+
+- The Pi that `pi-space` starts now runs in the named profile's home even when
+  you run `pi-space` from the shell of another Pi: `pi-space pi/base` inside a
+  gentle-shell Pi used to start Pi in the gentle home, and `pi-space pi/work`
+  looked for the space relative to it. The started Pi gets
+  `PI_CODING_AGENT_DIR` set to the profile's home, and when you run it from
+  inside a space, that space is unwound first (its `spaceEnv` values go back to
+  the base values, paths inside its folder move to the base home, and
+  `PI_SPACE`, `PI_SPACE_HOME`, `PI_SPACES_BASE_HOME` and `PI_SPACES_BASE_ENV`
+  are removed). The setup command is built on the same unwound base.
+
 ## 0.7.1
 
 ### Fixed

@@ -6,6 +6,22 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.7.0
+
+### Changed
+
+- The setup hint of `/space new` names the space with its profile, as
+  `pi-space` now requires: `pi-space setup <profile>/<name>`, where the
+  profile is the one of the running Pi (`pi` when no profile matches its base
+  home). `/space` itself still takes the bare name.
+
+### Fixed
+
+- The built-in `pi` profile no longer takes another profile's home: inside
+  the Pi of a program whose profile names its `home`, `PI_CODING_AGENT_DIR`
+  holds that home, and `pi` now keeps `~/.pi/agent` (its spaces in
+  `~/.pi/spaces`) instead of pointing at that program's home and spaces.
+
 ## 0.6.0
 
 ### Added

@@ -170,15 +170,21 @@ export function profileNames(config: Config | undefined): string[] {
 	return names.includes(BUILT_IN) ? names : [...names, BUILT_IN];
 }
 
-/** The built-in pi home: the base home inside a space (PI_SPACES_BASE_HOME), else PI_CODING_AGENT_DIR, else ~/.pi/agent. */
-function builtInHome(env: Env, home: string): string {
+/**
+ * The built-in pi home: the base home inside a space (PI_SPACES_BASE_HOME), else PI_CODING_AGENT_DIR, else ~/.pi/agent.
+ * A home that a profile of the file names is that profile's, not pi's: inside the Pi of another program those
+ * variables hold that program's home, so pi keeps ~/.pi/agent.
+ */
+function builtInHome(config: Config | undefined, env: Env, home: string): string {
 	const fromEnv = env.PI_SPACES_BASE_HOME || env.PI_CODING_AGENT_DIR;
-	return fromEnv ? resolve(home, expandTilde(fromEnv, home)) : join(home, ".pi", "agent");
+	const found = fromEnv ? resolve(home, expandTilde(fromEnv, home)) : undefined;
+	const claimed = (path: string) => config?.profiles.some((spec) => spec.home !== undefined && samePath(resolve(home, expandTilde(spec.home, home)), path));
+	return found !== undefined && !claimed(found) ? found : join(home, ".pi", "agent");
 }
 
 /** Resolves a profile; what a profile omits for `home` falls back to the built-in pi's, and `pi` also gets its `command`. */
-function resolveProfile(spec: ProfileSpec, env: Env, home: string): Profile {
-	const base = spec.home === undefined ? builtInHome(env, home) : resolve(home, expandTilde(spec.home, home));
+function resolveProfile(config: Config | undefined, spec: ProfileSpec, env: Env, home: string): Profile {
+	const base = spec.home === undefined ? builtInHome(config, env, home) : resolve(home, expandTilde(spec.home, home));
 	const profile: Profile = {
 		name: spec.name,
 		home: base,
@@ -195,7 +201,7 @@ function resolveProfile(spec: ProfileSpec, env: Env, home: string): Profile {
 export function profileByName(config: Config | undefined, name: string, env: Env, home: string): Profile {
 	const spec = config?.profiles.find((profile) => profile.name === name) ?? (name === BUILT_IN ? { name } : undefined);
 	if (spec === undefined) throw new ConfigError(`Unknown profile "${name}"; known profiles: ${profileNames(config).join(", ")}.`);
-	return resolveProfile(spec, env, home);
+	return resolveProfile(config, spec, env, home);
 }
 
 /** The profile whose home is the base home (the same place, real paths compared): the first in file order, then built-in `pi`. */
