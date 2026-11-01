@@ -751,14 +751,18 @@ const ZSH_COMPLETION = [
 	'      option) [[ "$PREFIX" == -* ]] && opts+=("$value:$text") ;;',
 	"    esac",
 	"  done",
+	// The spaces come first, as an unsorted group in pi-space's own (alphabetical) order; with the `sort false` style
+	// below, zsh and fzf-tab show every group in the order it is added here.
+	"  (( $#spaces )) && _describe -t spaces 'space' spaces -V pi-space-spaces && ret=0",
 	"  (( $#cmds )) && _describe -t commands 'command' cmds && ret=0",
-	"  (( $#spaces )) && _describe -t spaces 'space' spaces && ret=0",
 	"  (( $#targets )) && _describe -t targets 'target' targets && ret=0",
 	"  (( $#shells )) && _describe -t shells 'shell' shells && ret=0",
 	"  (( $#opts )) && _describe -t options 'option' opts && ret=0",
 	"  return ret",
 	"}",
 	"compdef _pi_space pi-space",
+	// pi-space already gives its candidates in order (spaces first, alphabetical); zsh and fzf-tab must not resort them.
+	"zstyle ':completion:*:pi-space:*' sort false",
 	"",
 ].join("\n");
 
@@ -785,10 +789,11 @@ function complete(words: string[], io: CliIo): void {
 	return io.exit(0);
 }
 
-/** The commands with their summary; in first place `completion` is left out (it still works typed in full), after --help it is not. */
+/** The commands with their summary, in alphabetical order; in first place `completion` is left out (it still works typed in full), after --help it is not. */
 function commandCandidates(withCompletion: boolean): string[] {
 	return Object.entries(COMMANDS)
 		.filter(([name]) => withCompletion || name !== "completion")
+		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 		.map(([name, help]) => candidate("command", name, help.summary));
 }
 
@@ -811,10 +816,13 @@ interface CompletionProfile {
 
 /** `<profile>/base`, if asked, then `<profile>/<name>`, for each profile in order. */
 function spaceCandidates(profiles: CompletionProfile[], withBase: boolean): string[] {
-	return profiles.flatMap((profile) => [
-		...(withBase ? [candidate("space", `${profile.name}/${BASE}`, `the home ${profile.name} starts with`)] : []),
-		...profile.spaces.map((name) => candidate("space", `${profile.name}/${name}`, profile.command)),
+	const spaces = profiles.flatMap((profile) => [
+		...(withBase ? [{ value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.command})` }] : []),
+		...profile.spaces.map((name) => ({ value: `${profile.name}/${name}`, text: `space of ${profile.name} (${profile.command})` })),
 	]);
+	// Alphabetical by the whole name, whatever the order of the profiles in the file.
+	spaces.sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+	return spaces.map(({ value, text }) => candidate("space", value, text));
 }
 
 /** The `--every` targets: one for every profile, then one `<profile>/--every` for each. */
@@ -862,7 +870,7 @@ function candidates(words: string[], io: CliIo): string[] {
 		return { name, command: profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
 	});
 	const rest = words.slice(index);
-	if (rest.length === 0) return [...commandCandidates(false), ...spaceCandidates(profiles, true), ...firstOptions(call, index === 0)];
+	if (rest.length === 0) return [...spaceCandidates(profiles, true), ...commandCandidates(false), ...firstOptions(call, index === 0)];
 	if (rest.length > 1) return [];
 	if (isHelpFlag(rest[0])) return commandCandidates(true);
 	if (!Object.hasOwn(COMMANDS, rest[0])) return [];
