@@ -2181,12 +2181,13 @@ test("the powershell script falls back to PowerShell's own file completion on th
 	const [files] = pwshComplete(script, ["__files__"], ["pi-space "]);
 	assert.ok(files.some((match) => match.text.includes("alpha.txt")), JSON.stringify(files));
 	assert.ok(!files.some((match) => match.text.includes("pi/")), JSON.stringify(files));
-	// No candidates (after a complete name, say), or none that match the word: nothing, not the files of the folder.
-	const nothing = (matches: PwshMatch[]) => matches.every((match) => match.text.trim() === "");
-	const [none] = pwshComplete(script, [], ["pi-space rename pi/work "]);
-	assert.ok(nothing(none), JSON.stringify(none));
-	const [unmatched] = pwshComplete(script, ["space\tpi/base\tbase home of pi (pi)"], ["pi-space al"]);
-	assert.ok(nothing(unmatched), JSON.stringify(unmatched));
+	// No candidates (after a complete name, say), or none that match the word: not the files of the folder, only one
+	// result that leaves the line as it is (a space after a finished word, the word typed otherwise).
+	const [none, unmatched] = pwshComplete(script, [], ["pi-space rename pi/work ", "pi-space al"]);
+	assert.deepEqual(none.map((match) => match.text), [" "]);
+	assert.deepEqual(unmatched.map((match) => match.text), ["al"]);
+	const [filtered] = pwshComplete(script, ["space\tpi/base\tbase home of pi (pi)"], ["pi-space al"]);
+	assert.deepEqual(filtered.map((match) => match.text), ["al"]);
 });
 
 test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the profile's dir, and completion zsh prints the script", () => {
