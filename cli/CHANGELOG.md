@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.8.1
+
 ### Changed
 
 - Completion lists the spaces first, in alphabetical order, then the
