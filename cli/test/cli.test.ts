@@ -2176,13 +2176,17 @@ test("the powershell script lists the candidates in pi-space's order, shows opti
 	assert.equal(all.find((match) => match.text === "echo")?.tip, "args __complete");
 });
 
-test("the powershell script falls back to PowerShell's own file completion on the marker, and offers nothing for no candidates", { skip: PWSH_SKIP }, async () => {
+test("the powershell script falls back to PowerShell's own file completion on the marker only; no candidates offer no files", { skip: PWSH_SKIP }, async () => {
 	const script = (await run(["completion", "powershell"])).out;
 	const [files] = pwshComplete(script, ["__files__"], ["pi-space "]);
 	assert.ok(files.some((match) => match.text.includes("alpha.txt")), JSON.stringify(files));
 	assert.ok(!files.some((match) => match.text.includes("pi/")), JSON.stringify(files));
-	const [none] = pwshComplete(script, [], ["pi-space "]);
-	assert.ok(none.every((match) => match.text.includes("alpha.txt")), JSON.stringify(none));
+	// No candidates (after a complete name, say), or none that match the word: nothing, not the files of the folder.
+	const nothing = (matches: PwshMatch[]) => matches.every((match) => match.text.trim() === "");
+	const [none] = pwshComplete(script, [], ["pi-space rename pi/work "]);
+	assert.ok(nothing(none), JSON.stringify(none));
+	const [unmatched] = pwshComplete(script, ["space\tpi/base\tbase home of pi (pi)"], ["pi-space al"]);
+	assert.ok(nothing(unmatched), JSON.stringify(unmatched));
 });
 
 test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the profile's dir, and completion zsh prints the script", () => {
