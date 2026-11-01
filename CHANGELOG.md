@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- The built-in `pi` profile no longer takes another profile's home: inside
+  the Pi of a program whose profile names its `home`, `PI_CODING_AGENT_DIR`
+  holds that home, and `pi` now keeps `~/.pi/agent` (its spaces in
+  `~/.pi/spaces`) instead of pointing at that program's home and spaces.
+
 ## 0.6.0
 
 ### Added
