@@ -751,8 +751,8 @@ const ZSH_COMPLETION = [
 	'      option) [[ "$PREFIX" == -* ]] && opts+=("$value:$text") ;;',
 	"    esac",
 	"  done",
-	// The spaces come first, in a group of their own kept in pi-space's (alphabetical) order, so they stay above
-	// the commands even when zsh puts every other match in one sorted list (no group-name style, as with fzf-tab).
+	// The spaces come first, as an unsorted group in pi-space's own (alphabetical) order; with the `sort false` style
+	// below, zsh and fzf-tab show every group in the order it is added here.
 	"  (( $#spaces )) && _describe -t spaces 'space' spaces -V pi-space-spaces && ret=0",
 	"  (( $#cmds )) && _describe -t commands 'command' cmds && ret=0",
 	"  (( $#targets )) && _describe -t targets 'target' targets && ret=0",
@@ -789,7 +789,7 @@ function complete(words: string[], io: CliIo): void {
 	return io.exit(0);
 }
 
-/** The commands with their summary; in first place `completion` is left out (it still works typed in full), after --help it is not. */
+/** The commands with their summary, in alphabetical order; in first place `completion` is left out (it still works typed in full), after --help it is not. */
 function commandCandidates(withCompletion: boolean): string[] {
 	return Object.entries(COMMANDS)
 		.filter(([name]) => withCompletion || name !== "completion")
