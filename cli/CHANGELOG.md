@@ -46,8 +46,9 @@ commands and options and a patch version fixes.
   so `pi-space <TAB>` shows what the picker does. `--profile` is no longer
   completed; `--config` makes it read that file and `--dir` lists that folder's
   spaces under each profile's prefix.
-- The README and the help describe the new names; the advice to export
-  variables to make a program the default is gone (a profile does that now).
+- The README and the help describe the new names. The advice to export
+  `PI_SPACES_COMMAND` and `PI_SPACES_DIR` is gone: a profile in the config
+  file names the program instead.
 
 ## 0.7.1
 
