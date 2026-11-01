@@ -147,7 +147,11 @@ pi-spaces does not create what a variable points to; `setup` (or the program its
 
 ### The built-in `pi` profile
 
-Plain Pi is always a profile named `pi`: command `pi`, home `PI_CODING_AGENT_DIR` (else `~/.pi/agent`), no setup, no `spaceEnv`. A home that another profile of the file names is that profile's, not pi's: inside that program's Pi, where `PI_CODING_AGENT_DIR` holds its home, `pi` keeps `~/.pi/agent`. Naming `pi` in `profiles` replaces it as a whole; what that entry leaves out still takes the defaults above for `home` and `command`, never anything from the old built-in's other fields.
+Plain Pi is always a profile named `pi`: command `pi`, home `PI_CODING_AGENT_DIR` (else `~/.pi/agent`), no setup, no `spaceEnv`.
+
+Inside another program's Pi, `PI_CODING_AGENT_DIR` (or `PI_SPACES_BASE_HOME`) holds that program's home. When a profile of the file names that home as its `home`, `pi` does not take it and uses `~/.pi/agent`, so `pi/<name>` is still plain Pi there.
+
+Naming `pi` in `profiles` replaces it as a whole; what that entry leaves out still takes the defaults above for `home` and `command`, never anything from the old built-in's other fields.
 
 ### Schema versions
 
