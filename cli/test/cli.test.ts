@@ -2104,9 +2104,9 @@ interface PwshMatch {
 /**
  * Runs the completion script under pwsh with a fake pi-space on PATH that prints `lines` (`{args}` in a line becomes
  * the words it was called with), then asks TabExpansion2 for each input with the cursor at its end, in a folder that
- * holds alpha.txt. Returns the matches of each input, in the order PowerShell gives them. A completion that throws gives
- * no matches, as in PSReadLine, which ignores the error: before PowerShell 7.7 that is what a lone "" from a completer
- * does (7.7 returns no matches for it).
+ * holds alpha.txt. Returns the matches of each input, in the order PowerShell gives them. Before PowerShell 7.7 a lone ""
+ * from a completer makes the completion throw on its empty completion text, which PSReadLine ignores: that one error
+ * counts as no matches (7.7 returns none for it). Any other error fails the test.
  */
 function pwshComplete(script: string, lines: string[], inputs: string[]): PwshMatch[][] {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pwsh-")));
@@ -2131,18 +2131,23 @@ function pwshComplete(script: string, lines: string[], inputs: string[]): PwshMa
 			`Get-Content -Raw -LiteralPath ${quote(join(root, "script.ps1"))} | Invoke-Expression`,
 			`foreach ($typed in @(${inputs.map(quote).join(", ")})) {`,
 			"  $items = @()",
+			"  $failure = $null",
 			"  try {",
 			"    $result = TabExpansion2 -inputScript $typed -cursorColumn $typed.Length",
 			"    $items = @($result.CompletionMatches | ForEach-Object { [pscustomobject]@{ text = $_.CompletionText; list = $_.ListItemText; tip = $_.ToolTip } })",
-			"  } catch {}",
-			"  Write-Output (ConvertTo-Json -InputObject $items -Compress)",
+			"  } catch { $failure = $_.Exception.ToString() }",
+			"  Write-Output (ConvertTo-Json -InputObject @{ items = $items; failure = $failure } -Compress -Depth 4)",
 			"}",
 		].join("\n");
 		const result = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")], { encoding: "utf8" });
 		assert.equal(result.status, 0, result.stderr + result.stdout);
 		const outputs = result.stdout.trim().split(/\r?\n/);
 		assert.equal(outputs.length, inputs.length, result.stdout);
-		return outputs.map((output) => JSON.parse(output) as PwshMatch[]);
+		return outputs.map((output, index) => {
+			const { items, failure } = JSON.parse(output) as { items: PwshMatch[]; failure: string | null };
+			if (failure !== null) assert.match(failure, /completionText/, `${inputs[index]}: ${failure}`);
+			return items;
+		});
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
