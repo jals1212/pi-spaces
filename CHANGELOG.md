@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.7.0
+
 ### Changed
 
 - The setup hint of `/space new` names the space with its profile, as

@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.8.0
+
 ### Changed
 
 - **Breaking:** every space is named `<profile>/<name>`, `base` included
