@@ -62,7 +62,7 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 			const name = rest[0];
 			ctx.ui.notify(
 				hasSetupCommand(deps.env) || Boolean(deps.profile?.setup)
-					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${name}. Then enter it with /space switch ${name}.`
+					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${deps.profile?.name ?? "pi"}/${name}. Then enter it with /space switch ${name}.`
 					: `Created space "${name}" at ${path}. Enter it with /space switch ${name}.`,
 				"info",
 			);
