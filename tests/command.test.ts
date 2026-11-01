@@ -104,13 +104,13 @@ test("new names pi-space setup when the matched profile has a setup, and not oth
 	const plain = (name: string, dir: string) => `Created space "${name}" at ${join(dir, name)}. Enter it with /space switch ${name}.`;
 
 	const withSetup = fake();
-	withSetup.deps.profile = { name: "gsh", home: withSetup.base, dir: withSetup.dir, setup: "my-launcher --home {home} setup" };
+	withSetup.deps.profile = { name: "gentle", home: withSetup.base, dir: withSetup.dir, setup: "my-launcher --home {home} setup" };
 	await runSpaceCommand("new work", withSetup.deps);
-	assert.deepEqual(withSetup.notes, [["info", prepared("gsh", "work", withSetup.dir)]]);
+	assert.deepEqual(withSetup.notes, [["info", prepared("gentle", "work", withSetup.dir)]]);
 	assert.equal(withSetup.relaunches.length, 0);
 
 	const without = fake();
-	without.deps.profile = { name: "gsh", home: without.base, dir: without.dir, spaceEnv: { K: "{home}" } };
+	without.deps.profile = { name: "gentle", home: without.base, dir: without.dir, spaceEnv: { K: "{home}" } };
 	await runSpaceCommand("new work", without.deps);
 	assert.deepEqual(without.notes, [["info", plain("work", without.dir)]]);
 
@@ -126,7 +126,7 @@ test("switch applies the profile's spaceEnv: set in a space, removed in base, re
 	const f = fake();
 	createSpace(f.dir, "work", "x");
 	createSpace(f.dir, "play", "x");
-	f.deps.profile = { name: "gsh", home: f.base, dir: f.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
+	f.deps.profile = { name: "gentle", home: f.base, dir: f.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
 	await runSpaceCommand("switch work", f.deps);
 	assert.deepEqual(f.relaunches[0].env, {
 		PI_CODING_AGENT_DIR: join(f.dir, "work"),
@@ -139,7 +139,7 @@ test("switch applies the profile's spaceEnv: set in a space, removed in base, re
 	const inWork = fake({ home: (dir) => join(dir, "work") });
 	createSpace(inWork.dir, "work", "x");
 	createSpace(inWork.dir, "play", "x");
-	inWork.deps.profile = { name: "gsh", home: inWork.base, dir: inWork.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
+	inWork.deps.profile = { name: "gentle", home: inWork.base, dir: inWork.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
 	inWork.deps.env = { PI_CODING_AGENT_DIR: join(inWork.dir, "work"), PI_SPACES_BASE_HOME: inWork.base, PI_SPACE: "work", HOST_CFG: join(inWork.dir, "work", "cfg") };
 	await runSpaceCommand("switch play", inWork.deps);
 	await runSpaceCommand("switch base", inWork.deps);

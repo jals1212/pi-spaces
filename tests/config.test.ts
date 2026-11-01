@@ -68,9 +68,9 @@ test("loadConfig without a file is no config, and a file that cannot be read is 
 test("loadConfig reads a valid file into profiles in file order", () => {
 	const config = load(
 		v1({
-			default: "gsh",
+			default: "gentle",
 			profiles: {
-				gsh: { home: "~/.gsh/agent", command: " my-launcher -- ", dir: "/s", setup: "my-launcher --home {home} setup", spaceEnv: { CFG: "{home}/cfg" } },
+				gentle: { home: "~/.gentle/agent", command: " my-launcher -- ", dir: "/s", setup: "my-launcher --home {home} setup", spaceEnv: { CFG: "{home}/cfg" } },
 				"b-2": {},
 				"9": { home: "/h" },
 			},
@@ -78,12 +78,12 @@ test("loadConfig reads a valid file into profiles in file order", () => {
 	);
 	assert.ok(config);
 	assert.equal(config.path, "/c/config.json");
-	assert.equal(config.default, "gsh");
-	assert.deepEqual(config.profiles.map((profile) => profile.name).sort(), ["9", "b-2", "gsh"]);
-	const gsh = config.profiles.find((profile) => profile.name === "gsh");
-	assert.deepEqual(gsh, {
-		name: "gsh",
-		home: "~/.gsh/agent",
+	assert.equal(config.default, "gentle");
+	assert.deepEqual(config.profiles.map((profile) => profile.name).sort(), ["9", "b-2", "gentle"]);
+	const gentle = config.profiles.find((profile) => profile.name === "gentle");
+	assert.deepEqual(gentle, {
+		name: "gentle",
+		home: "~/.gentle/agent",
 		command: "my-launcher --",
 		dir: "/s",
 		setup: "my-launcher --home {home} setup",
@@ -130,8 +130,8 @@ test("loadConfig requires schema pi-spaces.config/v1 and says when a newer pi-sp
 test("loadConfig refuses unknown keys at the top level and in a profile, naming the key", () => {
 	assert.equal(failure(v1({ profile: {} })), '/c/config.json: unknown key "profile"; allowed keys are "schema", "default" and "profiles".');
 	assert.equal(
-		failure(v1({ profiles: { gsh: { hmoe: "/x" } } })),
-		'/c/config.json: unknown key "hmoe" in profile "gsh"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".',
+		failure(v1({ profiles: { gentle: { hmoe: "/x" } } })),
+		'/c/config.json: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".',
 	);
 });
 
@@ -143,7 +143,7 @@ test("loadConfig checks profile names and shapes", () => {
 	}
 	assert.equal(load(v1({ profiles: { [`a${"b".repeat(63)}`]: {} } }))?.profiles.length, 1);
 	for (const value of [null, [], "x", 1]) {
-		assert.equal(failure(v1({ profiles: { gsh: value } })), '/c/config.json: profile "gsh" must be an object.');
+		assert.equal(failure(v1({ profiles: { gentle: value } })), '/c/config.json: profile "gentle" must be an object.');
 	}
 });
 
@@ -151,8 +151,8 @@ test("loadConfig checks profile fields: home, command, dir and setup are non-emp
 	for (const key of ["home", "command", "dir", "setup"]) {
 		for (const value of ["", "   ", 1, null, true, [], {}]) {
 			assert.equal(
-				failure(v1({ profiles: { gsh: { [key]: value } } })),
-				`/c/config.json: "${key}" in profile "gsh" must be a non-empty string.`,
+				failure(v1({ profiles: { gentle: { [key]: value } } })),
+				`/c/config.json: "${key}" in profile "gentle" must be a non-empty string.`,
 				`${key}=${JSON.stringify(value)}`,
 			);
 		}
@@ -162,33 +162,33 @@ test("loadConfig checks profile fields: home, command, dir and setup are non-emp
 test("loadConfig refuses spaceEnv variables that pi-spaces sets itself", () => {
 	for (const reserved of ["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV", "PI_SPACES_DIR", "PI_SPACES_SETUP"]) {
 		assert.equal(
-			failure(v1({ profiles: { gsh: { spaceEnv: { [reserved]: "v" } } } })),
-			`/c/config.json: "${reserved}" in "spaceEnv" of profile "gsh" is set by pi-spaces itself; choose another variable.`,
+			failure(v1({ profiles: { gentle: { spaceEnv: { [reserved]: "v" } } } })),
+			`/c/config.json: "${reserved}" in "spaceEnv" of profile "gentle" is set by pi-spaces itself; choose another variable.`,
 			reserved,
 		);
 	}
 	// Names that only look alike are the profile's own.
-	assert.doesNotThrow(() => load(v1({ profiles: { gsh: { spaceEnv: { PI_SPACEX: "v", MY_PI_SPACE: "v" } } } }), "/c/config.json"));
+	assert.doesNotThrow(() => load(v1({ profiles: { gentle: { spaceEnv: { PI_SPACEX: "v", MY_PI_SPACE: "v" } } } }), "/c/config.json"));
 });
 
 test("loadConfig checks spaceEnv: an object of string values under variable-like names", () => {
 	for (const value of ["x", [], null, 1]) {
-		assert.equal(failure(v1({ profiles: { gsh: { spaceEnv: value } } })), '/c/config.json: "spaceEnv" in profile "gsh" must be an object of strings.');
+		assert.equal(failure(v1({ profiles: { gentle: { spaceEnv: value } } })), '/c/config.json: "spaceEnv" in profile "gentle" must be an object of strings.');
 	}
 	for (const bad of ["1X", "A-B", "A B", "", "A=B", "é"]) {
 		assert.equal(
-			failure(v1({ profiles: { gsh: { spaceEnv: { [bad]: "v" } } } })),
-			`/c/config.json: invalid variable name "${bad}" in "spaceEnv" of profile "gsh"; use letters, digits and "_", not starting with a digit.`,
+			failure(v1({ profiles: { gentle: { spaceEnv: { [bad]: "v" } } } })),
+			`/c/config.json: invalid variable name "${bad}" in "spaceEnv" of profile "gentle"; use letters, digits and "_", not starting with a digit.`,
 			bad,
 		);
 	}
 	for (const value of [1, null, true, [], {}]) {
 		assert.equal(
-			failure(v1({ profiles: { gsh: { spaceEnv: { CFG: value } } } })),
-			'/c/config.json: "spaceEnv.CFG" in profile "gsh" must be a string.',
+			failure(v1({ profiles: { gentle: { spaceEnv: { CFG: value } } } })),
+			'/c/config.json: "spaceEnv.CFG" in profile "gentle" must be a string.',
 		);
 	}
-	const ok = load(v1({ profiles: { gsh: { spaceEnv: { _A1: "", b_2: "{home}", __proto__x: "1" } } } }));
+	const ok = load(v1({ profiles: { gentle: { spaceEnv: { _A1: "", b_2: "{home}", __proto__x: "1" } } } }));
 	assert.deepEqual(ok?.profiles[0].spaceEnv, { _A1: "", b_2: "{home}", __proto__x: "1" });
 });
 
@@ -196,13 +196,13 @@ test("loadConfig checks default names a profile of the file or pi", () => {
 	for (const value of [1, null, "", [], true]) {
 		assert.equal(failure(v1({ default: value })), '/c/config.json: "default" must be a string naming a profile.');
 	}
-	assert.equal(failure(v1({ default: "gsh" })), '/c/config.json: "default" names unknown profile "gsh"; known profiles: pi.');
+	assert.equal(failure(v1({ default: "gentle" })), '/c/config.json: "default" names unknown profile "gentle"; known profiles: pi.');
 	assert.equal(
-		failure(v1({ default: "x", profiles: { gsh: {}, alt: {} } })),
-		'/c/config.json: "default" names unknown profile "x"; known profiles: gsh, alt, pi.',
+		failure(v1({ default: "x", profiles: { gentle: {}, alt: {} } })),
+		'/c/config.json: "default" names unknown profile "x"; known profiles: gentle, alt, pi.',
 	);
 	assert.equal(load(v1({ default: "pi" }))?.default, "pi");
-	assert.equal(load(v1({ default: "gsh", profiles: { gsh: {} } }))?.default, "gsh");
+	assert.equal(load(v1({ default: "gentle", profiles: { gentle: {} } }))?.default, "gentle");
 });
 
 test("the built-in pi profile uses PI_CODING_AGENT_DIR or ~/.pi/agent, command pi, no setup, no spaceEnv", () => {
@@ -223,16 +223,16 @@ test("the built-in pi profile uses PI_CODING_AGENT_DIR or ~/.pi/agent, command p
 });
 
 test("inside the Pi of another profile, the built-in pi profile keeps ~/.pi/agent instead of that profile's home", () => {
-	const config = load(v1({ profiles: { gsh: { home: "~/.gsh/agent" }, d: {} } }));
-	const gshHome = path(HOME, ".gsh", "agent");
+	const config = load(v1({ profiles: { gentle: { home: "~/.gentle/agent" }, d: {} } }));
+	const gentleHome = path(HOME, ".gentle", "agent");
 	const piHome = path(HOME, ".pi", "agent");
-	for (const env of [{ PI_CODING_AGENT_DIR: gshHome }, { PI_CODING_AGENT_DIR: path(HOME, ".gsh", "spaces", "work"), PI_SPACES_BASE_HOME: gshHome }]) {
+	for (const env of [{ PI_CODING_AGENT_DIR: gentleHome }, { PI_CODING_AGENT_DIR: path(HOME, ".gentle", "spaces", "work"), PI_SPACES_BASE_HOME: gentleHome }]) {
 		const pi = profileByName(config, "pi", env, HOME);
 		assert.equal(pi.home, piHome, JSON.stringify(env));
 		assert.equal(pi.dir, path(HOME, ".pi", "spaces"), JSON.stringify(env));
 		// A profile without a home takes the built-in one's, so it stays in pi too.
 		assert.equal(profileByName(config, "d", env, HOME).home, piHome, JSON.stringify(env));
-		assert.equal(profileForHome(config, gshHome, env, HOME)?.name, "gsh", JSON.stringify(env));
+		assert.equal(profileForHome(config, gentleHome, env, HOME)?.name, "gentle", JSON.stringify(env));
 	}
 	// A home that no profile of the file claims is still the pi home.
 	assert.equal(profileByName(config, "pi", { PI_CODING_AGENT_DIR: "/h/agent" }, HOME).home, path("/h/agent"));
@@ -287,19 +287,19 @@ test("profileByName resolves home and dir: tilde, relative to the user's home, a
 });
 
 test("profileByName refuses an unknown name, listing the known profiles with pi always among them", () => {
-	assert.throws(() => profileByName(undefined, "gsh", {}, HOME), new ConfigError('Unknown profile "gsh"; known profiles: pi.'));
-	const config = load(v1({ profiles: { gsh: {}, alt: {} } }));
-	assert.throws(() => profileByName(config, "x", {}, HOME), new ConfigError('Unknown profile "x"; known profiles: gsh, alt, pi.'));
-	assert.deepEqual(profileNames(config), ["gsh", "alt", "pi"]);
+	assert.throws(() => profileByName(undefined, "gentle", {}, HOME), new ConfigError('Unknown profile "gentle"; known profiles: pi.'));
+	const config = load(v1({ profiles: { gentle: {}, alt: {} } }));
+	assert.throws(() => profileByName(config, "x", {}, HOME), new ConfigError('Unknown profile "x"; known profiles: gentle, alt, pi.'));
+	assert.deepEqual(profileNames(config), ["gentle", "alt", "pi"]);
 	assert.deepEqual(profileNames(undefined), ["pi"]);
 	// Names that exist on every object are not profiles.
 	assert.throws(() => profileByName(config, "constructor", {}, HOME), ConfigError);
 });
 
 test("profileForHome finds the profile whose home is the base home, in file order, then built-in pi", () => {
-	const config = load(v1({ profiles: { first: { home: "/h/one" }, twin: { home: "/h/one/" }, gsh: { home: "~/.gsh/agent" } } }));
+	const config = load(v1({ profiles: { first: { home: "/h/one" }, twin: { home: "/h/one/" }, gentle: { home: "~/.gentle/agent" } } }));
 	assert.equal(profileForHome(config, path("/h/one"), {}, HOME)?.name, "first");
-	assert.equal(profileForHome(config, path(HOME, ".gsh", "agent"), {}, HOME)?.name, "gsh");
+	assert.equal(profileForHome(config, path(HOME, ".gentle", "agent"), {}, HOME)?.name, "gentle");
 	assert.equal(profileForHome(config, path(HOME, ".pi", "agent"), {}, HOME)?.name, "pi");
 	assert.equal(profileForHome(config, path("/h/other"), {}, HOME), undefined);
 	assert.equal(profileForHome(undefined, path(HOME, ".pi", "agent"), {}, HOME)?.name, "pi");
@@ -315,19 +315,19 @@ test("profileForHome compares real paths, so a symlinked home still matches", { 
 	const real = join(root, "real", "agent");
 	mkdirSync(real, { recursive: true });
 	symlinkSync(join(root, "real"), join(root, "link"));
-	const config = load(v1({ profiles: { gsh: { home: join(root, "link", "agent") } } }));
-	assert.equal(profileForHome(config, real, {}, HOME)?.name, "gsh");
+	const config = load(v1({ profiles: { gentle: { home: join(root, "link", "agent") } } }));
+	assert.equal(profileForHome(config, real, {}, HOME)?.name, "gentle");
 	// The profile keeps the path as written.
 	assert.equal(profileForHome(config, real, {}, HOME)?.home, join(root, "link", "agent"));
 	// A home that does not exist yet falls back to the resolved path.
-	const absent = load(v1({ profiles: { gsh: { home: join(root, "nope", "agent") } } }));
-	assert.equal(profileForHome(absent, join(root, "nope", "..", "nope", "agent"), {}, HOME)?.name, "gsh");
+	const absent = load(v1({ profiles: { gentle: { home: join(root, "nope", "agent") } } }));
+	assert.equal(profileForHome(absent, join(root, "nope", "..", "nope", "agent"), {}, HOME)?.name, "gentle");
 });
 
 test("spaceEnvFor replaces every {home} and {name}, and leaves $ and other braces alone", () => {
 	const profile = profileByName(
-		load(v1({ profiles: { gsh: { spaceEnv: { CFG: "{home}/cfg", BOTH: "{name}:{home}:{name}", COST: "$&{name}$1$$", OTHER: "{x}{{name}}", EMPTY: "" } } } })),
-		"gsh",
+		load(v1({ profiles: { gentle: { spaceEnv: { CFG: "{home}/cfg", BOTH: "{name}:{home}:{name}", COST: "$&{name}$1$$", OTHER: "{x}{{name}}", EMPTY: "" } } } })),
+		"gentle",
 		{},
 		HOME,
 	);
@@ -345,17 +345,17 @@ test("spaceEnvFor replaces every {home} and {name}, and leaves $ and other brace
 
 test("activeProfile loads the config at its path and picks the profile of the base home", () => {
 	const root = scratch();
-	const base = join(root, "gsh", "agent");
+	const base = join(root, "gentle", "agent");
 	const file = join(root, "config.json");
-	writeFileSync(file, JSON.stringify(v1({ profiles: { gsh: { home: base, setup: "s", spaceEnv: { K: "{home}/k" } } } })));
+	writeFileSync(file, JSON.stringify(v1({ profiles: { gentle: { home: base, setup: "s", spaceEnv: { K: "{home}/k" } } } })));
 	const env = { PI_SPACES_CONFIG: file };
 	// Outside a space the agent home is the base home; inside one, PI_SPACES_BASE_HOME is.
 	const outside = activeProfile(env, HOME, base);
 	assert.equal(outside.warning, undefined);
-	assert.equal(outside.profile?.name, "gsh");
-	assert.equal(outside.profile?.dir, join(root, "gsh", "spaces"));
-	const inside = activeProfile({ ...env, PI_SPACES_BASE_HOME: base }, HOME, join(root, "gsh", "spaces", "work"));
-	assert.equal(inside.profile?.name, "gsh");
+	assert.equal(outside.profile?.name, "gentle");
+	assert.equal(outside.profile?.dir, join(root, "gentle", "spaces"));
+	const inside = activeProfile({ ...env, PI_SPACES_BASE_HOME: base }, HOME, join(root, "gentle", "spaces", "work"));
+	assert.equal(inside.profile?.name, "gentle");
 	// No profile for a home nobody described.
 	assert.deepEqual(activeProfile(env, HOME, join(root, "other")), { profile: undefined, warning: undefined });
 });
@@ -372,8 +372,8 @@ test("activeProfile without a file is today's behavior: the built-in pi, no warn
 test("activeProfile turns an invalid file into a warning naming it, and behaves as with no config", () => {
 	const root = scratch();
 	const file = join(root, "config.json");
-	writeFileSync(file, JSON.stringify(v1({ profiles: { gsh: { hmoe: "/x" } } })));
+	writeFileSync(file, JSON.stringify(v1({ profiles: { gentle: { hmoe: "/x" } } })));
 	const result = activeProfile({ PI_SPACES_CONFIG: file }, root, join(root, ".pi", "agent"));
-	assert.equal(result.warning, `${file}: unknown key "hmoe" in profile "gsh"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".`);
+	assert.equal(result.warning, `${file}: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".`);
 	assert.equal(result.profile?.name, "pi");
 });

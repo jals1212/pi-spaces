@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- Completion lists pi's spaces first, then those of the custom profiles
+  (each in alphabetical order), then the commands and options; before, the
+  spaces of every profile were sorted together, so `gsh/work` came before
+  `pi/base`.
+- The spaces stand apart from the commands and options: the zsh script
+  sets `group-name ''` and a `[%d]` descriptions format for pi-space, so
+  each group comes under its own header (`[spaces]`, `[commands]`,
+  `[options]`), in plain zsh and in fzf-tab. Reload the completion script
+  (or clear its cache) to get it.
+
 ## 0.8.1
 
 ### Changed
