@@ -87,7 +87,7 @@ The extension uses the profile whose `home` is the base home Pi started with (th
 
 | | |
 | --- | --- |
-| Location | `~/.pi-spaces/config.json` |
+| Location | `~/.pi-spaces/config.json`; on Windows `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`) |
 | Change it | `PI_SPACES_CONFIG=<path>` (a leading `~` is your home folder; a relative path is taken from it). The `pi-space` command also takes `--config <path>` (see [`cli/README.md`](cli/README.md)). |
 | Missing | No profiles: Pi, spaces and `pi-space` behave as without this feature. |
 | Invalid | See [When the file is wrong](#when-the-file-is-wrong). |

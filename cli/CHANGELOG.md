@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Documentation
+
+- The README says how the CLI works on Windows (where the config file is,
+  the picker, completion being zsh only), how the completion headers show
+  in plain zsh (separators) and in fzf-tab (a legend), how to use zsh's own
+  menu for pi-space alone, and what to do after an update.
+
 ## 0.8.2
 
 ### Changed
