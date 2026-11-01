@@ -6,6 +6,15 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- Completion lists the spaces first, in alphabetical order, then the
+  commands (also alphabetical), and keeps that order under fzf-tab: the
+  script sets `zstyle ':completion:*:pi-space:*' sort false`.
+- A space's description says what it is and which program opens it:
+  `base home of gentle (gentle-shell --)`, `space of gentle (gentle-shell --)`,
+  instead of `the home gentle starts with` and the bare command.
+
 ## 0.8.0
 
 ### Changed

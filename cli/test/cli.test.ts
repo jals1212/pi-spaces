@@ -1822,17 +1822,17 @@ const COMPLETE_FILES = {
 	"other-spaces/zed/.keep": "",
 };
 
-const FIRST_COMMANDS = ["command list", "command new", "command setup", "command rename", "command remove", "command update", "command install", "command uninstall"];
+const FIRST_COMMANDS = ["command install", "command list", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
 
 const COMMAND_LINES = [
+	"command\tinstall\tinstall a package in a space",
 	"command\tlist\tlist the spaces, or the packages of one",
 	"command\tnew\tcreate a space",
-	"command\tsetup\trun the setup command in a space",
-	"command\trename\trename a space",
 	"command\tremove\tdelete a space, keeping a backup",
-	"command\tupdate\tupdate the packages of a space",
-	"command\tinstall\tinstall a package in a space",
+	"command\trename\trename a space",
+	"command\tsetup\trun the setup command in a space",
 	"command\tuninstall\tremove a package from a space",
+	"command\tupdate\tupdate the packages of a space",
 ];
 
 const OPTION_LINES = {
@@ -1844,18 +1844,18 @@ const OPTION_LINES = {
 	"--version": "option\t--version\tprint the version",
 };
 
-/** The spaces of the two profiles of COMPLETE_FILES with one pi space "a": base first, in profile order, pi last. */
+/** The spaces of the two profiles of COMPLETE_FILES with one pi space "a", in alphabetical order. */
 const GSH_AND_PI_SPACES = [
-	"space\tgsh/base\tthe home gsh starts with",
-	"space\tgsh/work\tgsh-cmd --",
-	"space\tpi/base\tthe home pi starts with",
-	"space\tpi/a\tpi",
+	"space\tgsh/base\tbase home of gsh (gsh-cmd --)",
+	"space\tgsh/work\tspace of gsh (gsh-cmd --)",
+	"space\tpi/a\tspace of pi (pi)",
+	"space\tpi/base\tbase home of pi (pi)",
 ];
 
-test("__complete: the first word offers the commands, then the spaces of every profile as <profile>/<name> (base first, pi last), then the options, one <group>\\t<value>\\t<description> per line", async () => {
+test("__complete: the first word offers the spaces of every profile as <profile>/<name> in alphabetical order, then the commands, then the options, one <group>\\t<value>\\t<description> per line", async () => {
 	assert.deepEqual(await completeLines([], { spaces: ["a"], files: COMPLETE_FILES }), [
-		...COMMAND_LINES,
 		...GSH_AND_PI_SPACES,
+		...COMMAND_LINES,
 		OPTION_LINES["--command"],
 		OPTION_LINES["--dir"],
 		OPTION_LINES["--setup"],
@@ -1867,20 +1867,20 @@ test("__complete: the first word offers the commands, then the spaces of every p
 
 test("__complete: with no config the first word offers only the built-in pi, with its spaces sorted", async () => {
 	assert.deepEqual((await completeLines([], { spaces: ["work", "alpha"] })).filter((line) => line.startsWith("space\t")), [
-		"space\tpi/base\tthe home pi starts with",
-		"space\tpi/alpha\tpi",
-		"space\tpi/work\tpi",
+		"space\tpi/alpha\tspace of pi (pi)",
+		"space\tpi/base\tbase home of pi (pi)",
+		"space\tpi/work\tspace of pi (pi)",
 	]);
 });
 
-test("__complete: a profile without a command shows pi as its command; profiles come in file order", async () => {
+test("__complete: a profile without a command shows pi as its command; spaces are in alphabetical order, whatever the file order", async () => {
 	const files = { [CONFIG]: { schema: SCHEMA, profiles: { zeta: { dir: "~/zeta" }, alpha: { dir: "~/alpha" } } }, "zeta/s/.keep": "", "alpha/t/.keep": "" };
 	assert.deepEqual((await completeLines([], { files })).filter((line) => line.startsWith("space\t")), [
-		"space\tzeta/base\tthe home zeta starts with",
-		"space\tzeta/s\tpi",
-		"space\talpha/base\tthe home alpha starts with",
-		"space\talpha/t\tpi",
-		"space\tpi/base\tthe home pi starts with",
+		"space\talpha/base\tbase home of alpha (pi)",
+		"space\talpha/t\tspace of alpha (pi)",
+		"space\tpi/base\tbase home of pi (pi)",
+		"space\tzeta/base\tbase home of zeta (pi)",
+		"space\tzeta/s\tspace of zeta (pi)",
 	]);
 });
 
@@ -1897,11 +1897,11 @@ test("__complete: completion is not offered as a command, but completion <TAB> s
 });
 
 test("__complete: after --help or -h it offers every command with its summary, completion too; nothing after one", async () => {
-	const commands = [...FIRST_COMMANDS, "command completion"];
+	const commands = ["command completion", ...FIRST_COMMANDS];
 	assert.deepEqual(await complete(["--help"], { spaces: ["work"] }), commands);
 	assert.deepEqual(await complete(["-h"]), commands);
 	assert.deepEqual(await complete(["--command", "x", "--help"]), commands);
-	assert.equal((await completeLines(["--help"]))[0], "command\tlist\tlist the spaces, or the packages of one");
+	assert.equal((await completeLines(["--help"]))[0], "command\tcompletion\tprint the shell completion script");
 	assert.deepEqual(await complete(["--help", "list"]), []);
 });
 
@@ -1926,20 +1926,20 @@ test("__complete: after --config or --dir it hands over to the file completion o
 test("__complete: remove and rename offer the qualified spaces of every profile, never base; every command offers --help", async () => {
 	const options = { spaces: ["a"], files: COMPLETE_FILES };
 	assert.deepEqual(await completeLines(["remove"], options), [
-		"space\tgsh/work\tgsh-cmd --",
-		"space\tpi/a\tpi",
+		"space\tgsh/work\tspace of gsh (gsh-cmd --)",
+		"space\tpi/a\tspace of pi (pi)",
 		"option\t--yes\tdo not ask; keep a backup",
 		"option\t--no-backup\tdelete without a backup",
 		"option\t--help\tthe help of this command",
 	]);
-	assert.deepEqual(await completeLines(["rename"], options), ["space\tgsh/work\tgsh-cmd --", "space\tpi/a\tpi", "option\t--help\tthe help of this command"]);
+	assert.deepEqual(await completeLines(["rename"], options), ["space\tgsh/work\tspace of gsh (gsh-cmd --)", "space\tpi/a\tspace of pi (pi)", "option\t--help\tthe help of this command"]);
 	assert.deepEqual(await complete(["new"], options), ["option --help"]);
 });
 
 test("__complete: setup offers the qualified spaces, then --every (every profile with a setup command) and <profile>/--every for each profile", async () => {
 	assert.deepEqual(await completeLines(["setup"], { spaces: ["a"], files: COMPLETE_FILES }), [
-		"space\tgsh/work\tgsh-cmd --",
-		"space\tpi/a\tpi",
+		"space\tgsh/work\tspace of gsh (gsh-cmd --)",
+		"space\tpi/a\tspace of pi (pi)",
 		"target\t--every\tevery space of every profile with a setup command",
 		"target\tgsh/--every\tevery space of gsh",
 		"target\tpi/--every\tevery space of pi",
@@ -1967,9 +1967,9 @@ test("__complete: nothing after a name that is complete, nor a second word that 
 test("__complete honors --config typed: it lists the profiles of that file", async () => {
 	const files = { ...COMPLETE_FILES, "alt.json": { schema: SCHEMA, profiles: { alt: { command: "alt-cmd", dir: "~/other-spaces" } } } };
 	assert.deepEqual((await completeLines(["--config", "<root>/alt.json"], { files })).filter((line) => line.startsWith("space\t")), [
-		"space\talt/base\tthe home alt starts with",
-		"space\talt/zed\talt-cmd",
-		"space\tpi/base\tthe home pi starts with",
+		"space\talt/base\tbase home of alt (alt-cmd)",
+		"space\talt/zed\tspace of alt (alt-cmd)",
+		"space\tpi/base\tbase home of pi (pi)",
 	]);
 	assert.deepEqual(await complete(["--config", "<root>/alt.json", "setup"], { files }), ["space alt/zed", "target --every", "target alt/--every", "target pi/--every", "option --help"]);
 });
@@ -1977,8 +1977,8 @@ test("__complete honors --config typed: it lists the profiles of that file", asy
 test("__complete honors --dir typed: the spaces of that folder under every profile's prefix", async () => {
 	const options = { spaces: ["a"], files: COMPLETE_FILES };
 	assert.deepEqual(await completeLines(["--dir", "<root>/other-spaces", "remove"], options), [
-		"space\tgsh/zed\tgsh-cmd --",
-		"space\tpi/zed\tpi",
+		"space\tgsh/zed\tspace of gsh (gsh-cmd --)",
+		"space\tpi/zed\tspace of pi (pi)",
 		"option\t--yes\tdo not ask; keep a backup",
 		"option\t--no-backup\tdelete without a backup",
 		"option\t--help\tthe help of this command",
@@ -2038,10 +2038,12 @@ function zshComplete(script: string, lines: string[], prefix: string): string[] 
 test("the zsh script splits the lines by group into commands, spaces, targets, shells and options for _describe, and escapes a colon; a value with a slash goes through as it is", { skip: ZSH_SKIP }, async () => {
 	const script = (await run(["completion", "zsh"])).out;
 	assert.doesNotMatch(script, /profile/);
-	const lines = ["command\tlist\tlist the spaces", "command\tnew\tcreate a space", "space\tpi/base\tthe home pi starts with", "space\tpi/my:work\tpi", "target\t--every\tevery profile, base first", "target\tpi/--every\tbase and every space of pi", "shell\tzsh\tthe zsh completion script", "option\t--yes\tdo not ask", "option\t--help\tthe help of this command"];
+	// pi-space gives the order (spaces first, alphabetical): zsh and fzf-tab must not sort it again.
+	assert.match(script, /\nzstyle ':completion:\*:pi-space:\*' sort false\n/);
+	const lines = ["command\tlist\tlist the spaces", "command\tnew\tcreate a space", "space\tpi/base\tbase home of pi (pi)", "space\tpi/my:work\tspace of pi (pi)", "target\t--every\tevery profile, base first", "target\tpi/--every\tbase and every space of pi", "shell\tzsh\tthe zsh completion script", "option\t--yes\tdo not ask", "option\t--help\tthe help of this command"];
 	assert.deepEqual(zshComplete(script, lines, "-"), [
+		"_describe spaces:", "pi/base:base home of pi (pi)", "pi/my\\:work:space of pi (pi)",
 		"_describe commands:", "list:list the spaces", "new:create a space",
-		"_describe spaces:", "pi/base:the home pi starts with", "pi/my\\:work:pi",
 		"_describe targets:", "--every:every profile, base first", "pi/--every:base and every space of pi",
 		"_describe shells:", "zsh:the zsh completion script",
 		"_describe options:", "--yes:do not ask", "--help:the help of this command",
@@ -2049,8 +2051,8 @@ test("the zsh script splits the lines by group into commands, spaces, targets, s
 	]);
 	// The options show only once the word starts with "-", so a lone --help is never inserted for an empty word.
 	assert.deepEqual(zshComplete(script, lines, ""), [
+		"_describe spaces:", "pi/base:base home of pi (pi)", "pi/my\\:work:space of pi (pi)",
 		"_describe commands:", "list:list the spaces", "new:create a space",
-		"_describe spaces:", "pi/base:the home pi starts with", "pi/my\\:work:pi",
 		"_describe targets:", "--every:every profile, base first", "pi/--every:base and every space of pi",
 		"_describe shells:", "zsh:the zsh completion script",
 		"status 0",
