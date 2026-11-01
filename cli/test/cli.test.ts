@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, normalize, resolve } from "node:path";
+import { delimiter, dirname, join, normalize, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -99,7 +99,7 @@ async function run(
 			writeFileSync(join(root, "agent", "settings.json"), JSON.stringify({ packages: options.basePackages }));
 		}
 		// A path written with "/" after <root> is normalized, so it reads the same as join() gives on Windows.
-		const fill = (text: string) => (text.includes("<root>") ? normalize(text.replace("<root>", root)) : text);
+		const fill = (text: string) => (text.includes("<root>") ? normalize(text.replaceAll("<root>", root)) : text);
 		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, fill(value)]));
 		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root };
 		const io: CliIo = {
@@ -2072,4 +2072,127 @@ test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the pr
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+// The Pi that pi-space starts runs as if started from a plain terminal for the named profile, whatever Pi the caller is in.
+const UNWIND = {
+	[CONFIG]: {
+		schema: SCHEMA,
+		profiles: { gsh: { command: "gsh-cmd --", home: "~/gsh/agent", dir: "~/gsh/spaces", setup: "gsh-setup {home}", spaceEnv: { GSH_CFG: "{home}/cfg" } } },
+	},
+	"gsh/spaces/a/.keep": "",
+	"gsh/spaces/b/.keep": "",
+	".pi/spaces/work/.keep": "",
+};
+const IN_GSH_BASE = { PI_CODING_AGENT_DIR: "<root>/gsh/agent", PI_SPACE_HOME: "<root>/gsh/agent", PI_SPACES_COMMAND: "gsh-cmd --" };
+const IN_GSH_SPACE = {
+	PI_CODING_AGENT_DIR: "<root>/gsh/spaces/a",
+	PI_SPACES_BASE_HOME: "<root>/gsh/agent",
+	PI_SPACE: "a",
+	PI_SPACE_HOME: "<root>/gsh/spaces/a",
+	GSH_CFG: "<root>/gsh/spaces/a/cfg",
+	PI_SPACES_BASE_ENV: JSON.stringify({ GSH_CFG: "<root>/shared/cfg" }),
+	OTHER: "<root>/gsh/spaces/a/x",
+};
+const SPACE_VARIABLES = ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"];
+
+test("from inside another profile's base Pi, pi/work and pi/base start Pi in the pi profile's home", async () => {
+	for (const name of ["work", "base"]) {
+		const r = await run([`pi/${name}`], { files: UNWIND, env: IN_GSH_BASE });
+		assert.equal(r.code, 0, r.err);
+		assert.deepEqual(programsOf(r), [{ program: "pi", args: ["--space", name] }]);
+		const env = setupEnvOf(r);
+		assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, ".pi", "agent"));
+		assert.equal(env.PI_SPACES_DIR, join(r.root, ".pi", "spaces"));
+		assert.equal(env.PI_SPACES_COMMAND, "pi");
+		for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
+	}
+});
+
+test("from inside a space, another space of the same profile gets the base's values, not the caller space's", async () => {
+	const r = await run(["gsh/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(programsOf(r), [{ program: "gsh-cmd", args: ["--", "--space", "b"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "gsh", "agent"));
+	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
+	assert.equal(env.OTHER, join(r.root, "gsh", "agent", "x"));
+	assert.equal(env.PI_SPACES_DIR, join(r.root, "gsh", "spaces"));
+	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
+});
+
+test("from inside a space, a space of another profile also gets the base's spaceEnv values back", async () => {
+	const r = await run(["pi/work"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(r.code, 0, r.err);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, ".pi", "agent"));
+	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
+	assert.equal(env.OTHER, join(r.root, "gsh", "agent", "x"));
+	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
+});
+
+test("unwinding a space removes a spaceEnv variable the base did not have, moves each list entry on its own and keeps PWD", async () => {
+	const list = ["<root>/gsh/spaces/a/bin", "/usr/bin", "<root>/gsh/spaces/ab", "<root>/gsh/spaces/a"].join(delimiter);
+	const env = { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "{}", LIST: list, PWD: "<root>/gsh/spaces/a/project" };
+	const r = await run(["gsh/b", "-c"], { files: UNWIND, env });
+	const child = setupEnvOf(r);
+	assert.equal("GSH_CFG" in child, false);
+	assert.equal(child.LIST, ["<root>/gsh/agent/bin", "/usr/bin", "<root>/gsh/spaces/ab", "<root>/gsh/agent"].map((entry) => normalize(entry.replace("<root>", r.root))).join(delimiter));
+	assert.equal(child.PWD, join(r.root, "gsh", "spaces", "a", "project"));
+	// A damaged PI_SPACES_BASE_ENV means no base values.
+	const damaged = await run(["gsh/b"], { files: UNWIND, env: { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "not json" } });
+	assert.equal(damaged.code, 0, damaged.err);
+	assert.equal("GSH_CFG" in setupEnvOf(damaged), false);
+});
+
+test("from a plain terminal the started Pi gets the named profile's home and nothing of a space", async () => {
+	const r = await run(["gsh/b"], { files: UNWIND, env: { GSH_CFG: "<root>/shared/cfg", OTHER: "kept" } });
+	assert.equal(r.code, 0, r.err);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "gsh", "agent"));
+	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
+	assert.equal(env.OTHER, "kept");
+	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
+});
+
+test("package commands and --every start each Pi in the named profile's home, unwound from the caller's space", async () => {
+	const update = await run(["update", "gsh/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(setupEnvOf(update).PI_CODING_AGENT_DIR, join(update.root, "gsh", "agent"));
+	assert.equal(setupEnvOf(update).GSH_CFG, join(update.root, "shared", "cfg"));
+	const every = await run(["update", "--every"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).PI_CODING_AGENT_DIR), [
+		...["agent", "agent", "agent"].map((folder) => join(every.root, "gsh", folder)),
+		...[".pi", ".pi"].map((folder) => join(every.root, folder, "agent")),
+	]);
+	for (const index of every.spawned.keys()) {
+		for (const key of SPACE_VARIABLES) assert.equal(key in setupEnvOf(every, index), false, key);
+		assert.equal(setupEnvOf(every, index).GSH_CFG, join(every.root, "shared", "cfg"));
+	}
+});
+
+test("the setup command runs with the new space's own values on top of the unwound base, not the caller space's", async () => {
+	const r = await run(["new", "gsh/c"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(r.code, 0, r.err);
+	const home = join(r.root, "gsh", "spaces", "c");
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.PI_SPACE, "c");
+	assert.equal(env.PI_SPACE_HOME, home);
+	assert.equal(env.GSH_CFG, `${home}/cfg`);
+	assert.equal(env.OTHER, join(r.root, "gsh", "agent", "x"));
+	assert.equal("PI_SPACES_BASE_HOME" in env, false);
+	assert.equal("PI_SPACES_BASE_ENV" in env, false);
+	const again = await run(["setup", "gsh/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(setupEnvOf(again).PI_SPACE, "b");
+	assert.equal(setupEnvOf(again).GSH_CFG, `${join(again.root, "gsh", "spaces", "b")}/cfg`);
+});
+
+test("remove and rename still refuse the space the caller is in, from the caller's real environment", async () => {
+	const removed = await run(["remove", "gsh/a", "--yes"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(removed.code, 1);
+	assert.match(removed.err, /is active/);
+	assert.equal(removed.spawned.length, 0);
+	const renamed = await run(["rename", "gsh/a", "z"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(renamed.code, 1);
+	assert.match(renamed.err, /is active/);
 });

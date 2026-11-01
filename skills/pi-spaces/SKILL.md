@@ -4,7 +4,7 @@ description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, P
 license: MIT
 metadata:
   author: jals1212
-  version: "1.2"
+  version: "1.3"
 ---
 
 ## Activation Contract
@@ -20,6 +20,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 - Profiles live in `~/.pi-spaces/config.json`, or the file in `PI_SPACES_CONFIG`; its `schema` must be `pi-spaces.config/v1`. Read it to answer questions about profiles; edit it only when the user asks, and keep every key to the documented ones (unknown keys make the file invalid and ignored).
 - Never read `auth.json` or other credential files in any home.
 - You cannot move this session to another space. Ask the user to run `/space switch <name>` (interactive terminal only; Pi restarts), or start another Pi with `$PI_SPACES_COMMAND --space <name>` (the space name there is bare: `work`; `pi-space` takes `<profile>/work`).
+- The Pi that `pi-space` starts runs as if started from a plain terminal for the named profile, even when you run it from inside another Pi or a space (it unwinds your space and sets `PI_CODING_AGENT_DIR` to that profile's home).
 - Never set `PI_CODING_AGENT_DIR` yourself, and never create, rename or delete space folders with file commands; use `/space` or `pi-space`.
 - Removing a space deletes everything in it: only on the user's explicit request, and keep the backup unless they say otherwise.
 
@@ -31,6 +32,8 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | List spaces from a shell | `pi-space list` (optional `@jals1212/pi-spaces-cli`): every profile, each space as `<profile>/<name>` |
 | Spaces folder | `PI_SPACES_DIR`, else the `dir` of the profile whose `home` is the base home, else `spaces` next to the base home (`PI_SPACES_BASE_HOME`, else this home) |
 | Profiles, or why a variable differs per space | The config file (`PI_SPACES_CONFIG`, else `~/.pi-spaces/config.json`): a profile's `spaceEnv` variables are set only inside spaces (`{home}` and `{name}` filled in) and removed in base; without `spaceEnv` whatever a program keeps outside its agent home is shared with base |
+| Pick a space from a shell | bare `pi-space` on a terminal opens a picker of every profile's spaces (`<profile>/<name>`, `base` included) and starts Pi in the one chosen |
+| Rename a space | User request only: `pi-space rename <profile>/<old> <new>`; the new name alone or with the same profile (`<profile>/<new>`), a space never changes profile; refused for base and for the space you are in |
 | Create a space | `pi-space new <profile>/<name>`, or ask the user for `/space new <name>` (this Pi's profile); `pi-space new` also runs the profile's setup command when there is one (or `--setup <cmd>` for one call) |
 | Prepare a space for the program that runs Pi | `pi-space setup <profile>/<name>` (or `<profile>/--every`, or `--every` for every profile with a setup): runs the setup command (`{home}` and `{name}` become the space's folder and name) with the space as `PI_CODING_AGENT_DIR`; never in base |
 | Work in another space | User runs `/space switch <name>`, or `$PI_SPACES_COMMAND --space <name> "<prompt>"`, or `pi-space <profile>/<name>` from a shell |

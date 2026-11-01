@@ -61,7 +61,7 @@ pi-space update my/--every                # my's base, then every space of "my"
 pi-space update --every                   # every profile: its base, then its spaces
 ```
 
-A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, through the profile's command (or `--command`), and ends with the exit status of that Pi. The extension relaunches Pi in the space's home, so the command works on that home's `settings.json` and packages; `pi-space` never sets `PI_CODING_AGENT_DIR` itself. `<profile>/<name>` is `<profile>/base` or an existing space of that profile; anything else exits with status 1 before Pi starts.
+A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, through the profile's command (or `--command`), and ends with the exit status of that Pi. The extension relaunches Pi in the space's home, so the command works on that home's `settings.json` and packages; the Pi starts with the profile's home as `PI_CODING_AGENT_DIR` (see "What the started Pi is told"). `<profile>/<name>` is `<profile>/base` or an existing space of that profile; anything else exits with status 1 before Pi starts.
 
 `--every` takes the place of the space, and there are two:
 
@@ -144,11 +144,13 @@ The Pi that `pi-space` starts (a space, or a package command) reads the same fil
 - `PI_SPACES_DIR` is always the profile's spaces folder (or `--dir`), absolute.
 - `PI_SPACES_COMMAND` and `PI_SPACES_SETUP` are the profile's command and setup (or `--command` and `--setup`); a profile without one leaves the variable unset, even if your shell has it.
 - `--config <path>` becomes `PI_SPACES_CONFIG` (absolute).
+- `PI_CODING_AGENT_DIR` is the profile's `home`, so the started Pi runs as if you had started it from a plain terminal for that profile, even when you run `pi-space` from the shell of another Pi (a gentle-shell Pi, say): `pi-space pi/base` starts plain Pi in `~/.pi/agent`, not in the home of the Pi you are in.
+- Run from inside a space, `pi-space` first unwinds that space: the caller profile's `spaceEnv` variables get back their base values (from `PI_SPACES_BASE_ENV`, or are removed when it has none), every variable that is the space's folder or a path inside it (each entry of a list on its own) moves to the base home, and `PI_SPACE`, `PI_SPACE_HOME`, `PI_SPACES_BASE_HOME` and `PI_SPACES_BASE_ENV` are removed. The extension then enters the named space from a clean base. `remove` and `rename` still refuse the space you are in.
 - Nothing else is added or removed. `--command` and the rest are never read back from them.
 
 ### `spaceEnv` and the setup command
 
-A space always belongs to a profile, so that profile's `spaceEnv` is added to the environment of the setup command, with `{home}` and `{name}` filled in for the space being set up, next to `PI_CODING_AGENT_DIR`, `PI_SPACE` and `PI_SPACE_HOME`. It applies whichever setup command runs: the profile's own `setup`, or one from `--setup`, because the space is that profile's.
+A space always belongs to a profile, so that profile's `spaceEnv` is added to the environment of the setup command, with `{home}` and `{name}` filled in for the space being set up, next to `PI_CODING_AGENT_DIR`, `PI_SPACE` and `PI_SPACE_HOME`; the rest of its environment is the same unwound base as for Pi, so the space you run `pi-space` from never leaks into it. It applies whichever setup command runs: the profile's own `setup`, or one from `--setup`, because the space is that profile's.
 
 ### A complete example
 
