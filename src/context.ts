@@ -20,7 +20,7 @@ export function spaceInfo(dir: string, agentHome: string, env: Env): SpaceInfo {
 	return {
 		space: activeSpace(dir, agentHome),
 		home: resolve(agentHome),
-		// A blank value counts as unset, so the default is pi, as in the pi-space command.
+		// A blank value counts as unset, so the default is pi (pi-space leaves it unset for a profile without a command).
 		command: env.PI_SPACES_COMMAND?.trim() || "pi",
 	};
 }

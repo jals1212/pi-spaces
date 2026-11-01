@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The setup hint of `/space new` names the space with its profile, as
+  `pi-space` now requires: `pi-space setup <profile>/<name>`, where the
+  profile is the one of the running Pi (`pi` when no profile matches its base
+  home). `/space` itself still takes the bare name.
+
 ### Fixed
 
 - The built-in `pi` profile no longer takes another profile's home: inside
