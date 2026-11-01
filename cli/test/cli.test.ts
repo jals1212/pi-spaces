@@ -2104,7 +2104,9 @@ interface PwshMatch {
 /**
  * Runs the completion script under pwsh with a fake pi-space on PATH that prints `lines` (`{args}` in a line becomes
  * the words it was called with), then asks TabExpansion2 for each input with the cursor at its end, in a folder that
- * holds alpha.txt. Returns the matches of each input, in the order PowerShell gives them.
+ * holds alpha.txt. Returns the matches of each input, in the order PowerShell gives them. Before PowerShell 7.7 a lone ""
+ * from a completer makes the completion throw on its empty completion text, which PSReadLine ignores: that one error
+ * counts as no matches (7.7 returns none for it). Any other error fails the test.
  */
 function pwshComplete(script: string, lines: string[], inputs: string[]): PwshMatch[][] {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pwsh-")));
@@ -2128,16 +2130,24 @@ function pwshComplete(script: string, lines: string[], inputs: string[]): PwshMa
 			`Set-Location -LiteralPath ${quote(join(root, "cwd"))}`,
 			`Get-Content -Raw -LiteralPath ${quote(join(root, "script.ps1"))} | Invoke-Expression`,
 			`foreach ($typed in @(${inputs.map(quote).join(", ")})) {`,
-			"  $result = TabExpansion2 -inputScript $typed -cursorColumn $typed.Length",
-			"  $items = @($result.CompletionMatches | ForEach-Object { [pscustomobject]@{ text = $_.CompletionText; list = $_.ListItemText; tip = $_.ToolTip } })",
-			"  Write-Output (ConvertTo-Json -InputObject $items -Compress)",
+			"  $items = @()",
+			"  $failure = $null",
+			"  try {",
+			"    $result = TabExpansion2 -inputScript $typed -cursorColumn $typed.Length",
+			"    $items = @($result.CompletionMatches | ForEach-Object { [pscustomobject]@{ text = $_.CompletionText; list = $_.ListItemText; tip = $_.ToolTip } })",
+			"  } catch { $failure = $_.Exception.ToString() }",
+			"  Write-Output (ConvertTo-Json -InputObject @{ items = $items; failure = $failure } -Compress -Depth 4)",
 			"}",
 		].join("\n");
 		const result = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")], { encoding: "utf8" });
 		assert.equal(result.status, 0, result.stderr + result.stdout);
 		const outputs = result.stdout.trim().split(/\r?\n/);
 		assert.equal(outputs.length, inputs.length, result.stdout);
-		return outputs.map((output) => JSON.parse(output) as PwshMatch[]);
+		return outputs.map((output, index) => {
+			const { items, failure } = JSON.parse(output) as { items: PwshMatch[]; failure: string | null };
+			if (failure !== null) assert.match(failure, /completionText/, `${inputs[index]}: ${failure}`);
+			return items;
+		});
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -2181,13 +2191,15 @@ test("the powershell script falls back to PowerShell's own file completion on th
 	const [files] = pwshComplete(script, ["__files__"], ["pi-space "]);
 	assert.ok(files.some((match) => match.text.includes("alpha.txt")), JSON.stringify(files));
 	assert.ok(!files.some((match) => match.text.includes("pi/")), JSON.stringify(files));
-	// No candidates (after a complete name, say), or none that match the word: not the files of the folder, only one
-	// result that leaves the line as it is (a space after a finished word, the word typed otherwise).
+	// No candidates (after a complete name, say), none that match the word, or a pi-space that cannot run: nothing at all,
+	// neither the files of the folder nor a space or the word typed again.
 	const [none, unmatched] = pwshComplete(script, [], ["pi-space rename pi/work ", "pi-space al"]);
-	assert.deepEqual(none.map((match) => match.text), [" "]);
-	assert.deepEqual(unmatched.map((match) => match.text), ["al"]);
+	assert.deepEqual(none, []);
+	assert.deepEqual(unmatched, []);
 	const [filtered] = pwshComplete(script, ["space\tpi/base\tbase home of pi (pi)"], ["pi-space al"]);
-	assert.deepEqual(filtered.map((match) => match.text), ["al"]);
+	assert.deepEqual(filtered, []);
+	const [missing] = pwshComplete(script, ["space\tpi/base\tbase home of pi (pi)"], ["./missing/pi-space "]);
+	assert.deepEqual(missing, []);
 });
 
 test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the profile's dir, and completion zsh prints the script", () => {
