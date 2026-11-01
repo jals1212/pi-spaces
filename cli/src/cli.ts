@@ -806,11 +806,11 @@ function candidates(words: string[], io: CliIo): string[] {
 	}
 	const configFile = call.config !== undefined ? resolve(call.config) : configPath(io.env, io.home);
 	const config = loadConfig(configFile);
+	// A --dir typed before the cursor is read as the spaces folder of every profile.
+	const dirOverride = call.dir === undefined ? undefined : resolve(call.dir);
 	const profiles = profileNames(config).map((name): CompletionProfile => {
 		const profile = profileByName(config, name, io.env, io.home);
-		// --dir stands for the folder of every profile, as it does for the picker.
-		const dir = call.dir !== undefined ? resolve(call.dir) : profile.dir;
-		return { name, command: profile.command ?? "pi", spaces: listSpaces(dir) };
+		return { name, command: profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
 	});
 	const rest = words.slice(index);
 	if (rest.length === 0) return [...commandCandidates(false), ...spaceCandidates(profiles, true), ...firstOptions(call, index === 0)];

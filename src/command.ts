@@ -58,11 +58,13 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 	try {
 		if (sub === "list" && rest.length === 0) return list(deps);
 		if (sub === "new" && rest.length === 1) {
-			const path = createSpace(deps.dir, rest[0], deps.declaration());
-			const name = rest[0];
+			const [name] = rest;
+			const path = createSpace(deps.dir, name, deps.declaration());
+			// pi-space names a space with its profile; without a matching profile this Pi is plain pi.
+			const qualified = `${deps.profile?.name ?? "pi"}/${name}`;
 			ctx.ui.notify(
 				hasSetupCommand(deps.env) || Boolean(deps.profile?.setup)
-					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${deps.profile?.name ?? "pi"}/${name}. Then enter it with /space switch ${name}.`
+					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${qualified}. Then enter it with /space switch ${name}.`
 					: `Created space "${name}" at ${path}. Enter it with /space switch ${name}.`,
 				"info",
 			);

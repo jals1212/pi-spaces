@@ -1025,8 +1025,10 @@ test("picker: --setup of the call goes to a space of another profile, and does n
 	assert.equal(r.spawned.length, 1);
 	assert.equal(r.spawned[0].program, "other-launcher");
 	assert.equal((r.spawned[0].options.env as Record<string, string>).PI_SPACES_SETUP, "my-setup {home}");
-	const own = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
+	// The other profiles are still listed.
 	assert.match(r.out, /\nml\n/);
+
+	const own = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
 	assert.equal((own.spawned[0].options.env as Record<string, string>).PI_SPACES_SETUP, "my-setup {home}");
 });
 
@@ -1234,13 +1236,12 @@ function setupEnvOf(r: Run, index = 0): Record<string, string> {
 
 test("new runs the setup command in the new space after creating it, with the space as the agent home", async () => {
 	const files = { [CONFIG]: { schema: SCHEMA, profiles: { ml: { dir: "~/spaces", setup: SETUP } } } };
-	for (const [argv, extra] of [
-		[["--setup", SETUP, "--dir", "<root>/spaces", "new", "pi/work"], {}],
-		[["new", "ml/work"], { files }],
-	] as [string[], Record<string, unknown>][]) {
+	for (const [profile, argv, extra] of [
+		["pi", ["--setup", SETUP, "--dir", "<root>/spaces", "new", "pi/work"], {}],
+		["ml", ["new", "ml/work"], { files }],
+	] as [string, string[], Record<string, unknown>][]) {
 		const r = await run(argv, { ...extra, env: { PI_CODING_AGENT_DIR: "/some/home", OTHER: "kept" } });
 		const home = join(r.dir, "work");
-		const profile = argv.includes("ml/work") ? "ml" : "pi";
 		assert.equal(r.code, 0, r.err);
 		assert.equal(r.err, "");
 		assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: my-launcher --home ${home} setup\nStart Pi in it with: pi-space ${profile}/work\n`);

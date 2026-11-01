@@ -8,8 +8,10 @@ commands and options and a patch version fixes.
 
 ### Changed
 
-- `/space new` names the space with its profile in the setup hint:
-  `pi-space setup <profile>/<name>`, as the `pi-space` command now requires.
+- The setup hint of `/space new` names the space with its profile, as
+  `pi-space` now requires: `pi-space setup <profile>/<name>`, where the
+  profile is the one of the running Pi (`pi` when no profile matches its base
+  home). `/space` itself still takes the bare name.
 
 ### Fixed
 
