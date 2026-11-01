@@ -753,16 +753,20 @@ const ZSH_COMPLETION = [
 	"  done",
 	// The spaces come first, as an unsorted group in pi-space's own (alphabetical) order; with the `sort false` style
 	// below, zsh and fzf-tab show every group in the order it is added here.
-	"  (( $#spaces )) && _describe -t spaces 'space' spaces -V pi-space-spaces && ret=0",
-	"  (( $#cmds )) && _describe -t commands 'command' cmds && ret=0",
-	"  (( $#targets )) && _describe -t targets 'target' targets && ret=0",
-	"  (( $#shells )) && _describe -t shells 'shell' shells && ret=0",
-	"  (( $#opts )) && _describe -t options 'option' opts && ret=0",
+	"  (( $#spaces )) && _describe -t spaces 'spaces' spaces -V pi-space-spaces && ret=0",
+	"  (( $#cmds )) && _describe -t commands 'commands' cmds && ret=0",
+	"  (( $#targets )) && _describe -t targets 'targets' targets && ret=0",
+	"  (( $#shells )) && _describe -t shells 'shells' shells && ret=0",
+	"  (( $#opts )) && _describe -t options 'options' opts && ret=0",
 	"  return ret",
 	"}",
 	"compdef _pi_space pi-space",
 	// pi-space already gives its candidates in order (spaces first, alphabetical); zsh and fzf-tab must not resort them.
 	"zstyle ':completion:*:pi-space:*' sort false",
+	// Each group apart under its own header ([spaces], [commands], [options]...), so the spaces stand apart from the
+	// rest; fzf-tab shows groups only when the descriptions have a format, and ignores escape sequences in it.
+	"zstyle ':completion:*:pi-space:*' group-name ''",
+	"zstyle ':completion:*:pi-space:*:descriptions' format '[%d]'",
 	"",
 ].join("\n");
 
@@ -814,14 +818,14 @@ interface CompletionProfile {
 	spaces: string[];
 }
 
-/** `<profile>/base`, if asked, then `<profile>/<name>`, for each profile in order. */
+/** `<profile>/base`, if asked, and `<profile>/<name>`: pi's first, then the custom profiles', each alphabetical. */
 function spaceCandidates(profiles: CompletionProfile[], withBase: boolean): string[] {
 	const spaces = profiles.flatMap((profile) => [
-		...(withBase ? [{ value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.command})` }] : []),
-		...profile.spaces.map((name) => ({ value: `${profile.name}/${name}`, text: `space of ${profile.name} (${profile.command})` })),
+		...(withBase ? [{ builtIn: profile.name === "pi", value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.command})` }] : []),
+		...profile.spaces.map((name) => ({ builtIn: profile.name === "pi", value: `${profile.name}/${name}`, text: `space of ${profile.name} (${profile.command})` })),
 	]);
-	// Alphabetical by the whole name, whatever the order of the profiles in the file.
-	spaces.sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+	// The built-in pi first; then alphabetical by the whole name, whatever the order of the profiles in the file.
+	spaces.sort((a, b) => (a.builtIn !== b.builtIn ? (a.builtIn ? -1 : 1) : a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
 	return spaces.map(({ value, text }) => candidate("space", value, text));
 }
 
