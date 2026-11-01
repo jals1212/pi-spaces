@@ -37,8 +37,8 @@ Options before the command, for this call only:
 `;
 
 const SCHEMA = "pi-spaces.config/v1";
-/** The home a test passes as PI_CODING_AGENT_DIR, as the started Pi gets it: resolved (C:\\some\\home on Windows). */
-const SOME_HOME = resolve("/some/home");
+/** A home a test passes as PI_CODING_AGENT_DIR: absolute on every platform (and drive), so the CLI hands it on as written. */
+const SOME_HOME = join(tmpdir(), "pi-spaces-some-home");
 const CONFIG = ".pi-spaces/config.json";
 
 interface Run {
@@ -741,7 +741,7 @@ test("--new and --remove say what replaced them, exit 2 and change nothing", asy
 });
 
 test("list <space> runs Pi's list in that space through the extension, with inherited stdio and Pi's exit status", async () => {
-	const r = await run(["--dir", "<root>/spaces", "list", "pi/work"], { spaces: ["work"], status: 4, env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	const r = await run(["--dir", "<root>/spaces", "list", "pi/work"], { spaces: ["work"], status: 4, env: { PI_CODING_AGENT_DIR: SOME_HOME } });
 	assert.equal(r.code, 4);
 	assert.equal(r.out, "");
 	assert.equal(r.err, "");
@@ -773,8 +773,8 @@ test("a package command returns the exit status of Pi", async () => {
 });
 
 test("a package command never sets PI_CODING_AGENT_DIR, and --dir reaches the child as PI_SPACES_DIR", async () => {
-	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: "/some/home" };
-	const plain = await run(["--dir", "<root>/spaces", "update", "pi/work"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: SOME_HOME };
+	const plain = await run(["--dir", "<root>/spaces", "update", "pi/work"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: SOME_HOME } });
 	assert.deepEqual(setupEnvOf(plain), { PI_CODING_AGENT_DIR: SOME_HOME, PI_SPACES_DIR: plain.dir, PI_SPACES_COMMAND: "pi" });
 	const withDir = await run(["--dir", "<root>/spaces", "update", "pi/work"], { spaces: ["work"], env });
 	const childEnv = withDir.spawned[0].options.env as Record<string, string>;
@@ -918,7 +918,7 @@ test("the program and arguments reach spawn exactly as split, with no shell opti
 });
 
 test("--dir uses that spaces folder instead of the profile's, and the started Pi gets it as PI_SPACES_DIR", async () => {
-	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: "/some/home" };
+	const env = { PI_SPACES_DIR: "<root>/elsewhere", PI_CODING_AGENT_DIR: SOME_HOME };
 	const launched = await run(["--dir", "<root>/spaces", "pi/work"], { spaces: ["work"], env });
 	assert.equal(launched.code, 0, launched.err);
 	assert.deepEqual(launched.spawned[0].args, ["--space", "work"]);
@@ -952,7 +952,7 @@ test("base passes through without needing a folder", async () => {
 });
 
 test("an existing space launches the command with inherited stdio and the caller's env plus the profile's variables", async () => {
-	const r = await run(["--command", "my-launcher --", "--dir", "<root>/spaces", "pi/work", "-c"], { spaces: ["work"], status: 7, env: { PI_SPACES_COMMAND: "other", PI_CODING_AGENT_DIR: "/some/home", OTHER: "kept" } });
+	const r = await run(["--command", "my-launcher --", "--dir", "<root>/spaces", "pi/work", "-c"], { spaces: ["work"], status: 7, env: { PI_SPACES_COMMAND: "other", PI_CODING_AGENT_DIR: SOME_HOME, OTHER: "kept" } });
 	assert.equal(r.code, 7);
 	assert.equal(r.spawned.length, 1);
 	assert.equal(r.spawned[0].program, "my-launcher");
@@ -1101,7 +1101,7 @@ test("bin/pi-space.mjs --dir and --command reach the real child: its PI_SPACES_D
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
 		const result = spawnSync(process.execPath, [bin, "--command", `"${process.execPath}" "${script}"`, "--dir", dir, "pi/work", "-c"], {
 			encoding: "utf8",
-			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: "/some/home" },
+			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: SOME_HOME },
 		});
 		assert.equal(result.status, 3, result.stderr);
 		const seen = JSON.parse(result.stdout);
@@ -1130,7 +1130,7 @@ test("bin/pi-space.mjs runs the profile's command with --space and exits with it
 		const bin = join(import.meta.dirname, "..", "bin", "pi-space.mjs");
 		const result = spawnSync(process.execPath, [bin, "--config", file, "ml/work", "-c"], {
 			encoding: "utf8",
-			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: "/some/home" },
+			env: { ...process.env, PI_SPACES_DIR: join(root, "elsewhere"), PI_SPACES_COMMAND: "not-run", PI_CODING_AGENT_DIR: SOME_HOME },
 		});
 		assert.equal(result.status, 7, result.stderr);
 		const seen = JSON.parse(result.stdout);
@@ -1250,7 +1250,7 @@ test("new runs the setup command in the new space after creating it, with the sp
 		["pi", ["--setup", SETUP, "--dir", "<root>/spaces", "new", "pi/work"], {}],
 		["ml", ["new", "ml/work"], { files }],
 	] as [string, string[], Record<string, unknown>][]) {
-		const r = await run(argv, { ...extra, env: { PI_CODING_AGENT_DIR: "/some/home", OTHER: "kept" } });
+		const r = await run(argv, { ...extra, env: { PI_CODING_AGENT_DIR: SOME_HOME, OTHER: "kept" } });
 		const home = join(r.dir, "work");
 		assert.equal(r.code, 0, r.err);
 		assert.equal(r.err, "");
@@ -1356,7 +1356,7 @@ test("setup <profile>/--every runs in every space in order, never in base, goes 
 });
 
 test("--setup reaches the started Pi as PI_SPACES_SETUP, so /space new can name it; nothing else changes", async () => {
-	const r = await run(["--setup", SETUP, "--dir", "<root>/spaces", "pi/work", "-c"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: "/some/home" } });
+	const r = await run(["--setup", SETUP, "--dir", "<root>/spaces", "pi/work", "-c"], { spaces: ["work"], env: { PI_CODING_AGENT_DIR: SOME_HOME } });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.spawned[0].args, ["--space", "work", "-c"]);
 	assert.equal(setupEnvOf(r).PI_SPACES_SETUP, SETUP);
@@ -1521,7 +1521,7 @@ const PROFILE_SETUP = {
 };
 
 test("new runs the profile's setup with its spaceEnv in the setup's environment, on top of the space's own variables", async () => {
-	const r = await run(["new", "ml/work"], { files: PROFILE_SETUP, env: { ML_CONFIG: "base-value", PI_CODING_AGENT_DIR: "/some/home" } });
+	const r = await run(["new", "ml/work"], { files: PROFILE_SETUP, env: { ML_CONFIG: "base-value", PI_CODING_AGENT_DIR: SOME_HOME } });
 	const home = join(r.dir, "work");
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: ml-setup --home ${home} --space work\nStart Pi in it with: pi-space ml/work\n`);
