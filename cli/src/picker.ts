@@ -123,7 +123,7 @@ export function step(state: PickerState, key: Key): Step {
 	}
 }
 
-const HINT = "Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter";
+const HINT = "🪐 Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter";
 
 /** The terminal columns of one character: 0 for combining marks and joiners, 2 for East Asian wide ones and emoji, else 1. */
 function charWidth(char: string): number {
@@ -139,6 +139,7 @@ function charWidth(char: string): number {
 		(code >= 0xffe0 && code <= 0xffe6) ||
 		(code >= 0x1f300 && code <= 0x1f64f) ||
 		(code >= 0x1f900 && code <= 0x1f9ff) ||
+		(code >= 0x1fa70 && code <= 0x1faff) ||
 		(code >= 0x20000 && code <= 0x3fffd);
 	return wide ? 2 : 1;
 }

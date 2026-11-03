@@ -166,17 +166,27 @@ function switchTo(name: string, deps: SpaceCommandDeps): void {
 	ctx.shutdown();
 }
 
+/** pi-spaces' own emoji, in front of what it shows. */
+export const BRAND = "🪐";
+
 /**
- * Status line text: the active space; in the base home, `◆ base` only when pi-spaces opened it
- * (`pi --space base`, which `pi-space base` runs, or a switch back to base, which sets
- * PI_SPACES_BASE_HOME), and nothing when Pi was started plainly.
+ * Status line text: the active space as `pi-space` names it, `🪐 <profile>/<name>`; in the base home,
+ * `🪐 <profile>/base` only when pi-spaces opened it (`pi --space base`, which `pi-space <profile>/base`
+ * runs, or a switch back to base, which sets PI_SPACES_BASE_HOME), and nothing when Pi was started plainly.
+ * The profile tells apart two programs that both have a space of that name; `/space` cannot change it.
  */
-export function statusText(dir: string, currentHome: string, proc: { argv: string[] } = process, env: Env = process.env): string | undefined {
+export function statusText(
+	dir: string,
+	currentHome: string,
+	profileName: string,
+	proc: { argv: string[] } = process,
+	env: Env = process.env,
+): string | undefined {
 	const active = activeSpace(dir, currentHome);
-	if (active !== undefined) return `◆ ${active}`;
+	if (active !== undefined) return `${BRAND} ${profileName}/${active}`;
 	const parsed = parseSpaceFlag(proc.argv.slice(2));
 	const openedBySpaces = ("name" in parsed && parsed.name === BASE) || Boolean(env.PI_SPACES_BASE_HOME);
-	return openedBySpaces ? `◆ ${BASE}` : undefined;
+	return openedBySpaces ? `${BRAND} ${profileName}/${BASE}` : undefined;
 }
 
 export function completeSpaceArgs(prefix: string, dir: string): { value: string; label: string }[] | null {

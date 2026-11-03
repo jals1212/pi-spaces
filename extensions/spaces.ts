@@ -37,7 +37,8 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("space", { description: "Start Pi in this space (see /space list)", type: "string" });
 
 	pi.on("session_start", (_event, ctx) => {
-		ctx.ui.setStatus("space", statusText(dir, getAgentDir()));
+		// Without a matching profile this Pi is plain pi, as pi-space names it.
+		ctx.ui.setStatus("space", statusText(dir, getAgentDir(), profile?.name ?? "pi"));
 		if (warning !== undefined && !warned) {
 			warned = true;
 			if (ctx.hasUI) ctx.ui.notify(`pi-spaces: ${warning}`, "warning");
