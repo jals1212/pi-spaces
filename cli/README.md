@@ -27,7 +27,7 @@ A bare name is refused, with the forms to use, and nothing is started:
 
 ```text
 $ pi-space work
-pi-space: Name the space with its profile, as <profile>/work (profiles: my, pi).
+pi-space: Name the space with its profile, as <profile>/work (profiles: pi, my).
 ```
 
 The exit status is 2. There is no default profile: the file's `default` is not used (see [Profiles](#profiles)).
@@ -38,9 +38,9 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 
 | Command | What it does |
 | --- | --- |
-| `pi-space` | Opens a picker of the spaces of every profile (its hint line starts with 🪐) and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by `profile/name`. Each profile's `<profile>/base` comes first in its group (with more than one profile, a header names the group), and the cursor starts on the space this Pi runs in, marked `(active)`. The space starts with the profile it was listed under. Profiles that share a folder are all listed: each one means a different command. |
+| `pi-space` | Opens a picker of the spaces of every profile (its hint line starts with 🪐) and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by `profile/name`. The profiles go in [their order](#the-order-of-the-profiles); each profile's `<profile>/base` comes first in its group (with more than one profile, a header names the group), and the cursor starts on the space this Pi runs in, marked `(active)`. The space starts with the profile it was listed under. Profiles that share a folder are all listed: each one means a different command. |
 | `pi-space <profile>/<name> [pi args...]` | Starts Pi in that space, with that profile's command (`<profile>/base` for the home that profile's Pi starts with). |
-| `pi-space list` | Lists the spaces of every profile, grouped by profile: each profile's folder, then its `base` and spaces as `profile/space`. |
+| `pi-space list` | Lists the spaces of every profile, grouped by profile, in [their order](#the-order-of-the-profiles): each profile's folder, then its `base` and spaces as `profile/space`. |
 | `pi-space list <profile>/<name>` | Lists the packages of a space (Pi's `list`). |
 | `pi-space list <profile>/--every` or `--every` | The packages of a profile's base and spaces, or of every profile's (see below). |
 | `pi-space new <profile>/<name>` | Creates an empty space in that profile's folder, as `/space new <name>` does in Pi, then runs the profile's setup command in it when there is one (see [Preparing a new space](#preparing-a-new-space)). It does not start Pi. |
@@ -75,9 +75,13 @@ A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, 
 `--every` takes the place of the space, and there are two:
 
 - `<profile>/--every` runs in that profile's `base` first, then in every one of its spaces in order.
-- `--every` alone runs in every profile, in the order of the profiles (the file's, then `pi` unless the file defines it), each in the order above.
+- `--every` alone runs in every profile, in [their order](#the-order-of-the-profiles), each in the order above.
 
 The runs go one after the other, each after a `== <profile>/<name>` line on stdout. A failure does not stop the rest. The exit status is 0 if every run succeeded, otherwise 1, and the last line on stderr names the spaces that failed: `pi-space: update failed in: my/base, my/work`.
+
+### The order of the profiles
+
+Wherever `pi-space` shows or runs more than one profile (`list` alone, the picker, `--every` alone, completion, and the profiles named in a message), `pi` comes first, then the other profiles in alphabetical order, whatever their order in the config file. Within a profile, `base` comes first, then its spaces in alphabetical order.
 
 A new space gets a `settings.json` that declares the extension, so `/space` works inside it: the same declaration as in the base home's `settings.json` (the profile's `home`; for `pi` that is `PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:@jals1212/pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `@jals1212/pi-spaces`.
 
