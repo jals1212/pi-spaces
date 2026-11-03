@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.4
+
 ### Changed
 
 - Every place that shows or runs more than one profile uses one order: `pi`
