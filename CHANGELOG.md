@@ -6,6 +6,14 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- 🪐 is pi-spaces' emoji. The status line shows the active space as
+  `🪐 <profile>/<name>` instead of `◆ <name>`, the same name `pi-space`
+  takes, with the profile of the running Pi (`pi` when no profile matches its
+  base home); in the base home opened by pi-spaces it shows
+  `🪐 <profile>/base` instead of `◆ base`.
+
 ## 0.7.0
 
 ### Changed
