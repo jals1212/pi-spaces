@@ -6,6 +6,17 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- Every place that shows or runs more than one profile uses one order: `pi`
+  first, then the other profiles in alphabetical order, whatever their order
+  in the config file. `list` alone, the picker, `--every` alone (`update`,
+  `install`, `uninstall`, `list` and `setup`), the `<profile>/--every`
+  completion targets and the profiles named in the bare-name error now follow
+  it; before, they took the file's order with `pi` last, unlike the completion
+  of the spaces. Within a profile, `base` still comes first, then its spaces in
+  alphabetical order.
+
 ## 0.9.3
 
 ### Changed
