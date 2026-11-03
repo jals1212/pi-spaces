@@ -149,7 +149,7 @@ const PI_ARGS: [string, string] = ["[pi args...]", "more words go to Pi, e.g. --
 const NAME_OR_EVERY: [string, string][] = [
 	["<space>", "<profile>/<name>: a space of a profile, or <profile>/base"],
 	["<profile>/--every", "that profile's base, then its spaces in turn; a failure does not stop the rest, and the exit status is 1 if any failed"],
-	["--every", "the same in every profile"],
+	["--every", "the same in every profile: pi first, then the others in alphabetical order"],
 ];
 
 /** The commands, in the order completion lists them. They are reserved words: the core never lets a space be named one. */
@@ -573,9 +573,17 @@ function scopeOf(call: Call, name: string): Scope {
 	};
 }
 
-/** The scopes of every profile, in the order of profileNames. */
+/**
+ * The profile names in the order pi-space shows and runs them everywhere (list, the picker, --every, completion
+ * and messages): the built-in pi first, then the others in alphabetical order, whatever their order in the file.
+ */
+function orderedProfileNames(config: Config | undefined): string[] {
+	return profileNames(config).sort((a, b) => (a === "pi" ? -1 : b === "pi" ? 1 : a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** The scopes of every profile, in the order of orderedProfileNames. */
 function allScopes(call: Call): Scope[] {
-	return profileNames(call.config).map((name) => scopeOf(call, name));
+	return orderedProfileNames(call.config).map((name) => scopeOf(call, name));
 }
 
 /**
@@ -585,7 +593,7 @@ function allScopes(call: Call): Scope[] {
 function qualify(text: string, call: Call): { profile: string; name: string } | undefined {
 	const slash = text.indexOf("/");
 	if (slash > 0) return { profile: text.slice(0, slash), name: text.slice(slash + 1) };
-	call.io.stderr.write(`pi-space: Name the space with its profile, as <profile>/${slash === 0 ? text.slice(1) : text} (profiles: ${profileNames(call.config).join(", ")}).\n`);
+	call.io.stderr.write(`pi-space: Name the space with its profile, as <profile>/${slash === 0 ? text.slice(1) : text} (profiles: ${orderedProfileNames(call.config).join(", ")}).\n`);
 	call.io.exit(2);
 	return undefined;
 }
@@ -922,7 +930,7 @@ function candidates(words: string[], io: CliIo): string[] {
 	const config = loadConfig(configFile);
 	// A --dir typed before the cursor is read as the spaces folder of every profile.
 	const dirOverride = call.dir === undefined ? undefined : resolve(call.dir);
-	const profiles = profileNames(config).map((name): CompletionProfile => {
+	const profiles = orderedProfileNames(config).map((name): CompletionProfile => {
 		const profile = profileByName(config, name, io.env, io.home);
 		return { name, command: profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
 	});
@@ -1259,7 +1267,7 @@ interface PickerChoice extends PickerItem {
 
 /**
  * The choices of the picker: base and the spaces of every profile, as `<profile>/<name>`, in the order of
- * profileNames; under the profile's name as a header when there is more than one profile. A profile that shares a
+ * orderedProfileNames; under the profile's name as a header when there is more than one profile. A profile that shares a
  * folder with another is listed too (each runs its own command). The space this Pi runs in (PI_SPACE_HOME) is the active one.
  */
 function pickerChoices(call: Call): PickerChoice[] {
