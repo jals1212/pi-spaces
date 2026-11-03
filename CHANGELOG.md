@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.8.0
+
 ### Changed
 
 - 🪐 is pi-spaces' emoji. The status line shows the active space as

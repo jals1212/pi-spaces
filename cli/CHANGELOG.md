@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.3
+
 ### Changed
 
 - The picker's hint line starts with 🪐, pi-spaces' emoji.
