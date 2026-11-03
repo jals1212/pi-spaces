@@ -6,6 +6,16 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The picker's hint line starts with 🪐, pi-spaces' emoji.
+
+### Fixed
+
+- The picker counts the emoji of Symbols and Pictographs Extended-A
+  (U+1FA70 to U+1FAFF, 🪐 among them) as two columns wide, so a line that has
+  one is cut at the right place.
+
 ## 0.9.2
 
 ### Fixed
