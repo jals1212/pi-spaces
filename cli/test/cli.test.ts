@@ -1011,9 +1011,9 @@ const PICKER_FILES = {
 	"other-spaces/zed/.keep": "",
 };
 
-test("picker: with a config file it groups every profile in file order, pi last, and lists a profile with the same folder too (here ml, twin and pi)", async () => {
-	const r = await run([], { spaces: ["work"], tty: true, input: "\x1b", files: { ...PICKER_FILES, [CONFIG]: { ...PICKER_FILES[CONFIG], profiles: { ...PICKER_FILES[CONFIG].profiles, twin: { dir: "~/spaces" } } } } });
-	assert.match(r.out, /\nml\n {2}> ml\/base\n {4}ml\/work\nother\n {4}other\/base\n {4}other\/zed\ntwin\n {4}twin\/base\n {4}twin\/work\npi\n {4}pi\/base\n {4}pi\/work/);
+test("picker: with a config file it groups every profile, pi first, then the others in alphabetical order whatever the file order, and lists a profile with the same folder too (here pi, ml and twin)", async () => {
+	const r = await run([], { spaces: ["work"], tty: true, input: "\x1b", files: { ...PICKER_FILES, [CONFIG]: { ...PICKER_FILES[CONFIG], profiles: { twin: { dir: "~/spaces" }, ...PICKER_FILES[CONFIG].profiles } } } });
+	assert.match(r.out, /\npi\n {2}> pi\/base\n {4}pi\/work\nml\n {4}ml\/base\n {4}ml\/work\nother\n {4}other\/base\n {4}other\/zed\ntwin\n {4}twin\/base\n {4}twin\/work/);
 });
 
 test("picker: a space of another profile starts with that profile's command and folder", async () => {
@@ -1023,7 +1023,7 @@ test("picker: a space of another profile starts with that profile's command and 
 	assert.equal(r.spawned[0].program, "other-launcher");
 	assert.deepEqual(r.spawned[0].args, ["--space", "zed"]);
 	assert.equal((r.spawned[0].options.env as Record<string, string>).PI_SPACES_DIR, join(r.root, "other-spaces"));
-	const own = await run([], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
+	const own = await run([], { spaces: ["work"], tty: true, input: "ml/work\r", files: PICKER_FILES });
 	assert.equal(own.spawned[0].program, "my-launcher");
 	assert.deepEqual(own.spawned[0].args, ["--", "--space", "work"]);
 	// pi shares the folder of ml, and still runs its own command.
@@ -1041,7 +1041,7 @@ test("picker: --setup of the call goes to a space of another profile, and does n
 	// The other profiles are still listed.
 	assert.match(r.out, /\nml\n/);
 
-	const own = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: `${DOWN}\r`, files: PICKER_FILES });
+	const own = await run(["--setup", "my-setup {home}"], { spaces: ["work"], tty: true, input: "ml/work\r", files: PICKER_FILES });
 	assert.equal((own.spawned[0].options.env as Record<string, string>).PI_SPACES_SETUP, "my-setup {home}");
 });
 
@@ -1064,7 +1064,7 @@ test("picker: --setup and --config keep every profile in the list", async () => 
 	for (const argv of [["--setup", "s {home}"], ["--config", "<root>/.pi-spaces/config.json"]]) {
 		const r = await run(argv, { spaces: ["work"], tty: true, input: "\x1b", files: PICKER_FILES });
 		assert.equal(r.code, 0, argv.join(" "));
-		assert.match(r.out, /\nml\n.*\nother\n.*\npi\n/s, argv.join(" "));
+		assert.match(r.out, /\npi\n.*\nml\n.*\nother\n/s, argv.join(" "));
 	}
 });
 
@@ -1467,7 +1467,8 @@ test("the spaces folder: --dir, else the named profile's; PI_SPACES_DIR is never
 
 test("a profile's folder defaults to spaces next to its home", async () => {
 	const r = await run(["list"], { files: { [CONFIG]: { schema: SCHEMA, profiles: { ml: { home: "~/ml/agent" } } } } });
-	assert.equal(r.out.split("\n")[0], `Spaces of ml in ${join(r.root, "ml", "spaces")}:`);
+	// pi comes first: ml's folder heads the second group.
+	assert.ok(r.out.includes(`\nSpaces of ml in ${join(r.root, "ml", "spaces")}:\n`), r.out);
 });
 
 test("the started Pi gets the profile's dir and setup as PI_SPACES_DIR and PI_SPACES_SETUP, and no setup when the profile has none", async () => {
@@ -1589,7 +1590,7 @@ const QUALIFIED = {
 	"gentle-spaces/work/.keep": "",
 };
 
-const BARE = (name: string, profiles = "gentle, pi") => `pi-space: Name the space with its profile, as <profile>/${name} (profiles: ${profiles}).\n`;
+const BARE = (name: string, profiles = "pi, gentle") => `pi-space: Name the space with its profile, as <profile>/${name} (profiles: ${profiles}).\n`;
 
 test("<profile>/<name> starts Pi in that profile's space with its command, and hands it the profile's folder and command", async () => {
 	const r = await run(["gentle/work", "-c"], { files: QUALIFIED });
@@ -1658,28 +1659,37 @@ test("a config's default is ignored with a warning on stderr; the file still app
 test("list alone lists every profile: its folder, then base and the spaces, each with its profile", async () => {
 	const r = await run(["list"], { spaces: ["work"], files: QUALIFIED });
 	assert.equal(r.code, 0, r.err);
-	assert.equal(r.out, `Spaces of gentle in ${join(r.root, "gentle-spaces")}:\n  gentle/base\n  gentle/work\nSpaces of pi in ${r.dir}:\n  pi/base\n  pi/work\n`);
+	assert.equal(r.out, `Spaces of pi in ${r.dir}:\n  pi/base\n  pi/work\nSpaces of gentle in ${join(r.root, "gentle-spaces")}:\n  gentle/base\n  gentle/work\n`);
 	const none = await run(["list"]);
 	assert.equal(none.out, `Spaces of pi in ${none.dir}:\n  pi/base\nNo spaces yet. Create one with pi-space new <profile>/<name>.\n`);
 });
 
-test("<profile>/--every runs in that profile's base and spaces; --every alone in every profile, each with its command", async () => {
+test("<profile>/--every runs in that profile's base and spaces; --every alone in every profile, pi first, then the others in alphabetical order whatever the file order, each with its command", async () => {
 	const one = await run(["update", "pi/--every"], { spaces: ["a"], files: QUALIFIED, echo: true });
 	assert.equal(one.code, 0, one.err);
 	assert.equal(one.out, "== pi/base\nran base\n== pi/a\nran a\n");
 	assert.deepEqual(programsOf(one).map(({ program }) => program), ["pi", "pi"]);
-	const all = await run(["update", "--every", "--extensions"], { spaces: ["a"], files: QUALIFIED, statuses: { work: 3 } });
+	// zeta comes before gentle in the file; the order is pi, then alphabetical.
+	const files = {
+		...QUALIFIED,
+		[CONFIG]: { schema: SCHEMA, profiles: { zeta: { command: "zeta-cmd --", home: "~/zeta/agent", dir: "~/zeta-spaces" }, ...QUALIFIED[CONFIG].profiles } },
+		"zeta-spaces/z/.keep": "",
+	};
+	const all = await run(["update", "--every", "--extensions"], { spaces: ["a"], files, statuses: { work: 3 } });
 	assert.equal(all.code, 1);
-	assert.equal(all.out, "== gentle/base\n== gentle/work\n== pi/base\n== pi/a\n");
+	assert.equal(all.out, "== pi/base\n== pi/a\n== gentle/base\n== gentle/work\n== zeta/base\n== zeta/z\n");
 	assert.equal(all.err, "pi-space: update failed in: gentle/work\n");
 	assert.deepEqual(programsOf(all), [
-		{ program: "gentle-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
-		{ program: "gentle-cmd", args: ["--", "--space", "work", "update", "--extensions"] },
 		{ program: "pi", args: ["--space", "base", "update", "--extensions"] },
 		{ program: "pi", args: ["--space", "a", "update", "--extensions"] },
+		{ program: "gentle-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
+		{ program: "gentle-cmd", args: ["--", "--space", "work", "update", "--extensions"] },
+		{ program: "zeta-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
+		{ program: "zeta-cmd", args: ["--", "--space", "z", "update", "--extensions"] },
 	]);
-	assert.equal(setupEnvOf(all, 1).PI_SPACES_DIR, join(all.root, "gentle-spaces"));
-	assert.equal(setupEnvOf(all, 3).PI_SPACES_DIR, all.dir);
+	assert.equal(setupEnvOf(all, 1).PI_SPACES_DIR, all.dir);
+	assert.equal(setupEnvOf(all, 3).PI_SPACES_DIR, join(all.root, "gentle-spaces"));
+	assert.equal(setupEnvOf(all, 5).PI_SPACES_DIR, join(all.root, "zeta-spaces"));
 });
 
 test("setup --every alone runs in the spaces of every profile with a setup command; a profile without one is named", async () => {
@@ -1689,8 +1699,8 @@ test("setup --every alone runs in the spaces of every profile with a setup comma
 	assert.equal(all.out, "== gentle/work\n");
 	assert.deepEqual(programsOf(all), [{ program: "gentle-setup", args: [join(all.root, "gentle-spaces", "work")] }]);
 	const option = await run(["--setup", "s {name}", "setup", "--every"], { spaces: ["a"], files });
-	assert.equal(option.out, "== gentle/work\n== pi/a\n");
-	assert.deepEqual(programsOf(option), [{ program: "s", args: ["work"] }, { program: "s", args: ["a"] }]);
+	assert.equal(option.out, "== pi/a\n== gentle/work\n");
+	assert.deepEqual(programsOf(option), [{ program: "s", args: ["a"] }, { program: "s", args: ["work"] }]);
 	const none = await run(["setup", "pi/a"], { spaces: ["a"], files });
 	assert.equal(none.code, 2);
 	assert.equal(none.err, 'pi-space: Profile "pi" has no setup command; give it a "setup" in the config file, or give --setup <cmd>.\n');
@@ -1965,8 +1975,8 @@ test("__complete: setup offers the qualified spaces, then --every (every profile
 		"space\tpi/a\tspace of pi (pi)",
 		"space\tgentle/work\tspace of gentle (gentle-cmd --)",
 		"target\t--every\tevery space of every profile with a setup command",
-		"target\tgentle/--every\tevery space of gentle",
 		"target\tpi/--every\tevery space of pi",
+		"target\tgentle/--every\tevery space of gentle",
 		"option\t--help\tthe help of this command",
 	]);
 });
@@ -1976,8 +1986,8 @@ test("__complete: list, update, install and uninstall offer base and spaces of e
 		assert.deepEqual(await completeLines([verb], { spaces: ["a"], files: COMPLETE_FILES }), [
 			...GSH_AND_PI_SPACES,
 			"target\t--every\tevery profile, base first",
-			"target\tgentle/--every\tbase and every space of gentle",
 			"target\tpi/--every\tbase and every space of pi",
+			"target\tgentle/--every\tbase and every space of gentle",
 			"option\t--help\tthe help of this command",
 		], verb);
 	}
@@ -1995,7 +2005,7 @@ test("__complete honors --config typed: it lists the profiles of that file", asy
 		"space\talt/base\tbase home of alt (alt-cmd)",
 		"space\talt/zed\tspace of alt (alt-cmd)",
 	]);
-	assert.deepEqual(await complete(["--config", "<root>/alt.json", "setup"], { files }), ["space alt/zed", "target --every", "target alt/--every", "target pi/--every", "option --help"]);
+	assert.deepEqual(await complete(["--config", "<root>/alt.json", "setup"], { files }), ["space alt/zed", "target --every", "target pi/--every", "target alt/--every", "option --help"]);
 });
 
 test("__complete honors --dir typed: the spaces of that folder under every profile's prefix", async () => {
@@ -2007,7 +2017,7 @@ test("__complete honors --dir typed: the spaces of that folder under every profi
 		"option\t--no-backup\tdelete without a backup",
 		"option\t--help\tthe help of this command",
 	]);
-	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space pi/base", "space pi/zed", "space gentle/base", "space gentle/zed", "target --every", "target gentle/--every", "target pi/--every", "option --help"]);
+	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space pi/base", "space pi/zed", "space gentle/base", "space gentle/zed", "target --every", "target pi/--every", "target gentle/--every", "option --help"]);
 	assert.deepEqual((await complete(["--dir", "<root>/other-spaces"], options)).filter((line) => line.startsWith("space ")), ["space pi/base", "space pi/zed", "space gentle/base", "space gentle/zed"]);
 });
 
@@ -2310,8 +2320,8 @@ test("package commands and --every start each Pi in the named profile's home, un
 	assert.equal(setupEnvOf(update).GSH_CFG, join(update.root, "shared", "cfg"));
 	const every = await run(["update", "--every"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).PI_CODING_AGENT_DIR), [
-		...["agent", "agent", "agent"].map((folder) => join(every.root, "gentle", folder)),
 		...[".pi", ".pi"].map((folder) => join(every.root, folder, "agent")),
+		...["agent", "agent", "agent"].map((folder) => join(every.root, "gentle", folder)),
 	]);
 	for (const index of every.spawned.keys()) {
 		for (const key of SPACE_VARIABLES) assert.equal(key in setupEnvOf(every, index), false, key);
