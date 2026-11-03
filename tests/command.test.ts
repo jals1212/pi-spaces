@@ -400,20 +400,21 @@ test("unknown subcommands and missing names show the usage", async () => {
 	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]");
 });
 
-test("statusText names the active space, and base only when pi-spaces opened it", () => {
+test("statusText names the active space as <profile>/<name>, and base only when pi-spaces opened it", () => {
 	const f = fake();
 	createSpace(f.dir, "work", "x");
 	const proc = (args: string[]) => ({ argv: ["/n/node", "/p/cli.js", ...args] });
 	const env = (vars: Record<string, string> = {}) => vars;
-	// A space: always named.
-	assert.equal(statusText(f.dir, join(f.dir, "work"), proc([]), env()), "◆ work");
+	// A space: always named, with the profile of this Pi, as pi-space names it.
+	assert.equal(statusText(f.dir, join(f.dir, "work"), "pi", proc([]), env()), "🪐 pi/work");
+	assert.equal(statusText(f.dir, join(f.dir, "work"), "gentle", proc([]), env()), "🪐 gentle/work");
 	// The base home from plain pi: nothing.
-	assert.equal(statusText(f.dir, f.base, proc([]), env()), undefined);
-	assert.equal(statusText(f.dir, f.base, proc(["-c", "base"]), env()), undefined);
-	// The base home through pi-spaces: pi --space base (pi-space base), or a switch back to base.
-	assert.equal(statusText(f.dir, f.base, proc(["--space", "base"]), env()), "◆ base");
-	assert.equal(statusText(f.dir, f.base, proc(["-e", "/pkg", "--space=base"]), env()), "◆ base");
-	assert.equal(statusText(f.dir, f.base, proc([]), env({ PI_SPACES_BASE_HOME: f.base })), "◆ base");
+	assert.equal(statusText(f.dir, f.base, "pi", proc([]), env()), undefined);
+	assert.equal(statusText(f.dir, f.base, "pi", proc(["-c", "base"]), env()), undefined);
+	// The base home through pi-spaces: pi --space base (pi-space pi/base), or a switch back to base.
+	assert.equal(statusText(f.dir, f.base, "pi", proc(["--space", "base"]), env()), "🪐 pi/base");
+	assert.equal(statusText(f.dir, f.base, "pi", proc(["-e", "/pkg", "--space=base"]), env()), "🪐 pi/base");
+	assert.equal(statusText(f.dir, f.base, "gentle", proc([]), env({ PI_SPACES_BASE_HOME: f.base })), "🪐 gentle/base");
 });
 
 test("completeSpaceArgs completes subcommands, then space names", () => {

@@ -1,4 +1,4 @@
-# pi-spaces
+# 🪐 pi-spaces
 
 Named spaces for [Pi](https://pi.dev): keep several agent homes side by side and switch between them from inside Pi.
 
@@ -67,7 +67,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 | `pi --space <name> <command> [args...]` | Runs one of Pi's package commands (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the base home with `base`: `pi --space work update --extensions`, `pi --space work install npm:<package>`. |
 
-The status line shows `◆ <name>` while a space is active. In the base home it shows `◆ base` when pi-spaces opened it (`pi --space base`, `pi-space pi/base`, or `/space switch base`), and nothing when Pi was started plainly.
+The status line shows `🪐 <profile>/<name>` while a space is active: the name `pi-space` takes, with the [profile](#profiles) of the running Pi (`pi` when no profile matches its base home), so `🪐 gentle/work` and `🪐 pi/work` are told apart. `/space` cannot change the profile: a switch starts the same program again. In the base home it shows `🪐 <profile>/base` when pi-spaces opened it (`pi --space base`, `pi-space pi/base`, or `/space switch base`), and nothing when Pi was started plainly. 🪐 is pi-spaces' own emoji.
 
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 

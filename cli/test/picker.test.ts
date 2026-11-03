@@ -71,7 +71,7 @@ test("step: Enter with nothing matching does nothing; arrows do nothing either",
 
 test("renderPicker: a hint, the filter, a header per group, the cursor and the active mark", () => {
 	assert.deepEqual(renderPicker(initialState(ITEMS), 24), [
-		"Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter",
+		"🪐 Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter",
 		"> ",
 		"gentle",
 		"    base",
@@ -275,6 +275,7 @@ test("displayWidth: wide characters count 2, combining marks and joiners 0, the 
 	assert.equal(displayWidth("ＡＢ"), 4);
 	assert.equal(displayWidth("한글"), 4);
 	assert.equal(displayWidth("😀"), 2);
+	assert.equal(displayWidth("🪐"), 2);
 	assert.equal(displayWidth("e\u0301"), 1);
 	assert.equal(displayWidth("a\u200db\ufe0f"), 2);
 	assert.equal(displayWidth("ñ…↑"), 3);
