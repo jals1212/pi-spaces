@@ -6,6 +6,20 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `pi-space run <profile>/<name|--every> <args...>` (and `--every` alone) runs
+  the profile's new `launcher`, the program itself rather than Pi, with the
+  arguments: `pi-space run gentle/base upgrade` runs
+  `gentle-shell --home ~/.gentle-shell/agent upgrade` with
+  `"launcher": "gentle-shell --home {home}"`. Before, a launcher's own commands
+  could not go through a profile: its `command` ends with `--`, so
+  `pi-space gentle/base upgrade` handed `upgrade` to Pi as a message. `{home}`
+  and `{name}` are the space's folder and name (in base, the profile's home and
+  `base`); a space gets the environment the setup command gets. Help,
+  completion and the README describe it. Needs `@jals1212/pi-spaces` with the
+  `launcher` key.
+
 ## 0.9.4
 
 ### Changed

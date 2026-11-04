@@ -50,6 +50,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
   pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
+  pi-space run <space|--every> <args...>       run the profile's launcher (not Pi) in a space with these arguments
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
@@ -106,6 +107,7 @@ export type CliCommand = (
 	| { kind: "packages"; verb: PackageVerb; target: PackageTarget; args: string[] }
 	| { kind: "new"; name: string }
 	| { kind: "setup"; target: PackageTarget }
+	| { kind: "run"; target: PackageTarget; args: string[] }
 	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
 	| { kind: "completion"; shell?: string }
@@ -152,7 +154,10 @@ const NAME_OR_EVERY: [string, string][] = [
 	["--every", "the same in every profile: pi first, then the others in alphabetical order"],
 ];
 
-/** The commands, in the order completion lists them. They are reserved words: the core never lets a space be named one. */
+/**
+ * The commands, in the order completion lists them. All but run are reserved words: the core never lets a space be
+ * named one. run came after every name was qualified (`<profile>/run`), so a space may still be named run.
+ */
 const COMMANDS: Record<string, CommandHelp> = {
 	list: {
 		summary: "list the spaces, or the packages of one",
@@ -184,6 +189,24 @@ const COMMANDS: Record<string, CommandHelp> = {
 		options: [],
 		calls: ["dir", "setup", "config"],
 		examples: ["pi-space setup pi/work", "pi-space setup pi/--every", "pi-space setup --every", "pi-space --setup 'my-launcher --home {home} setup' setup --every"],
+	},
+	run: {
+		summary: "run the profile's launcher in a space",
+		usage: "run <space|--every> <args...>",
+		about: [
+			"It runs the profile's \"launcher\" (the program that starts Pi, called with its own commands, not Pi's) with the arguments,",
+			"{home} and {name} filled in with the space's folder and name, as that space's agent home, as the setup command runs.",
+			"In base, {home} is the profile's home and {name} is base. The words after the space all go to the launcher.",
+		],
+		args: [
+			["<space>", "<profile>/<name>: a space of a profile, or <profile>/base"],
+			["<profile>/--every", "that profile's base, then its spaces in turn; a failure does not stop the rest, and the exit status is 1 if any failed"],
+			["--every", "the same in every profile that has a launcher"],
+			["<args...>", "the launcher's arguments, e.g. upgrade or --version"],
+		],
+		options: [],
+		calls: ["dir", "config"],
+		examples: ["pi-space run gentle/base upgrade", "pi-space run gentle/work --version", "pi-space run gentle/--every --version"],
 	},
 	rename: {
 		summary: "rename a space",
@@ -303,6 +326,8 @@ function parseCommand(args: string[]): CliCommand {
 	if (first === "--version" || first === "-v") return { kind: "version" };
 	if (Object.hasOwn(REPLACED, first)) return { kind: "replaced", option: first, instead: REPLACED[first as keyof typeof REPLACED] };
 	if (first.startsWith("-")) return { kind: "unknown-option", option: first };
+	// After run only `run --help` is its help: the words after the target belong to the launcher.
+	if (first === "run") return isHelpFlag(rest[0] ?? "") ? { kind: "command-help", command: first } : parseRun(rest);
 	// --help after a command word is that command's help; after a space name it belongs to Pi (the launch below).
 	if (Object.hasOwn(COMMANDS, first) && rest.some(isHelpFlag)) return { kind: "command-help", command: first };
 	if (first === "list" && rest.length === 0) return { kind: "list" };
@@ -336,6 +361,15 @@ function parseSetup(rest: string[]): CliCommand {
 	if (rest[0] === "--every") return { kind: "setup", target: { every: true } };
 	if (rest[0].startsWith("-")) return { kind: "unknown-option", option: rest[0] };
 	return { kind: "setup", target: { name: rest[0] } };
+}
+
+/** `run <name|--every> <args...>`: a target, then at least one word for the launcher. */
+function parseRun(rest: string[]): CliCommand {
+	const [first, ...args] = rest;
+	if (first === undefined) return { kind: "usage" };
+	if (first !== "--every" && first.startsWith("-")) return { kind: "unknown-option", option: first };
+	if (args.length === 0) return { kind: "usage" };
+	return { kind: "run", target: first === "--every" ? { every: true } : { name: first }, args };
 }
 
 /**
@@ -606,6 +640,7 @@ function spansProfiles(command: CliCommand): boolean {
 			return true;
 		case "packages":
 		case "setup":
+		case "run":
 			return "every" in command.target;
 		default:
 			return false;
@@ -664,6 +699,8 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			}
 			case "setup":
 				return await runSetup(command.target, call);
+			case "run":
+				return await runLauncher(command.target, command.args, call);
 			case "rename": {
 				const ref = qualify(command.from, call);
 				if (!ref) return;
@@ -909,6 +946,8 @@ function commandArguments(command: string, profiles: CompletionProfile[]): strin
 		case "install":
 		case "uninstall":
 			return [...spaceCandidates(profiles, true), ...everyCandidates(profiles, "every profile, base first", (name) => `base and every space of ${name}`), ...options];
+		case "run":
+			return [...spaceCandidates(profiles, true), ...everyCandidates(profiles, "every profile with a launcher, base first", (name) => `base and every space of ${name}`), ...options];
 		case "completion":
 			return [...SHELLS.map((shell) => candidate("shell", shell, `the ${shell} completion script`)), ...options];
 		default:
@@ -1249,6 +1288,82 @@ async function runSetup(target: PackageTarget, call: Call): Promise<void> {
 	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
 	const home = join(scope.dir, ref.name);
 	return io.exit(await spawnSetup(setupFor(ref.name, home, scope.io), ref.name, home, scope.io, scope.profile));
+}
+
+/** The launcher of a profile split into words with {home} and {name} filled in, or the reason it cannot be split. */
+function launcherFor(scope: Scope, name: string, home: string): { program: string; args: string[] } | { error: string } {
+	try {
+		return setupCommand(scope.profile.launcher ?? "", home, name);
+	} catch (error) {
+		return { error: `pi-space: profile "${scope.profile.name}" launcher: ${(error as Error).message}.\n` };
+	}
+}
+
+/**
+ * Runs the profile's launcher (not Pi) with `args` in one space of it: in base with the profile's home and the
+ * plain environment of the profile; in a space as that space's agent home, with its variables, as setup runs.
+ */
+function spawnLauncher(scope: Scope, name: string, args: string[]): Promise<number> {
+	const home = name === BASE ? scope.profile.home : join(scope.dir, name);
+	const launcher = launcherFor(scope, name, home) as { program: string; args: string[] };
+	const all = [...launcher.args, ...args];
+	if (name === BASE) return spawnPi(launcher.program, all, scope.io, scope.io.childEnv);
+	return spawnSetup({ program: launcher.program, args: all }, name, home, scope.io, scope.profile);
+}
+
+/**
+ * `run <profile>/<name> <args...>`, `run <profile>/--every` (base, then its spaces) or `run --every` (every profile
+ * with a launcher): the profile's launcher with the arguments. With --every each run gets a `== <profile>/<name>`
+ * header, one failure does not stop the rest, and the status is 1 if any failed.
+ */
+async function runLauncher(target: PackageTarget, args: string[], call: Call): Promise<void> {
+	const { io } = call;
+	let scopes: Scope[];
+	if ("every" in target) {
+		scopes = allScopes(call).filter((scope) => scope.profile.launcher !== undefined);
+		if (scopes.length === 0) {
+			io.stderr.write('pi-space: No profile has a launcher; give one a "launcher" in the config file.\n');
+			return io.exit(2);
+		}
+	} else {
+		const ref = qualify(target.name, call);
+		if (!ref) return;
+		const scope = scopeOf(call, ref.profile);
+		if (scope.profile.launcher === undefined) {
+			io.stderr.write(`pi-space: Profile "${ref.profile}" has no launcher; give it a "launcher" in the config file.\n`);
+			return io.exit(2);
+		}
+		if (ref.name !== EVERY) {
+			if (ref.name !== BASE && !checkSpace(ref.name, scope.dir, io)) return io.exit(1);
+			const checked = launcherFor(scope, ref.name, "");
+			if ("error" in checked) {
+				io.stderr.write(checked.error);
+				return io.exit(2);
+			}
+			return io.exit(await spawnLauncher(scope, ref.name, args));
+		}
+		scopes = [scope];
+	}
+	// Every launcher is checked before the first one runs, so a bad one is reported once, before any header.
+	for (const scope of scopes) {
+		const checked = launcherFor(scope, BASE, "");
+		if ("error" in checked) {
+			io.stderr.write(checked.error);
+			return io.exit(2);
+		}
+	}
+	const failed: string[] = [];
+	for (const scope of scopes) {
+		for (const name of [BASE, ...listSpaces(scope.dir)]) {
+			io.stdout.write(`== ${scope.profile.name}/${name}\n`);
+			if ((await spawnLauncher(scope, name, args)) !== 0) failed.push(`${scope.profile.name}/${name}`);
+		}
+	}
+	if (failed.length > 0) {
+		io.stderr.write(`pi-space: run failed in: ${failed.join(", ")}\n`);
+		return io.exit(1);
+	}
+	io.exit(0);
 }
 
 function finishSetup(failed: string[], io: CliIo): void {

@@ -34,7 +34,7 @@ The exit status is 2. There is no default profile: the file's `default` is not u
 
 ## Commands
 
-The command words are reserved: a space can never be named `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup` or `completion`, so any other first word is a space (`<profile>/<name>`; the reservation of `completion` is in `@jals1212/pi-spaces` 0.6.0).
+The command words are reserved: a space can never be named `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup` or `completion`, so any other first word is a space (`<profile>/<name>`; the reservation of `completion` is in `@jals1212/pi-spaces` 0.6.0). `run` came after every space was named with its profile, so it is not reserved: a space called `run` is `<profile>/run`.
 
 | Command | What it does |
 | --- | --- |
@@ -46,6 +46,8 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | `pi-space new <profile>/<name>` | Creates an empty space in that profile's folder, as `/space new <name>` does in Pi, then runs the profile's setup command in it when there is one (see [Preparing a new space](#preparing-a-new-space)). It does not start Pi. |
 | `pi-space setup <profile>/<name>` | Runs the setup command in a space. Never in `base`. |
 | `pi-space setup <profile>/--every` or `--every` | Runs it in every space of the profile, or of every profile that has a setup command. |
+| `pi-space run <profile>/<name> <args...>` | Runs the profile's `launcher` (the program itself, not Pi) with the arguments, in a space or in `<profile>/base` (see [Commands of the launcher](#commands-of-the-launcher)). |
+| `pi-space run <profile>/--every <args...>` or `--every` | Runs it in the profile's base and then its spaces, or in every profile that has a launcher. |
 | `pi-space rename <profile>/<old> <new>` | Renames a space, as `/space rename` does in Pi. The new name is bare or keeps the profile (`pi/work client`, `pi/work pi/client`); a space never changes profile. It refuses what `remove` refuses (see below). |
 | `pi-space remove <profile>/<name> [--yes] [--no-backup]` | Deletes a space, as `/space remove <name>` does in Pi. It asks first (`[y/N]`), then whether to keep a backup in `<spaces folder>/.backups` (`[Y/n]`: Enter keeps one). `--yes` skips the questions and keeps a backup, and is required without a terminal; `--no-backup` deletes without one. |
 | `pi-space update <profile>/<name>` | Runs Pi's `update` in a space; `<profile>/--every` and `--every` run it in many (see below). What follows is Pi's: `--extensions`, `--all`, a source. With nothing after the space it is Pi's default. |
@@ -78,6 +80,26 @@ A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, 
 - `--every` alone runs in every profile, in [their order](#the-order-of-the-profiles), each in the order above.
 
 The runs go one after the other, each after a `== <profile>/<name>` line on stdout. A failure does not stop the rest. The exit status is 0 if every run succeeded, otherwise 1, and the last line on stderr names the spaces that failed: `pi-space: update failed in: my/base, my/work`.
+
+### Commands of the launcher
+
+A profile's `command` ends where Pi's arguments begin (`gentle-shell --`), so `pi-space gentle/base upgrade` gives `upgrade` to Pi as a message, never to the program. A program's own commands (`upgrade`, `--version`, `home import-pi`) go through the profile's `launcher`, which names the program with the home it should use:
+
+```json
+"gentle": {
+  "home": "~/.gentle-shell/agent",
+  "command": "gentle-shell --",
+  "launcher": "gentle-shell --home {home}"
+}
+```
+
+```sh
+pi-space run gentle/base upgrade        # gentle-shell --home ~/.gentle-shell/agent upgrade
+pi-space run gentle/work --version      # gentle-shell --home ~/.gentle-shell/spaces/work --version
+pi-space run gentle/--every --version   # base, then every space of "gentle"
+```
+
+The words are split as for `--command`, and in each word `{home}` becomes the space's folder and `{name}` its name; in `base` they are the profile's `home` and `base`. The arguments after the space come after it, all of them (`--help` too). It runs with your stdio and the environment the setup command gets: in a space, `PI_CODING_AGENT_DIR` and `PI_SPACE_HOME` are its folder, `PI_SPACE` its name and the profile's `spaceEnv` is added; in `base`, the plain environment of the profile with its `home` as `PI_CODING_AGENT_DIR`. It ends with the launcher's exit status. `<profile>/--every` and `--every` run as the package commands do (`--every` alone skips the profiles without a launcher). A profile without one exits with status 2: `pi-space: Profile "pi" has no launcher; give it a "launcher" in the config file.`
 
 ### The order of the profiles
 
@@ -177,6 +199,7 @@ A program called `my-launcher` keeps its agent home in `~/.my-launcher/agent` an
       "home": "~/.my-launcher/agent",
       "command": "my-launcher --",
       "setup": "my-launcher --home {home} setup",
+      "launcher": "my-launcher --home {home}",
       "spaceEnv": { "MY_LAUNCHER_CONFIG_HOME": "{home}/config" }
     }
   }
@@ -191,6 +214,7 @@ pi-space new my/work       # creates ~/.my-launcher/spaces/work, then runs:
                            # with MY_LAUNCHER_CONFIG_HOME=~/.my-launcher/spaces/work/config
 pi-space my/work -c        # my-launcher -- --space work -c
 pi-space setup my/--every  # run the setup again in every space of "my"
+pi-space run my/base upgrade  # my-launcher --home ~/.my-launcher/agent upgrade
 pi-space list              # my and pi, each with its base and spaces
 pi-space pi/work           # a space of plain Pi, from the same shell
 ```
@@ -222,7 +246,7 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 | `--config`, `--dir` | files (the shell's own completion) |
 | `remove`, `rename` | the spaces of every profile (never `base`) |
 | `setup` | the spaces, `--every` ("every profile") and `<profile>/--every` |
-| `list`, `update`, `install`, `uninstall` | `<profile>/base`, the spaces, `--every` and `<profile>/--every` |
+| `list`, `update`, `install`, `uninstall`, `run` | `<profile>/base`, the spaces, `--every` and `<profile>/--every` |
 | `completion` | `zsh`, `powershell` |
 
 There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh and PowerShell show them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
@@ -303,10 +327,10 @@ Only those three variables change. A variable that points into the base home sta
 
 | Status | Meaning |
 | --- | --- |
-| 0 … | Pi's own exit status, for a space and for a package command in one space; the setup's exit status for `setup <profile>/<name>` and for a `new` whose setup failed. |
+| 0 … | Pi's own exit status, for a space and for a package command in one space; the setup's exit status for `setup <profile>/<name>` and for a `new` whose setup failed; the launcher's for `run <profile>/<name>`. |
 | 1 | An unknown or invalid space (or one missing from its profile), a name `new` or `rename` cannot use (taken, reserved or invalid), a space `remove` or `rename` cannot touch, `remove` without `--yes` and no terminal, the program could not start, or `--every` and at least one run failed (the failed spaces are on the last line of stderr), or `setup <profile>/base`, since setup runs only in spaces. |
 | 130 | Ctrl-C in the picker. |
-| 2 | A config file that is wrong or an unknown profile (the problem is printed), a space named without its profile (the forms to use are printed), a `rename` to another profile, `completion` with another shell or none, no arguments and no terminal to pick in, a command with the wrong number of names (`new`, `remove`, `rename`), `install` or `uninstall` without a source, a package command without a space or `--every`, `--command` or `--dir` with the picker, `list` alone or a global `--every` (they apply to one profile), or `--command`, `--dir`, `--setup` or `--config` without a value (or a blank one) or given twice: the usage is printed. `setup` without a setup command (`Profile "pi" has no setup command`) or with no profile having one: the problem is printed. The old `--new`, `--remove` and `--profile`: the replacing command is printed. A `--command`, `--setup` or a profile's `command` or `setup` with an unclosed quote: the problem is printed, and nothing is created or started. |
+| 2 | A config file that is wrong or an unknown profile (the problem is printed), a space named without its profile (the forms to use are printed), a `rename` to another profile, `completion` with another shell or none, no arguments and no terminal to pick in, a command with the wrong number of names (`new`, `remove`, `rename`), `install` or `uninstall` without a source, a package command without a space or `--every`, `--command` or `--dir` with the picker, `list` alone or a global `--every` (they apply to one profile), or `--command`, `--dir`, `--setup` or `--config` without a value (or a blank one) or given twice: the usage is printed. `setup` without a setup command (`Profile "pi" has no setup command`) or with no profile having one, and `run` without a launcher (`Profile "pi" has no launcher`) or with no profile having one: the problem is printed. `run` without a space or without arguments for the launcher: the usage is printed. The old `--new`, `--remove` and `--profile`: the replacing command is printed. A `--command`, `--setup` or a profile's `command`, `setup` or `launcher` with an unclosed quote: the problem is printed, and nothing is created or started. |
 
 ## More
 

@@ -17,6 +17,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
   pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
+  pi-space run <space|--every> <args...>       run the profile's launcher (not Pi) in a space with these arguments
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
@@ -455,7 +456,7 @@ test("--help <unknown> names the commands on stderr and exits 2", async () => {
 		const r = await run(argv, { files: { [CONFIG]: "{nope" } });
 		assert.equal(r.code, 2, argv.join(" "));
 		assert.equal(r.out, "");
-		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, rename, remove, update, install, uninstall, completion.\n');
+		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, run, rename, remove, update, install, uninstall, completion.\n');
 		assert.equal(r.spawned.length, 0);
 	}
 });
@@ -1856,7 +1857,7 @@ const COMPLETE_FILES = {
 	"other-spaces/zed/.keep": "",
 };
 
-const FIRST_COMMANDS = ["command install", "command list", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
+const FIRST_COMMANDS = ["command install", "command list", "command new", "command remove", "command rename", "command run", "command setup", "command uninstall", "command update"];
 
 const COMMAND_LINES = [
 	"command\tinstall\tinstall a package in a space",
@@ -1864,6 +1865,7 @@ const COMMAND_LINES = [
 	"command\tnew\tcreate a space",
 	"command\tremove\tdelete a space, keeping a backup",
 	"command\trename\trename a space",
+	"command\trun\trun the profile's launcher in a space",
 	"command\tsetup\trun the setup command in a space",
 	"command\tuninstall\tremove a package from a space",
 	"command\tupdate\tupdate the packages of a space",
@@ -2354,4 +2356,122 @@ test("remove and rename still refuse the space the caller is in, from the caller
 	const renamed = await run(["rename", "gentle/a", "z"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(renamed.code, 1);
 	assert.match(renamed.err, /is active/);
+});
+
+/** A profile with a launcher (and spaceEnv), one without, and the built-in pi. */
+const LAUNCHER_FILES = {
+	[CONFIG]: {
+		schema: SCHEMA,
+		profiles: {
+			ml: { home: "~/ml-agent", command: "ml-launcher --", dir: "~/spaces", launcher: "ml-launcher --home {home} --name {name}", spaceEnv: { ML_CONFIG: "{home}/config" } },
+			plain: { dir: "~/spaces" },
+		},
+	},
+};
+
+test("parseCli: run takes a target and at least one argument for the launcher; --help after run is its help", () => {
+	assert.deepEqual(parseCli(["run", "ml/base", "upgrade"]), { kind: "run", target: { name: "ml/base" }, args: ["upgrade"] });
+	assert.deepEqual(parseCli(["run", "ml/work", "--version", "-x"]), { kind: "run", target: { name: "ml/work" }, args: ["--version", "-x"] });
+	assert.deepEqual(parseCli(["run", "--every", "upgrade"]), { kind: "run", target: { every: true }, args: ["upgrade"] });
+	assert.deepEqual(parseCli(["run", "-x", "upgrade"]), { kind: "unknown-option", option: "-x" });
+	for (const argv of [["run"], ["run", "ml/base"], ["run", "--every"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	// Only `run --help` is its help; after the target --help goes to the launcher.
+	assert.deepEqual(parseCli(["run", "--help"]), { kind: "command-help", command: "run" });
+	assert.deepEqual(parseCli(["run", "ml/base", "--help"]), { kind: "run", target: { name: "ml/base" }, args: ["--help"] });
+});
+
+test("run <profile>/base runs the launcher with the base home for {home} and base for {name}, not Pi, and exits with its status", async () => {
+	const r = await run(["run", "ml/base", "upgrade", "--channel", "main"], { files: LAUNCHER_FILES, status: 4, env: { ML_CONFIG: "kept" } });
+	const home = join(r.root, "ml-agent");
+	assert.equal(r.code, 4);
+	assert.equal(r.out, "");
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "ml-launcher", args: ["--home", home, "--name", "base", "upgrade", "--channel", "main"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	// Base gets no variables of a space: its own ML_CONFIG stays.
+	assert.equal(env.ML_CONFIG, "kept");
+	assert.equal(env.PI_SPACE, undefined);
+	assert.equal(env.PI_SPACE_HOME, undefined);
+});
+
+test("run <profile>/<name> runs the launcher as that space: its folder and name, its home and the profile's spaceEnv", async () => {
+	const r = await run(["run", "ml/work", "--version"], { spaces: ["work"], files: LAUNCHER_FILES });
+	const home = join(r.dir, "work");
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(programsOf(r), [{ program: "ml-launcher", args: ["--home", home, "--name", "work", "--version"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.PI_SPACE, "work");
+	assert.equal(env.PI_SPACE_HOME, home);
+	assert.equal(env.ML_CONFIG, `${home}/config`);
+});
+
+test("run <profile>/--every runs in base, then each space in order, goes on after a failure and exits 1 naming the failed ones", async () => {
+	const r = await run(["run", "ml/--every", "upgrade"], { spaces: ["work", "alpha"], files: LAUNCHER_FILES, echo: true, statuses: { alpha: 3 } });
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "== ml/base\nran \n== ml/alpha\nran alpha\n== ml/work\nran work\n");
+	assert.equal(r.err, "pi-space: run failed in: ml/alpha\n");
+	assert.deepEqual(r.spawned.map(({ args }) => args[1]), [join(r.root, "ml-agent"), join(r.dir, "alpha"), join(r.dir, "work")]);
+	const ok = await run(["run", "ml/--every", "upgrade"], { files: LAUNCHER_FILES });
+	assert.equal(ok.code, 0, ok.err);
+	assert.equal(ok.out, "== ml/base\n");
+});
+
+test("run --every runs only in the profiles with a launcher; with none it exits 2 and runs nothing", async () => {
+	const r = await run(["run", "--every", "upgrade"], { spaces: ["work"], files: LAUNCHER_FILES });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, "== ml/base\n== ml/work\n");
+	assert.deepEqual(r.spawned.map(({ program }) => program), ["ml-launcher", "ml-launcher"]);
+	const none = await run(["run", "--every", "upgrade"], { spaces: ["work"] });
+	assert.equal(none.code, 2);
+	assert.equal(none.out, "");
+	assert.equal(none.err, 'pi-space: No profile has a launcher; give one a "launcher" in the config file.\n');
+	assert.equal(none.spawned.length, 0);
+	const option = await run(["--command", "x --", "run", "--every", "upgrade"], { files: LAUNCHER_FILES });
+	assert.equal(option.code, 2);
+	assert.equal(option.err, "pi-space: --command and --dir apply to one profile; name it: <profile>/<name> or <profile>/--every.\n");
+});
+
+test("run refuses a profile without a launcher with exit 2, a missing or invalid space with exit 1, and an unclosed quote with exit 2, running nothing", async () => {
+	for (const target of ["plain/base", "pi/base", "pi/work"]) {
+		const r = await run(["run", target, "upgrade"], { spaces: ["work"], files: LAUNCHER_FILES });
+		assert.equal(r.code, 2, target);
+		assert.equal(r.err, `pi-space: Profile "${target.split("/")[0]}" has no launcher; give it a "launcher" in the config file.\n`);
+		assert.equal(r.spawned.length, 0);
+	}
+	const ghost = await run(["run", "ml/ghost", "upgrade"], { spaces: ["work"], files: LAUNCHER_FILES });
+	assert.equal(ghost.code, 1);
+	assert.equal(ghost.err, 'pi-space: Space "ghost" does not exist.\n');
+	const invalid = await run(["run", "ml/Bad Name", "upgrade"], { files: LAUNCHER_FILES });
+	assert.equal(invalid.code, 1);
+	assert.match(invalid.err, /^pi-space: Invalid space name "Bad Name"/);
+	const bare = await run(["run", "work", "upgrade"], { spaces: ["work"], files: LAUNCHER_FILES });
+	assert.equal(bare.code, 2);
+	assert.match(bare.err, /^pi-space: Name the space with its profile, as <profile>\/work/);
+	const quote = await run(["run", "q/base", "upgrade"], { files: { [CONFIG]: { schema: SCHEMA, profiles: { q: { launcher: "x 'y" } } } } });
+	assert.equal(quote.code, 2);
+	assert.equal(quote.err, "pi-space: profile \"q\" launcher: the command has an unclosed ' quote.\n");
+	for (const r of [ghost, invalid, bare, quote]) assert.equal(r.spawned.length, 0);
+});
+
+test("run --help prints its help and runs nothing", async () => {
+	const r = await run(["run", "--help"]);
+	assert.equal(r.code, 0);
+	assert.match(r.out, /^Usage: pi-space run <space\|--every> <args\.\.\.>\n\nRun the profile's launcher in a space\./);
+	assert.match(r.out, /pi-space run gentle\/base upgrade/);
+	assert.equal(r.spawned.length, 0);
+});
+
+test("__complete: after run come the spaces with base, the --every targets and --help", async () => {
+	assert.deepEqual(await complete(["run"], { spaces: ["a"], files: COMPLETE_FILES }), [
+		"space pi/a",
+		"space pi/base",
+		"space gentle/base",
+		"space gentle/work",
+		"target --every",
+		"target pi/--every",
+		"target gentle/--every",
+		"option --help",
+	]);
 });

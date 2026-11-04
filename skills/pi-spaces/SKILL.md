@@ -4,7 +4,7 @@ description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, P
 license: MIT
 metadata:
   author: jals1212
-  version: "1.3"
+  version: "1.4"
 ---
 
 ## Activation Contract
@@ -38,6 +38,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Prepare a space for the program that runs Pi | `pi-space setup <profile>/<name>` (or `<profile>/--every`, or `--every` for every profile with a setup): runs the setup command (`{home}` and `{name}` become the space's folder and name) with the space as `PI_CODING_AGENT_DIR`; never in base |
 | Work in another space | User runs `/space switch <name>`, or `$PI_SPACES_COMMAND --space <name> "<prompt>"`, or `pi-space <profile>/<name>` from a shell |
 | Remove a space | User request only: `pi-space remove <profile>/<name> --yes` keeps a backup in `.backups` |
+| A launcher's own command (e.g. `upgrade`, `--version`) through a profile | `pi-space run <profile>/<name|base|--every> <args...>` (`--every` alone: every profile with one); it needs the profile's `launcher` (e.g. `"gentle-shell --home {home}"`). `pi-space <profile>/<name> upgrade` would give `upgrade` to Pi as a message |
 | Packages of a space | `pi-space update <profile>/<name|base|--every> --extensions` (`--every` alone: every profile), `pi-space install <profile>/<name> <source>`, `pi-space uninstall <profile>/<name> <source>`, `pi-space list <profile>/<name>`; without the CLI, `$PI_SPACES_COMMAND --space <name|base> update --extensions` |
 
 Names (the part after `<profile>/`; a profile name follows the same rule): lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup`, `completion`) are reserved.

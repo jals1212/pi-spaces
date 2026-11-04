@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- Profiles accept an optional `launcher`: the program itself, called with its
+  own commands rather than Pi's (`"gentle-shell --home {home}"`), for
+  `pi-space run <profile>/<name> <args...>`. `{home}` and `{name}` are filled
+  in as in `setup`. The unknown-key message lists it among the allowed keys.
+
 ## 0.8.0
 
 ### Changed
