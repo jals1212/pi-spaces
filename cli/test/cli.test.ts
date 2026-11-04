@@ -12,7 +12,8 @@ const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] 
        pi-space --help | --version
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
   pi-space                                     pick a space and start Pi in it
-  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with)
+  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
+                                               words with no option among them are one message: pi-space pi/work fix the tests
   pi-space list                                list the spaces of every profile
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
@@ -2358,6 +2359,9 @@ test("remove and rename still refuse the space the caller is in, from the caller
 	assert.match(renamed.err, /is active/);
 });
 
+/** The user's gentle profile: its command ends with "--", then Pi's arguments. */
+const LAUNCHER_FILES_GENTLE = { [CONFIG]: { schema: SCHEMA, profiles: { gentle: { home: "~/gentle-agent", command: "gentle-shell --" } } } };
+
 /** A profile with a launcher (and spaceEnv), one without, and the built-in pi. */
 const LAUNCHER_FILES = {
 	[CONFIG]: {
@@ -2474,4 +2478,26 @@ test("__complete: after run come the spaces with base, the --every targets and -
 		"target gentle/--every",
 		"option --help",
 	]);
+});
+
+test("a space with several words and no option for Pi gets them as one message, the @files apart before it", async () => {
+	const words = await run(["gentle/base", "no", "puedo", "hacer", "upgrade", "https://example.com/x#y"], { files: LAUNCHER_FILES_GENTLE });
+	assert.equal(words.code, 0, words.err);
+	assert.deepEqual(words.spawned[0].args, ["--", "--space", "base", "no puedo hacer upgrade https://example.com/x#y"]);
+	const files = await run(["pi/work", "@a.md", "explain", "this", "@b.md"], { spaces: ["work"] });
+	assert.deepEqual(files.spawned[0].args, ["--space", "work", "@a.md", "@b.md", "explain this"]);
+	const onlyFiles = await run(["pi/work", "@a.md", "@b.md"], { spaces: ["work"] });
+	assert.deepEqual(onlyFiles.spawned[0].args, ["--space", "work", "@a.md", "@b.md"]);
+});
+
+test("a space with one word, or with any option for Pi, gets the words as they were", async () => {
+	const one = await run(["pi/work", "hello world"], { spaces: ["work"] });
+	assert.deepEqual(one.spawned[0].args, ["--space", "work", "hello world"]);
+	const option = await run(["pi/work", "--model", "sonnet", "hello", "world"], { spaces: ["work"] });
+	assert.deepEqual(option.spawned[0].args, ["--space", "work", "--model", "sonnet", "hello", "world"]);
+	const separator = await run(["pi/work", "-c", "hello", "world"], { spaces: ["work"] });
+	assert.deepEqual(separator.spawned[0].args, ["--space", "work", "-c", "hello", "world"]);
+	// The package commands are Pi's own: their words are not joined.
+	const update = await run(["update", "pi/work", "a", "b"], { spaces: ["work"] });
+	assert.deepEqual(update.spawned[0].args, ["--space", "work", "update", "a", "b"]);
 });

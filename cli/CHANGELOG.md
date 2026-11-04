@@ -20,6 +20,14 @@ commands and options and a patch version fixes.
   completion and the README describe it. Needs `@jals1212/pi-spaces` with the
   `launcher` key.
 
+### Fixed
+
+- `pi-space <profile>/<name> fix the tests` sends one message, `fix the tests`,
+  instead of one message per word (Pi takes each argument as a message, and
+  the shell splits an unquoted prompt into words). The words are joined only
+  when none of them is an option for Pi (none starts with `-`); `@file` words
+  stay apart, before the message. With an option they still go as they are.
+
 ## 0.9.4
 
 ### Changed

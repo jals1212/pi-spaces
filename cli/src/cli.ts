@@ -45,7 +45,8 @@ export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup 
        pi-space --help | --version
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
   pi-space                                     pick a space and start Pi in it
-  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with)
+  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
+                                               words with no option among them are one message: pi-space pi/work fix the tests
   pi-space list                                list the spaces of every profile
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
@@ -383,6 +384,19 @@ function parsePackages(verb: PackageVerb, rest: string[]): CliCommand {
 	if (verb === "list" && args.length > 0) return { kind: "usage" };
 	if ((verb === "install" || verb === "uninstall") && args.length === 0) return { kind: "usage" };
 	return { kind: "packages", verb, target: first === "--every" ? { every: true } : { name: first }, args };
+}
+
+/**
+ * The words after a space, as the started Pi gets them. Pi takes each word as a separate message, and an unquoted
+ * prompt reaches pi-space as one word per argument; so when no word is an option for Pi (none starts with "-"),
+ * the words are joined into one message, with the @files apart before it in their order. With any option, or one
+ * word at most, they are kept as they are.
+ */
+export function promptArgs(args: string[]): string[] {
+	if (args.length < 2 || args.some((arg) => arg.startsWith("-"))) return args;
+	const files = args.filter((arg) => arg.startsWith("@"));
+	const message = args.filter((arg) => !arg.startsWith("@")).join(" ");
+	return message === "" ? files : [...files, message];
 }
 
 /**
@@ -1170,7 +1184,7 @@ async function launch(name: string, args: string[], scope: Scope): Promise<void>
 	if (!checkSpace(name, scope.dir, io)) return io.exit(1);
 	let launched: { program: string; args: string[] };
 	try {
-		launched = launchCommand(io.env, name, args);
+		launched = launchCommand(io.env, name, promptArgs(args));
 	} catch (error) {
 		io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
