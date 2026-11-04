@@ -87,12 +87,13 @@ A profile's `command` usually ends where Pi's arguments begin (`gentle-shell --`
 "gentle": {
   "home": "~/.gentle-shell/agent",
   "command": "gentle-shell --home {home}",
-  "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+  "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" },
+  "homeless": ["upgrade", "self-uninstall", "memory"]
 }
 ```
 
 ```sh
-pi-space gentle/base upgrade            # gentle-shell --home ~/.gentle-shell/agent upgrade
+pi-space gentle/base upgrade            # gentle-shell upgrade (homeless: no home, no --space)
 pi-space gentle/work --version          # gentle-shell --home ~/.gentle-shell/spaces/work --version
 pi-space gentle/work fix the tests      # gentle-shell --home ~/.gentle-shell/spaces/work "fix the tests"
 pi-space update gentle/--every          # gentle-shell --home <each home> update, base then every space
@@ -104,8 +105,8 @@ The environment is the one Pi gets from `--space`, without Pi doing the switch: 
 
 Things to know:
 
-- A single word that is one of the program's own commands runs that command, not a message: `pi-space gentle/base upgrade` is `gentle-shell ... upgrade`. A message of several words is still sent as one message.
-- Without `{home}` in the command nothing changes: `<command> --space <name> ...`, and `pi-space gentle/base upgrade` would give `upgrade` to Pi as a message.
+- The words go after the home option, so a program's own command works only when the program accepts it there. gentle-shell recognizes `upgrade`, `self-uninstall` and `memory` only as its first word, so they are in `homeless`: when the first word is one of them, the command runs without every word that has `{home}` (and an option right before a bare `{home}`: `--home {home}` goes away whole), `{name}` still filled in, then the words as they are (never joined), with no `--space` and the plain environment of the profile, as in `base`. Without `homeless`, `pi-space gentle/base upgrade` would run `gentle-shell --home ~/.gentle-shell/agent upgrade`, and gentle-shell hands `upgrade` to Pi.
+- Without `{home}` in the command nothing changes: `<command> --space <name> ...`.
 - Keep the `spaceEnv` of the program's own config home (here `GENTLE_PI_CONFIG_HOME`): with a `--home` outside a `.gentle-shell` folder and no `GENTLE_PI_CONFIG_HOME`, gentle-shell leaves an empty `~/.pi/gentle-ai` behind.
 
 ### The order of the profiles

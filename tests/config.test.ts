@@ -165,7 +165,7 @@ test("loadConfig refuses unknown keys at the top level and in a profile, naming 
 	assert.equal(failure(v1({ profile: {} })), '/c/config.json: unknown key "profile"; allowed keys are "schema", "default" and "profiles".');
 	assert.equal(
 		failure(v1({ profiles: { gentle: { hmoe: "/x" } } })),
-		'/c/config.json: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".',
+		'/c/config.json: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".',
 	);
 });
 
@@ -224,6 +224,31 @@ test("loadConfig checks spaceEnv: an object of string values under variable-like
 	}
 	const ok = load(v1({ profiles: { gentle: { spaceEnv: { _A1: "", b_2: "{home}", __proto__x: "1" } } } }));
 	assert.deepEqual(ok?.profiles[0].spaceEnv, { _A1: "", b_2: "{home}", __proto__x: "1" });
+});
+
+test("loadConfig reads homeless: the words that run the command without its home, kept by profileByName", () => {
+	const config = load(v1({ profiles: { gentle: { command: "gentle-shell --home {home}", homeless: ["upgrade", "self-uninstall"] } } }));
+	assert.deepEqual(config?.profiles[0].homeless, ["upgrade", "self-uninstall"]);
+	assert.deepEqual(profileByName(config, "gentle", {}, HOME).homeless, ["upgrade", "self-uninstall"]);
+	// A profile without it has none.
+	assert.equal(profileByName(load(v1({ profiles: { gentle: {} } })), "gentle", {}, HOME).homeless, undefined);
+});
+
+test("loadConfig checks homeless: a non-empty list of words with no spaces", () => {
+	for (const value of ["upgrade", [], null, 1, {}]) {
+		assert.equal(
+			failure(v1({ profiles: { gentle: { homeless: value } } })),
+			'/c/config.json: "homeless" in profile "gentle" must be a non-empty list of words.',
+			JSON.stringify(value),
+		);
+	}
+	for (const [word, shown] of [["", '""'], ["self update", '"self update"'], [" x", '" x"'], [1, "1"], [null, "null"]] as const) {
+		assert.equal(
+			failure(v1({ profiles: { gentle: { homeless: ["upgrade", word] } } })),
+			`/c/config.json: "homeless" in profile "gentle" has ${shown}, which is not one word; use words with no spaces.`,
+			shown,
+		);
+	}
 });
 
 test("loadConfig checks default names a profile of the file or pi", () => {
@@ -408,6 +433,6 @@ test("activeProfile turns an invalid file into a warning naming it, and behaves 
 	const file = join(root, "config.json");
 	writeFileSync(file, JSON.stringify(v1({ profiles: { gentle: { hmoe: "/x" } } })));
 	const result = activeProfile({ PI_SPACES_CONFIG: file }, root, join(root, ".pi", "agent"));
-	assert.equal(result.warning, `${file}: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".`);
+	assert.equal(result.warning, `${file}: unknown key "hmoe" in profile "gentle"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".`);
 	assert.equal(result.profile?.name, "pi");
 });
