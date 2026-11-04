@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.9.0
+
 ### Added
 
 - A profile `command` may contain `{home}` and `{name}`

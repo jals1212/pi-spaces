@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.10.0
+
 ### Added
 
 - A profile `command` (or `--command`) with `{home}` is the program itself,
@@ -30,7 +32,7 @@ commands and options and a patch version fixes.
   `--config`, `PI_SPACES_CONFIG`, that file when it exists, then
   `~/.pi-spaces/config.json` as before (with both files the XDG one wins;
   nothing is moved). Help and the README say so. Needs `@jals1212/pi-spaces`
-  with the new lookup.
+  0.9.0, which has the new lookup; the CLI now depends on `^0.9.0`.
 
 ### Fixed
 
