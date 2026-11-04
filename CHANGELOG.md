@@ -6,6 +6,22 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- A profile `command` may contain `{home}` and `{name}`
+  (`"gentle-shell --home {home}"`): `pi-space` then runs it directly in the
+  space's home, without `--space`, so the program's own commands work
+  (`pi-space gentle/base upgrade`). The `<pi_space>` section of the system
+  prompt then says that `pi-space <profile>/<name>` starts a space, not
+  `<command> --space <name>`.
+- The config file is also found in `~/.config/pi-spaces/config.json`
+  (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an
+  absolute path; on Windows `%USERPROFILE%\.config\pi-spaces\config.json`),
+  so it can live in your dotfiles without `PI_SPACES_CONFIG`. Order:
+  `PI_SPACES_CONFIG`, then that file when it exists, then
+  `~/.pi-spaces/config.json` as before; with both files the XDG one wins, and
+  nothing is moved. `configPath(env, home)` takes an optional existence check.
+
 ## 0.8.0
 
 ### Changed

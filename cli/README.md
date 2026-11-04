@@ -8,13 +8,13 @@ The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, cr
 npm install -g @jals1212/pi-spaces-cli
 ```
 
-Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]`, and the extension does the switch. For the package commands (`list <profile>/<name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
+Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]` (unless the profile's command has `{home}`: see [A command with `{home}`](#a-command-with-home)), and the extension does the switch. For the package commands (`list <profile>/<name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
 
 ### Windows
 
 Everything works the same on Windows, and [shell completion](#powershell) works in PowerShell:
 
-- **The config file** is `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`). `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
+- **The config file** is `%USERPROFILE%\.config\pi-spaces\config.json` (`C:\Users\<you>\.config\pi-spaces\config.json`, or in `XDG_CONFIG_HOME` when you set it) when that file exists, else `%USERPROFILE%\.pi-spaces\config.json`. `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
 - **The commands** run as on macOS and Linux, and the CI runs the tests on Windows. A program installed by npm as a `.cmd` shim (such as `pi.cmd`) is found without its extension.
 - **The picker** (`pi-space` alone) needs a terminal that supports raw mode and ANSI escape codes, as Windows Terminal and PowerShell 7 do. It has not been tested on a real Windows console: the CI has no terminal.
 - **Shell completion** works in PowerShell 7 and Windows PowerShell 5.1 (see [PowerShell](#powershell)), and in zsh under WSL. cmd has no programmable completion: use the picker there.
@@ -39,7 +39,7 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | Command | What it does |
 | --- | --- |
 | `pi-space` | Opens a picker of the spaces of every profile (its hint line starts with 🪐) and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by `profile/name`. The profiles go in [their order](#the-order-of-the-profiles); each profile's `<profile>/base` comes first in its group (with more than one profile, a header names the group), and the cursor starts on the space this Pi runs in, marked `(active)`. The space starts with the profile it was listed under. Profiles that share a folder are all listed: each one means a different command. |
-| `pi-space <profile>/<name> [pi args...]` | Starts Pi in that space, with that profile's command (`<profile>/base` for the home that profile's Pi starts with). |
+| `pi-space <profile>/<name> [pi args...]` | Starts Pi in that space, with that profile's command (`<profile>/base` for the home that profile's Pi starts with); a command with `{home}` is run in the space's home instead (see [A command with `{home}`](#a-command-with-home)). Pi takes each word as a separate message, so when no word is an option (none starts with `-`) the words become one message: `pi-space pi/work fix the tests` sends `fix the tests`, and `@file` words stay apart, before it. Pi's own commands are not joined: when the first word is `install`, `remove`, `uninstall`, `update`, `list`, `config`, `auth` or `mcp`, the words go as they are (`pi-space pi/work install npm:x`). With any option the words go as they are, so quote a prompt there: `pi-space pi/work -c "fix the tests"`. |
 | `pi-space list` | Lists the spaces of every profile, grouped by profile, in [their order](#the-order-of-the-profiles): each profile's folder, then its `base` and spaces as `profile/space`. |
 | `pi-space list <profile>/<name>` | Lists the packages of a space (Pi's `list`). |
 | `pi-space list <profile>/--every` or `--every` | The packages of a profile's base and spaces, or of every profile's (see below). |
@@ -79,6 +79,35 @@ A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, 
 
 The runs go one after the other, each after a `== <profile>/<name>` line on stdout. A failure does not stop the rest. The exit status is 0 if every run succeeded, otherwise 1, and the last line on stderr names the spaces that failed: `pi-space: update failed in: my/base, my/work`.
 
+### A command with `{home}`
+
+A profile's `command` usually ends where Pi's arguments begin (`gentle-shell --`), and `pi-space` runs it as `<command> --space <name> [words...]`. When the command contains `{home}`, it is the program itself instead, run in the home of the space, and the program's own commands work through the profile:
+
+```json
+"gentle": {
+  "home": "~/.gentle-shell/agent",
+  "command": "gentle-shell --home {home}",
+  "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+}
+```
+
+```sh
+pi-space gentle/base upgrade            # gentle-shell --home ~/.gentle-shell/agent upgrade
+pi-space gentle/work --version          # gentle-shell --home ~/.gentle-shell/spaces/work --version
+pi-space gentle/work fix the tests      # gentle-shell --home ~/.gentle-shell/spaces/work "fix the tests"
+pi-space update gentle/--every          # gentle-shell --home <each home> update, base then every space
+```
+
+The command is split as for `--command`, and in every word `{home}` becomes the space's folder and `{name}` its name; in `base` they are the profile's `home` and `base`. The words after the space come after the command (joined into one message as above, and not joined when the first one is a command of Pi), and there is no `--space`. The package commands (`list`, `update`, `install`, `uninstall`) run `<command> <verb> [args...]` the same way, so they go through the program, which must pass them to Pi. The picker starts the space you choose the same way. `--command` with `{home}` does the same for one call.
+
+The environment is the one Pi gets from `--space`, without Pi doing the switch: in `base`, the plain environment of the profile (`PI_CODING_AGENT_DIR` is its `home`, no variable of a space); in a space, that plus `PI_CODING_AGENT_DIR`, `PI_SPACE_HOME` (the space's folder), `PI_SPACE` (its name), `PI_SPACES_BASE_HOME` (the profile's `home`), the profile's `spaceEnv` for the space, and `PI_SPACES_BASE_ENV` (the base's own values of the `spaceEnv` variables, so `/space switch base` inside works; absent when the profile has no `spaceEnv`). The exit status is the program's. An unclosed quote in the command exits with status 2 before anything starts.
+
+Things to know:
+
+- A single word that is one of the program's own commands runs that command, not a message: `pi-space gentle/base upgrade` is `gentle-shell ... upgrade`. A message of several words is still sent as one message.
+- Without `{home}` in the command nothing changes: `<command> --space <name> ...`, and `pi-space gentle/base upgrade` would give `upgrade` to Pi as a message.
+- Keep the `spaceEnv` of the program's own config home (here `GENTLE_PI_CONFIG_HOME`): with a `--home` outside a `.gentle-shell` folder and no `GENTLE_PI_CONFIG_HOME`, gentle-shell leaves an empty `~/.pi/gentle-ai` behind.
+
 ### The order of the profiles
 
 Wherever `pi-space` shows or runs more than one profile (`list` alone, the picker, `--every` alone, completion, and the profiles named in a message), `pi` comes first, then the other profiles in alphabetical order, whatever their order in the config file. Within a profile, `base` comes first, then its spaces in alphabetical order.
@@ -114,7 +143,7 @@ A call has no other settings. `pi-space` does **not** read `PI_SPACES_COMMAND`, 
 | `PI_SPACES_COMMAND` | For the started Pi, the profile's command (or `--command`); unset when there is none, so a caller's value never leaks. The extension reads it to tell the model and the tools how Pi was started. |
 | `PI_SPACES_DIR` | For the started Pi, the profile's spaces folder (or `--dir`), always. The extension reads it as its spaces folder. |
 | `PI_SPACES_SETUP` | For the started Pi, the profile's setup command (or `--setup`); unset when there is none. `/space new` there names `pi-space setup <profile>/<name>` when it is set. |
-| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.pi-spaces/config.json`. `--config` wins for one call; a relative `--config` is taken from the current folder. This one `pi-space` still reads. |
+| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.config/pi-spaces/config.json` (or `$XDG_CONFIG_HOME/pi-spaces/config.json`) when that file exists, else `~/.pi-spaces/config.json`. `--config` wins for one call; a relative `--config` is taken from the current folder. This one `pi-space` still reads. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; the built-in `pi` profile's `home` (its parent holds the default spaces folder). Default: `~/.pi/agent`. |
 
 ## Profiles
@@ -130,7 +159,7 @@ pi-space --config ./other.json ml/work  # the same profile from another file, fo
 
 `--config <path>` comes before the command, like `--command`, `--dir` and `--setup`: each needs a value (not blank) and may be given once, and after a space they belong to Pi. An unknown profile exits with status 2 and lists the known ones: `pi-space: Unknown profile "ghost"; known profiles: ml, pi.`
 
-- **The file** is `--config`, else `PI_SPACES_CONFIG`, else `~/.pi-spaces/config.json`. A missing file is not an error: with no file the only profile is `pi`. A file that is wrong exits with status 2 and prints its message (`pi-space: <file>: <problem>`), never a stack. `--help`, `--version` and `completion` never read it.
+- **The file** is `--config`, else `PI_SPACES_CONFIG`, else `~/.config/pi-spaces/config.json` (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an absolute path) when that file exists, else `~/.pi-spaces/config.json`; with both files the first wins and nothing is moved. A missing file is not an error: with no file the only profile is `pi`. A file that is wrong exits with status 2 and prints its message (`pi-space: <file>: <problem>`), never a stack. `--help`, `--version` and `completion` never read it.
 - **`default`** is ignored. The file is still valid with it (the schema accepts it, and `spaceEnv` and the rest work), but `pi-space` names every space with its profile and never falls back to one. Each call that reads such a file says so on stderr, then goes on:
 
   ```text

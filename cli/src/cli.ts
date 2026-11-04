@@ -4,6 +4,8 @@
 // the caller's space (PI_SPACES_BASE_HOME, PI_SPACE, PI_SPACE_HOME, PI_SPACES_BASE_ENV, its spaceEnv values and the
 // paths inside its folder) is unwound back to its base, and PI_CODING_AGENT_DIR is the profile's home. The setup
 // command, which is not Pi and does no switch, gets the space's own home and variables on top of that same base.
+// A command with {home} (`gentle-shell --home {home}`) is the program itself: it runs in the space's home with no
+// --space, and the program's own commands work (`pi-space gentle/base upgrade`); see startFor.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -45,7 +47,8 @@ export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup 
        pi-space --help | --version
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
   pi-space                                     pick a space and start Pi in it
-  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with)
+  pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
+                                               words with no option among them are one message: pi-space pi/work fix the tests
   pi-space list                                list the spaces of every profile
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
@@ -67,7 +70,7 @@ Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
   --setup <cmd>                                the setup command instead of the profile's; {home} and {name} become the space's folder and name
-  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json); the Pi it starts gets it too
+  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
 /** This package's version; package.json sits one folder above both src/ and dist/. */
@@ -127,7 +130,7 @@ const CALL_HELP: Record<keyof CallOptions, [label: string, text: string]> = {
 	command: ["--command <cmd>", 'the program to run instead of the profile\'s command, e.g. "my-launcher --"; for one profile'],
 	dir: ["--dir <path>", "the spaces folder instead of the profile's; the Pi it starts gets it too; for one profile"],
 	setup: ["--setup <cmd>", "the setup command instead of the profile's; {home} and {name} become the space's folder and name"],
-	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)"],
+	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)"],
 };
 
 /** The help of one command; the summary is the one line completion shows next to it. */
@@ -351,6 +354,22 @@ function parsePackages(verb: PackageVerb, rest: string[]): CliCommand {
 	return { kind: "packages", verb, target: first === "--every" ? { every: true } : { name: first }, args };
 }
 
+/** Pi's own commands (docs/cli.md): as the first word they are a command with arguments, never the start of a message. */
+const PI_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"]);
+
+/**
+ * The words after a space, as the started Pi gets them. Pi takes each word as a separate message, and an unquoted
+ * prompt reaches pi-space as one word per argument; so when no word is an option for Pi (none starts with "-"),
+ * the words are joined into one message, with the @files apart before it in their order. With any option, or one
+ * word at most, or when the first word is one of Pi's own commands (`install npm:x`), they are kept as they are.
+ */
+export function promptArgs(args: string[]): string[] {
+	if (args.length < 2 || args.some((arg) => arg.startsWith("-")) || PI_COMMANDS.has(args[0])) return args;
+	const files = args.filter((arg) => arg.startsWith("@"));
+	const message = args.filter((arg) => !arg.startsWith("@")).join(" ");
+	return message === "" ? files : [...files, message];
+}
+
 /**
  * The program and arguments that start Pi in a space: PI_SPACES_COMMAND of this env (default pi) plus --space <name>.
  * Throws when the command has an unclosed quote.
@@ -358,6 +377,32 @@ function parsePackages(verb: PackageVerb, rest: string[]): CliCommand {
 export function launchCommand(env: Env, name: string, args: string[]): { program: string; args: string[] } {
 	const [program = "pi", ...prefix] = splitCommand(env.PI_SPACES_COMMAND ?? "");
 	return { program, args: [...prefix, "--space", name, ...args] };
+}
+
+/** Whether the settled command (this scope's PI_SPACES_COMMAND) has {home}: it is then run in the space's home, with no --space. */
+function hasHomeCommand(env: Env): boolean {
+	return (env.PI_SPACES_COMMAND ?? "").includes("{home}");
+}
+
+/**
+ * The program, arguments and environment that start the profile's command in one space of a scope with `words` after
+ * it. Without {home} in the command it is `<command> --space <name> words` with the Pi environment (launchCommand).
+ * With it, the command is run in the space's home as it is, with {home} and {name} filled in (as setup does) and no
+ * --space: in base with the plain environment of the profile, in a space with the environment the extension's
+ * relaunch would give it from base. Throws when the command has an unclosed quote.
+ */
+function startFor(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } {
+	const { io, profile } = scope;
+	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
+	const home = name === BASE ? profile.home : join(scope.dir, name);
+	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND ?? "", home, name);
+	if (name === BASE) return { program, args: [...args, ...words], env: io.childEnv };
+	const plain = io.childEnv ?? io.env;
+	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
+	// The base's own values of the spaceEnv variables, as relaunchEnv keeps them to put back on the way to base.
+	const keys = Object.keys(profile.spaceEnv ?? {});
+	if (keys.length > 0) env.PI_SPACES_BASE_ENV = JSON.stringify(Object.fromEntries(keys.flatMap((key) => (plain[key] === undefined ? [] : [[key, plain[key]]]))));
+	return { program, args: [...args, ...words], env };
 }
 
 /**
@@ -1129,14 +1174,14 @@ async function spawnPi(program: string, programArgs: string[], io: CliIo, env: E
 async function launch(name: string, args: string[], scope: Scope): Promise<void> {
 	const { io } = scope;
 	if (!checkSpace(name, scope.dir, io)) return io.exit(1);
-	let launched: { program: string; args: string[] };
+	let launched: ReturnType<typeof startFor>;
 	try {
-		launched = launchCommand(io.env, name, args);
+		launched = startFor(scope, name, promptArgs(args));
 	} catch (error) {
 		io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
 	}
-	io.exit(await spawnPi(launched.program, launched.args, io, io.childEnv));
+	io.exit(await spawnPi(launched.program, launched.args, io, launched.env));
 }
 
 /**
@@ -1156,21 +1201,21 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 		const scope = scopeOf(call, ref.profile);
 		if (ref.name !== EVERY) {
 			if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
-			let launched: { program: string; args: string[] };
+			let launched: ReturnType<typeof startFor>;
 			try {
-				launched = launchCommand(scope.io.env, ref.name, [verb, ...args]);
+				launched = startFor(scope, ref.name, [verb, ...args]);
 			} catch (error) {
 				io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 				return io.exit(2);
 			}
-			return io.exit(await spawnPi(launched.program, launched.args, scope.io, scope.io.childEnv));
+			return io.exit(await spawnPi(launched.program, launched.args, scope.io, launched.env));
 		}
 		scopes = [scope];
 	}
 	// Every command is checked before the first one runs, so a bad one is reported once, before any header.
 	for (const scope of scopes) {
 		try {
-			launchCommand(scope.io.env, BASE, []);
+			startFor(scope, BASE, []);
 		} catch (error) {
 			io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 			return io.exit(2);
@@ -1179,9 +1224,9 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 	const failed: string[] = [];
 	for (const scope of scopes) {
 		for (const name of [BASE, ...listSpaces(scope.dir)]) {
-			const launched = launchCommand(scope.io.env, name, [verb, ...args]);
+			const launched = startFor(scope, name, [verb, ...args]);
 			io.stdout.write(`== ${scope.profile.name}/${name}\n`);
-			if ((await spawnPi(launched.program, launched.args, scope.io, scope.io.childEnv)) !== 0) failed.push(`${scope.profile.name}/${name}`);
+			if ((await spawnPi(launched.program, launched.args, scope.io, launched.env)) !== 0) failed.push(`${scope.profile.name}/${name}`);
 		}
 	}
 	if (failed.length > 0) {
