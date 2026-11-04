@@ -4,7 +4,7 @@ description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, P
 license: MIT
 metadata:
   author: jals1212
-  version: "1.4"
+  version: "1.5"
 ---
 
 ## Activation Contract
@@ -17,7 +17,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 - The `pi-space` CLI names every space `<profile>/<name>` (`base` included, as `<profile>/base`); a bare name is refused. Nothing in the environment or the `<pi_space>` section names your own profile. To find it, take your base home (`PI_SPACES_BASE_HOME` when set, else `PI_SPACE_HOME`) and look in the config file for the profile whose `home` is that folder; no match means the built-in `pi`.
 - Files of this session's home (`settings.json`, `extensions/`, `sessions/`, installed packages) live under `PI_SPACE_HOME`; `pi install` and settings changes apply to this space only.
 - The config's `default` is not used by `pi-space` (it warns and ignores it); the profile is always named. `pi-space` does not read `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP` from the shell: a profile or `--command`, `--dir`, `--setup` (for one named profile) gives them.
-- Profiles live in `~/.pi-spaces/config.json`, or the file in `PI_SPACES_CONFIG`; its `schema` must be `pi-spaces.config/v1`. Read it to answer questions about profiles; edit it only when the user asks, and keep every key to the documented ones (unknown keys make the file invalid and ignored).
+- Profiles live in the file in `PI_SPACES_CONFIG`, else `~/.config/pi-spaces/config.json` (`$XDG_CONFIG_HOME/pi-spaces/config.json` when that is an absolute path) when it exists, else `~/.pi-spaces/config.json`; its `schema` must be `pi-spaces.config/v1`. Read it to answer questions about profiles; edit it only when the user asks, and keep every key to the documented ones (unknown keys make the file invalid and ignored).
 - Never read `auth.json` or other credential files in any home.
 - You cannot move this session to another space. Ask the user to run `/space switch <name>` (interactive terminal only; Pi restarts), or start another Pi with `$PI_SPACES_COMMAND --space <name>` (the space name there is bare: `work`; `pi-space` takes `<profile>/work`).
 - The Pi that `pi-space` starts runs as if started from a plain terminal for the named profile, even when you run it from inside another Pi or a space (it unwinds your space and sets `PI_CODING_AGENT_DIR` to that profile's home).
@@ -31,7 +31,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Which space, home, command | `<pi_space>` section, or `echo "$PI_SPACE|$PI_SPACE_HOME|$PI_SPACES_COMMAND"` |
 | List spaces from a shell | `pi-space list` (optional `@jals1212/pi-spaces-cli`): every profile, each space as `<profile>/<name>` |
 | Spaces folder | `PI_SPACES_DIR`, else the `dir` of the profile whose `home` is the base home, else `spaces` next to the base home (`PI_SPACES_BASE_HOME`, else this home) |
-| Profiles, or why a variable differs per space | The config file (`PI_SPACES_CONFIG`, else `~/.pi-spaces/config.json`): a profile's `spaceEnv` variables are set only inside spaces (`{home}` and `{name}` filled in) and removed in base; without `spaceEnv` whatever a program keeps outside its agent home is shared with base |
+| Profiles, or why a variable differs per space | The config file (`PI_SPACES_CONFIG`, else `~/.config/pi-spaces/config.json` when it exists, else `~/.pi-spaces/config.json`): a profile's `spaceEnv` variables are set only inside spaces (`{home}` and `{name}` filled in) and removed in base; without `spaceEnv` whatever a program keeps outside its agent home is shared with base |
 | Pick a space from a shell | bare `pi-space` on a terminal opens a picker of every profile's spaces (`<profile>/<name>`, `base` included) and starts Pi in the one chosen |
 | Rename a space | User request only: `pi-space rename <profile>/<old> <new>`; the new name alone or with the same profile (`<profile>/<new>`), a space never changes profile; refused for base and for the space you are in |
 | Create a space | `pi-space new <profile>/<name>`, or ask the user for `/space new <name>` (this Pi's profile); `pi-space new` also runs the profile's setup command when there is one (or `--setup <cmd>` for one call) |

@@ -14,7 +14,7 @@ Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi e
 
 Everything works the same on Windows, and [shell completion](#powershell) works in PowerShell:
 
-- **The config file** is `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`). `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
+- **The config file** is `%USERPROFILE%\.config\pi-spaces\config.json` (`C:\Users\<you>\.config\pi-spaces\config.json`, or in `XDG_CONFIG_HOME` when you set it) when that file exists, else `%USERPROFILE%\.pi-spaces\config.json`. `~` in it, and in `PI_SPACES_CONFIG`, is that same user folder, so `"home": "~/.gentle-shell/agent"` means `C:\Users\<you>\.gentle-shell\agent`. Set `PI_SPACES_CONFIG` for good with `setx PI_SPACES_CONFIG "D:\path\config.json"`, or for one PowerShell session with `$env:PI_SPACES_CONFIG = "..."`.
 - **The commands** run as on macOS and Linux, and the CI runs the tests on Windows. A program installed by npm as a `.cmd` shim (such as `pi.cmd`) is found without its extension.
 - **The picker** (`pi-space` alone) needs a terminal that supports raw mode and ANSI escape codes, as Windows Terminal and PowerShell 7 do. It has not been tested on a real Windows console: the CI has no terminal.
 - **Shell completion** works in PowerShell 7 and Windows PowerShell 5.1 (see [PowerShell](#powershell)), and in zsh under WSL. cmd has no programmable completion: use the picker there.
@@ -136,7 +136,7 @@ A call has no other settings. `pi-space` does **not** read `PI_SPACES_COMMAND`, 
 | `PI_SPACES_COMMAND` | For the started Pi, the profile's command (or `--command`); unset when there is none, so a caller's value never leaks. The extension reads it to tell the model and the tools how Pi was started. |
 | `PI_SPACES_DIR` | For the started Pi, the profile's spaces folder (or `--dir`), always. The extension reads it as its spaces folder. |
 | `PI_SPACES_SETUP` | For the started Pi, the profile's setup command (or `--setup`); unset when there is none. `/space new` there names `pi-space setup <profile>/<name>` when it is set. |
-| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.pi-spaces/config.json`. `--config` wins for one call; a relative `--config` is taken from the current folder. This one `pi-space` still reads. |
+| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.config/pi-spaces/config.json` (or `$XDG_CONFIG_HOME/pi-spaces/config.json`) when that file exists, else `~/.pi-spaces/config.json`. `--config` wins for one call; a relative `--config` is taken from the current folder. This one `pi-space` still reads. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; the built-in `pi` profile's `home` (its parent holds the default spaces folder). Default: `~/.pi/agent`. |
 
 ## Profiles
@@ -152,7 +152,7 @@ pi-space --config ./other.json ml/work  # the same profile from another file, fo
 
 `--config <path>` comes before the command, like `--command`, `--dir` and `--setup`: each needs a value (not blank) and may be given once, and after a space they belong to Pi. An unknown profile exits with status 2 and lists the known ones: `pi-space: Unknown profile "ghost"; known profiles: ml, pi.`
 
-- **The file** is `--config`, else `PI_SPACES_CONFIG`, else `~/.pi-spaces/config.json`. A missing file is not an error: with no file the only profile is `pi`. A file that is wrong exits with status 2 and prints its message (`pi-space: <file>: <problem>`), never a stack. `--help`, `--version` and `completion` never read it.
+- **The file** is `--config`, else `PI_SPACES_CONFIG`, else `~/.config/pi-spaces/config.json` (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an absolute path) when that file exists, else `~/.pi-spaces/config.json`; with both files the first wins and nothing is moved. A missing file is not an error: with no file the only profile is `pi`. A file that is wrong exits with status 2 and prints its message (`pi-space: <file>: <problem>`), never a stack. `--help`, `--version` and `completion` never read it.
 - **`default`** is ignored. The file is still valid with it (the schema accepts it, and `spaceEnv` and the rest work), but `pi-space` names every space with its profile and never falls back to one. Each call that reads such a file says so on stderr, then goes on:
 
   ```text

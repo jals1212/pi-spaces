@@ -36,7 +36,7 @@ Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
   --setup <cmd>                                the setup command instead of the profile's; {home} and {name} become the space's folder and name
-  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json); the Pi it starts gets it too
+  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
 const SCHEMA = "pi-spaces.config/v1";
@@ -1467,6 +1467,33 @@ test("the spaces folder: --dir, else the named profile's; PI_SPACES_DIR is never
 	}
 });
 
+test("the config file is found in ~/.config/pi-spaces/config.json without PI_SPACES_CONFIG, and wins over ~/.pi-spaces/config.json", async () => {
+	const profile = (dir: string) => ({ schema: SCHEMA, profiles: { ml: { dir } } });
+	const xdg = await run(["list"], { files: { ".config/pi-spaces/config.json": profile("~/xdg-spaces") } });
+	assert.equal(xdg.code, 0, xdg.err);
+	assert.ok(xdg.out.includes(`Spaces of ml in ${join(xdg.root, "xdg-spaces")}:`), xdg.out);
+	const both = await run(["list"], { files: { ".config/pi-spaces/config.json": profile("~/xdg-spaces"), [CONFIG]: profile("~/legacy-spaces") } });
+	assert.ok(both.out.includes(`Spaces of ml in ${join(both.root, "xdg-spaces")}:`), both.out);
+	assert.ok(!both.out.includes("legacy-spaces"), both.out);
+	const legacy = await run(["list"], { files: { [CONFIG]: profile("~/legacy-spaces") } });
+	assert.ok(legacy.out.includes(`Spaces of ml in ${join(legacy.root, "legacy-spaces")}:`), legacy.out);
+});
+
+test("XDG_CONFIG_HOME moves the config folder; a relative one is ignored", async () => {
+	const profile = (dir: string) => ({ schema: SCHEMA, profiles: { ml: { dir } } });
+	const moved = await run(["list"], {
+		env: { XDG_CONFIG_HOME: "<root>/dotfiles" },
+		files: { "dotfiles/pi-spaces/config.json": profile("~/moved-spaces"), ".config/pi-spaces/config.json": profile("~/xdg-spaces") },
+	});
+	assert.equal(moved.code, 0, moved.err);
+	assert.ok(moved.out.includes(`Spaces of ml in ${join(moved.root, "moved-spaces")}:`), moved.out);
+	const relative = await run(["list"], {
+		env: { XDG_CONFIG_HOME: "dotfiles" },
+		files: { "dotfiles/pi-spaces/config.json": profile("~/moved-spaces"), ".config/pi-spaces/config.json": profile("~/xdg-spaces") },
+	});
+	assert.ok(relative.out.includes(`Spaces of ml in ${join(relative.root, "xdg-spaces")}:`), relative.out);
+});
+
 test("a profile's folder defaults to spaces next to its home", async () => {
 	const r = await run(["list"], { files: { [CONFIG]: { schema: SCHEMA, profiles: { ml: { home: "~/ml/agent" } } } } });
 	// pi comes first: ml's folder heads the second group.
@@ -1876,7 +1903,7 @@ const OPTION_LINES = {
 	"--command": "option\t--command\tthe program to run instead of the profile's command, e.g. \"my-launcher --\"; for one profile",
 	"--dir": "option\t--dir\tthe spaces folder instead of the profile's; the Pi it starts gets it too; for one profile",
 	"--setup": "option\t--setup\tthe setup command instead of the profile's; {home} and {name} become the space's folder and name",
-	"--config": "option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)",
+	"--config": "option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)",
 	"--help": "option\t--help\tprint the help, or a command's: --help <command>",
 	"--version": "option\t--version\tprint the version",
 };

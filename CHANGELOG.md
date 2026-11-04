@@ -12,6 +12,13 @@ commands and options and a patch version fixes.
   own commands rather than Pi's (`"gentle-shell --home {home}"`), for
   `pi-space run <profile>/<name> <args...>`. `{home}` and `{name}` are filled
   in as in `setup`. The unknown-key message lists it among the allowed keys.
+- The config file is also found in `~/.config/pi-spaces/config.json`
+  (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an
+  absolute path; on Windows `%USERPROFILE%\.config\pi-spaces\config.json`),
+  so it can live in your dotfiles without `PI_SPACES_CONFIG`. Order:
+  `PI_SPACES_CONFIG`, then that file when it exists, then
+  `~/.pi-spaces/config.json` as before; with both files the XDG one wins, and
+  nothing is moved. `configPath(env, home)` takes an optional existence check.
 
 ## 0.8.0
 

@@ -55,6 +55,40 @@ test("configPath is PI_SPACES_CONFIG, else ~/.pi-spaces/config.json", () => {
 	assert.equal(configPath({ PI_SPACES_CONFIG: "cfg/ps.json" }, HOME), path(HOME, "cfg", "ps.json"));
 });
 
+test("configPath is ~/.config/pi-spaces/config.json when that file exists and PI_SPACES_CONFIG is not set", () => {
+	const xdg = path(HOME, ".config", "pi-spaces", "config.json");
+	const legacy = path(HOME, ".pi-spaces", "config.json");
+	const only = (...files: string[]) => (file: string) => files.includes(file);
+	assert.equal(configPath({}, HOME, only(xdg)), xdg);
+	// Both files: the XDG one wins.
+	assert.equal(configPath({}, HOME, only(xdg, legacy)), xdg);
+	// Only the old one, or none: the old path (a missing file stays "no config").
+	assert.equal(configPath({}, HOME, only(legacy)), legacy);
+	assert.equal(configPath({}, HOME, only()), legacy);
+	// A blank XDG_CONFIG_HOME is unset.
+	assert.equal(configPath({ XDG_CONFIG_HOME: "" }, HOME, only(xdg)), xdg);
+	assert.equal(configPath({ XDG_CONFIG_HOME: "  " }, HOME, only(xdg)), xdg);
+	// A relative XDG_CONFIG_HOME is ignored (XDG spec): ~/.config is used.
+	assert.equal(configPath({ XDG_CONFIG_HOME: "rel/cfg" }, HOME, only(xdg)), xdg);
+	assert.equal(configPath({ XDG_CONFIG_HOME: "rel/cfg" }, HOME, only(path("rel/cfg/pi-spaces/config.json"), path(HOME, "rel", "cfg", "pi-spaces", "config.json"))), legacy);
+	// An absolute XDG_CONFIG_HOME replaces ~/.config.
+	const custom = path("/etc/xdg-home", "pi-spaces", "config.json");
+	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(custom)), custom);
+	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(custom, xdg, legacy)), custom);
+	// With XDG_CONFIG_HOME set, ~/.config is not looked at.
+	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(xdg)), legacy);
+	// PI_SPACES_CONFIG wins over both.
+	assert.equal(configPath({ PI_SPACES_CONFIG: "/etc/ps.json" }, HOME, only(xdg, legacy)), path("/etc/ps.json"));
+});
+
+test("configPath finds the XDG file on disk by default", () => {
+	const root = scratch();
+	assert.equal(configPath({}, root), join(root, ".pi-spaces", "config.json"));
+	mkdirSync(join(root, ".config", "pi-spaces"), { recursive: true });
+	writeFileSync(join(root, ".config", "pi-spaces", "config.json"), "{}");
+	assert.equal(configPath({}, root), join(root, ".config", "pi-spaces", "config.json"));
+});
+
 test("loadConfig without a file is no config, and a file that cannot be read is an error naming it", () => {
 	const root = scratch();
 	assert.equal(loadConfig(join(root, "missing.json")), undefined);

@@ -19,6 +19,14 @@ commands and options and a patch version fixes.
   `base`); a space gets the environment the setup command gets. Help,
   completion and the README describe it. Needs `@jals1212/pi-spaces` with the
   `launcher` key.
+- `pi-space` finds the config file in `~/.config/pi-spaces/config.json`
+  (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an
+  absolute path; on Windows `%USERPROFILE%\.config\pi-spaces\config.json`)
+  without `PI_SPACES_CONFIG`, so it can live in your dotfiles. Order:
+  `--config`, `PI_SPACES_CONFIG`, that file when it exists, then
+  `~/.pi-spaces/config.json` as before (with both files the XDG one wins;
+  nothing is moved). Help and the README say so. Needs `@jals1212/pi-spaces`
+  with the new lookup.
 
 ### Fixed
 

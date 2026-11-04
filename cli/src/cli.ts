@@ -69,7 +69,7 @@ Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
   --setup <cmd>                                the setup command instead of the profile's; {home} and {name} become the space's folder and name
-  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json); the Pi it starts gets it too
+  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
 /** This package's version; package.json sits one folder above both src/ and dist/. */
@@ -130,7 +130,7 @@ const CALL_HELP: Record<keyof CallOptions, [label: string, text: string]> = {
 	command: ["--command <cmd>", 'the program to run instead of the profile\'s command, e.g. "my-launcher --"; for one profile'],
 	dir: ["--dir <path>", "the spaces folder instead of the profile's; the Pi it starts gets it too; for one profile"],
 	setup: ["--setup <cmd>", "the setup command instead of the profile's; {home} and {name} become the space's folder and name"],
-	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.pi-spaces/config.json)"],
+	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)"],
 };
 
 /** The help of one command; the summary is the one line completion shows next to it. */

@@ -87,7 +87,7 @@ The extension uses the profile whose `home` is the base home Pi started with (th
 
 | | |
 | --- | --- |
-| Location | `~/.pi-spaces/config.json`; on Windows `%USERPROFILE%\.pi-spaces\config.json` (`C:\Users\<you>\.pi-spaces\config.json`) |
+| Location | `$XDG_CONFIG_HOME/pi-spaces/config.json` when that file exists (`XDG_CONFIG_HOME` unset, blank or relative means `~/.config`, so `~/.config/pi-spaces/config.json`: easy to keep in your dotfiles), else `~/.pi-spaces/config.json`; on Windows `%USERPROFILE%\.config\pi-spaces\config.json` (`C:\Users\<you>\.config\pi-spaces\config.json`) unless `XDG_CONFIG_HOME` is set, else `%USERPROFILE%\.pi-spaces\config.json`. With both files the first wins. Nothing moves or creates either file. |
 | Change it | `PI_SPACES_CONFIG=<path>` (a leading `~` is your home folder; a relative path is taken from it). The `pi-space` command also takes `--config <path>` (see [`cli/README.md`](cli/README.md)). |
 | Missing | No profiles: Pi, spaces and `pi-space` behave as without this feature. |
 | Invalid | See [When the file is wrong](#when-the-file-is-wrong). |
@@ -176,7 +176,7 @@ Read:
 | Variable | Meaning |
 | --- | --- |
 | `PI_SPACES_DIR` | The spaces folder. A relative value is taken from your home folder. Default: the matching profile's `dir`, else `spaces` next to the base home. |
-| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.pi-spaces/config.json`. |
+| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.config/pi-spaces/config.json` (or `$XDG_CONFIG_HOME/pi-spaces/config.json`) when that file exists, else `~/.pi-spaces/config.json`. |
 | `PI_SPACES_COMMAND` | The program that starts Pi (default `pi`): told to the model and exported (see below). A switch starts Pi again with the command line it already has, so this is information, not a setting. |
 | `PI_SPACES_SETUP` | The command that prepares a new space. `/space new` names `pi-space setup <profile>/<name>` when it is set. The `pi-space` command sets it for the Pi it starts, from the profile or `--setup`; it does not read it from your shell. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; its parent holds the default spaces folder. Default: `~/.pi/agent`. |

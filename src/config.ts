@@ -1,8 +1,8 @@
 // The config file: named profiles that describe a program that runs Pi (its agent home, the command
 // that starts it, where its spaces live, how to set a space up, and the variables it needs per space).
 // Pure and host-agnostic: the file system, the environment and the user's home are all inputs.
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type Env, expandTilde, samePath } from "./spaces.ts";
 
 /** The schema this version of pi-spaces reads. */
@@ -59,10 +59,20 @@ export interface Profile {
 	spaceEnv?: Record<string, string>;
 }
 
-/** The config file: PI_SPACES_CONFIG (a relative value is taken from the user's home), else ~/.pi-spaces/config.json. */
-export function configPath(env: Env, home: string): string {
+/**
+ * The config file, in this order: PI_SPACES_CONFIG (a relative value is taken from the user's home); else
+ * `<XDG config home>/pi-spaces/config.json` when that file exists (XDG_CONFIG_HOME when it is an absolute path,
+ * else ~/.config; the same on Windows); else ~/.pi-spaces/config.json, which stays the answer when no file exists.
+ * Nothing is moved or created. `exists` is injectable for tests.
+ */
+export function configPath(env: Env, home: string, exists: (file: string) => boolean = existsSync): string {
 	const fromEnv = env.PI_SPACES_CONFIG?.trim();
 	if (fromEnv) return resolve(home, expandTilde(fromEnv, home));
+	// XDG: a blank or relative XDG_CONFIG_HOME is ignored.
+	const xdgHome = env.XDG_CONFIG_HOME?.trim();
+	const configHome = xdgHome && isAbsolute(xdgHome) ? xdgHome : join(home, ".config");
+	const xdgFile = join(configHome, "pi-spaces", "config.json");
+	if (exists(xdgFile)) return xdgFile;
 	return join(home, ".pi-spaces", "config.json");
 }
 
