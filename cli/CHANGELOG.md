@@ -8,17 +8,21 @@ commands and options and a patch version fixes.
 
 ### Added
 
-- `pi-space run <profile>/<name|--every> <args...>` (and `--every` alone) runs
-  the profile's new `launcher`, the program itself rather than Pi, with the
-  arguments: `pi-space run gentle/base upgrade` runs
-  `gentle-shell --home ~/.gentle-shell/agent upgrade` with
-  `"launcher": "gentle-shell --home {home}"`. Before, a launcher's own commands
-  could not go through a profile: its `command` ends with `--`, so
-  `pi-space gentle/base upgrade` handed `upgrade` to Pi as a message. `{home}`
-  and `{name}` are the space's folder and name (in base, the profile's home and
-  `base`); a space gets the environment the setup command gets. Help,
-  completion and the README describe it. Needs `@jals1212/pi-spaces` with the
-  `launcher` key.
+- A profile `command` (or `--command`) with `{home}` is the program itself,
+  run in the space's home with no `--space`: `pi-space gentle/base upgrade`
+  runs `gentle-shell --home ~/.gentle-shell/agent upgrade` and
+  `pi-space gentle/work --version` runs
+  `gentle-shell --home ~/.gentle-shell/spaces/work --version`, with
+  `"command": "gentle-shell --home {home}"`. Before, `pi-space gentle/base
+  upgrade` handed `upgrade` to Pi as a message. `{home}` and `{name}` are the
+  space's folder and name (in base, the profile's home and `base`), the words
+  after the space come after the command, and the package commands (`list`,
+  `update`, `install`, `uninstall`, also with `--every`) and the picker run it
+  the same way. In base the program gets the plain environment of the profile;
+  in a space also `PI_CODING_AGENT_DIR`, `PI_SPACE`, `PI_SPACE_HOME`,
+  `PI_SPACES_BASE_HOME`, the profile's `spaceEnv` and `PI_SPACES_BASE_ENV`, as
+  Pi gets them when the extension enters a space. Without `{home}` nothing
+  changes. The README describes it.
 - `pi-space` finds the config file in `~/.config/pi-spaces/config.json`
   (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an
   absolute path; on Windows `%USERPROFILE%\.config\pi-spaces\config.json`)
@@ -34,7 +38,10 @@ commands and options and a patch version fixes.
   instead of one message per word (Pi takes each argument as a message, and
   the shell splits an unquoted prompt into words). The words are joined only
   when none of them is an option for Pi (none starts with `-`); `@file` words
-  stay apart, before the message. With an option they still go as they are.
+  stay apart, before the message. With an option they still go as they are,
+  and so when the first word is one of Pi's own commands (`install`, `remove`,
+  `uninstall`, `update`, `list`, `config`, `auth`, `mcp`):
+  `pi-space pi/work install npm:x` passes `install` and `npm:x` as two words.
 
 ## 0.9.4
 

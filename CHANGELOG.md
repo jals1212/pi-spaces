@@ -8,10 +8,12 @@ commands and options and a patch version fixes.
 
 ### Added
 
-- Profiles accept an optional `launcher`: the program itself, called with its
-  own commands rather than Pi's (`"gentle-shell --home {home}"`), for
-  `pi-space run <profile>/<name> <args...>`. `{home}` and `{name}` are filled
-  in as in `setup`. The unknown-key message lists it among the allowed keys.
+- A profile `command` may contain `{home}` and `{name}`
+  (`"gentle-shell --home {home}"`): `pi-space` then runs it directly in the
+  space's home, without `--space`, so the program's own commands work
+  (`pi-space gentle/base upgrade`). The `<pi_space>` section of the system
+  prompt then says that `pi-space <profile>/<name>` starts a space, not
+  `<command> --space <name>`.
 - The config file is also found in `~/.config/pi-spaces/config.json`
   (`$XDG_CONFIG_HOME/pi-spaces/config.json` when `XDG_CONFIG_HOME` is an
   absolute path; on Windows `%USERPROFILE%\.config\pi-spaces\config.json`),

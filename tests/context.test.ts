@@ -74,3 +74,16 @@ test("addSpaceSection creates the section map when it is missing", () => {
 test("addSpaceSection does nothing without structured prompt options", () => {
 	assert.equal(addSpaceSection(undefined, work), undefined);
 });
+
+test("spacePrompt for a command with {home} says pi-space <profile>/<name> starts a space, not <command> --space", () => {
+	const command = "gentle-shell --home {home}";
+	assert.equal(
+		spacePrompt({ space: "work", home: "/h/spaces/work", command }),
+		[
+			'This Pi runs in the space "work" (PI_SPACE).',
+			"Agent home: /h/spaces/work (PI_SPACE_HOME).",
+			"Command that starts Pi: gentle-shell --home {home} (PI_SPACES_COMMAND); `pi-space <profile>/<name>` starts it in a space, and `/space` lists, creates, removes and switches spaces.",
+		].join("\n"),
+	);
+	assert.doesNotMatch(spacePrompt({ space: undefined, home: "/h/agent", command }), /--space <name>/);
+});

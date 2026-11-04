@@ -14,7 +14,7 @@ const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED_VARIABLES = new Set(["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME"]);
 const isReservedVariable = (name: string) => RESERVED_VARIABLES.has(name) || name.startsWith("PI_SPACES_");
 const TOP_KEYS = ["schema", "default", "profiles"];
-const PROFILE_KEYS = ["home", "command", "dir", "setup", "launcher", "spaceEnv"];
+const PROFILE_KEYS = ["home", "command", "dir", "setup", "spaceEnv"];
 const BUILT_IN = "pi";
 
 export class ConfigError extends Error {
@@ -31,7 +31,6 @@ export interface ProfileSpec {
 	command?: string;
 	dir?: string;
 	setup?: string;
-	launcher?: string;
 	spaceEnv?: Record<string, string>;
 }
 
@@ -44,7 +43,7 @@ export interface Config {
 	profiles: ProfileSpec[];
 }
 
-/** A profile with its paths resolved. `command`, `setup`, `launcher` and `spaceEnv` are set only when the profile has them. */
+/** A profile with its paths resolved. `command`, `setup` and `spaceEnv` are set only when the profile has them. */
 export interface Profile {
 	name: string;
 	/** The base agent home. */
@@ -53,8 +52,6 @@ export interface Profile {
 	dir: string;
 	command?: string;
 	setup?: string;
-	/** The program `pi-space run` calls with a launcher's own command (not Pi); `{home}` and `{name}` are the space's. */
-	launcher?: string;
 	/** Variable templates; `{home}` and `{name}` are filled in by spaceEnvFor. */
 	spaceEnv?: Record<string, string>;
 }
@@ -148,11 +145,11 @@ function parseProfile(name: string, value: unknown, fail: Fail): ProfileSpec {
 	if (!isObject(value)) return fail(`profile "${name}" must be an object.`);
 	for (const key of Object.keys(value)) {
 		if (!PROFILE_KEYS.includes(key)) {
-			fail(`unknown key "${key}" in profile "${name}"; allowed keys are "home", "command", "dir", "setup", "launcher" and "spaceEnv".`);
+			fail(`unknown key "${key}" in profile "${name}"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".`);
 		}
 	}
 	const spec: ProfileSpec = { name };
-	for (const key of ["home", "command", "dir", "setup", "launcher"] as const) {
+	for (const key of ["home", "command", "dir", "setup"] as const) {
 		if (!(key in value)) continue;
 		const text = value[key];
 		if (typeof text !== "string" || text.trim() === "") return fail(`"${key}" in profile "${name}" must be a non-empty string.`);
@@ -206,7 +203,6 @@ function resolveProfile(config: Config | undefined, spec: ProfileSpec, env: Env,
 	const command = spec.command ?? (spec.name === BUILT_IN ? "pi" : undefined);
 	if (command !== undefined) profile.command = command;
 	if (spec.setup !== undefined) profile.setup = spec.setup;
-	if (spec.launcher !== undefined) profile.launcher = spec.launcher;
 	if (spec.spaceEnv !== undefined) profile.spaceEnv = spec.spaceEnv;
 	return profile;
 }
