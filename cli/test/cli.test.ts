@@ -2498,6 +2498,58 @@ test("a command with {home} given as --command works for a profile without one, 
 	assert.equal("PI_SPACES_BASE_HOME" in setupEnvOf(plain), false);
 });
 
+/** Profiles with homeless words: those run the command without its home part, with no --space. */
+const HOMELESS_FILES = {
+	[CONFIG]: {
+		schema: SCHEMA,
+		profiles: {
+			gentle: { home: "~/gentle-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { GSH_CFG: "{home}/cfg" }, homeless: ["upgrade", "memory"] },
+			eq: { home: "~/eq-agent", command: "eq --home={home} --name {name}", dir: "~/eq-spaces", homeless: ["upgrade"] },
+			bare: { home: "~/bare-agent", command: "bare {home} --", dir: "~/bare-spaces", homeless: ["upgrade"] },
+			plain: { home: "~/plain-agent", command: "my-launcher --", dir: "~/plain-spaces", homeless: ["upgrade"] },
+		},
+	},
+};
+
+test("homeless: a first word of the profile's homeless runs the command without --home {home}, then the words, with the plain environment", async () => {
+	const base = await run(["gentle/base", "upgrade"], { files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	assert.equal(base.code, 0, base.err);
+	assert.equal(base.err, "");
+	assert.deepEqual(programsOf(base), [{ program: "gentle-shell", args: ["upgrade"] }]);
+	const space = await run(["gentle/work", "upgrade", "--channel", "main"], { spaces: ["work"], files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	assert.equal(space.code, 0, space.err);
+	assert.deepEqual(programsOf(space), [{ program: "gentle-shell", args: ["upgrade", "--channel", "main"] }]);
+	// Not the space's environment: the plain one of the profile, as in base.
+	const env = setupEnvOf(space);
+	assert.equal(env.PI_CODING_AGENT_DIR, join(space.root, "gentle-agent"));
+	assert.equal(env.GSH_CFG, "kept");
+	assert.equal(env.OTHER, "kept");
+	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
+	// Its words are never joined into a message; the exit status is the program's.
+	const words = await run(["gentle/work", "memory", "migrate", "now"], { spaces: ["work"], files: HOMELESS_FILES, status: 3 });
+	assert.equal(words.code, 3);
+	assert.deepEqual(programsOf(words), [{ program: "gentle-shell", args: ["memory", "migrate", "now"] }]);
+});
+
+test("homeless: only the first word counts, and a profile without it keeps the home", async () => {
+	const later = await run(["gentle/work", "please", "upgrade"], { spaces: ["work"], files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(later), [{ program: "gentle-shell", args: ["--home", join(later.dir, "work"), "please upgrade"] }]);
+	const other = await run(["gentle/work", "setup"], { spaces: ["work"], files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(other), [{ program: "gentle-shell", args: ["--home", join(other.dir, "work"), "setup"] }]);
+	const without = await run(["gentle/base", "upgrade"], { files: COMMAND_FILES });
+	assert.deepEqual(programsOf(without), [{ program: "gentle-shell", args: ["--home", join(without.root, "gentle-agent"), "upgrade"] }]);
+});
+
+test("homeless: every word with {home} is dropped, and an option right before a bare {home}; {name} stays", async () => {
+	const eq = await run(["eq/work", "upgrade"], { files: { ...HOMELESS_FILES, "eq-spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(eq), [{ program: "eq", args: ["--name", "work", "upgrade"] }]);
+	const bare = await run(["bare/base", "upgrade"], { files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(bare), [{ program: "bare", args: ["--", "upgrade"] }]);
+	// A command without {home} is run as it is, still with no --space.
+	const plain = await run(["plain/base", "upgrade", "x"], { files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(plain), [{ program: "my-launcher", args: ["--", "upgrade", "x"] }]);
+});
+
 test("a command with {home}: package commands run <command> <verb> args in base and in a space, with the same environment", async () => {
 	const update = await run(["update", "gentle/work", "--extensions"], { spaces: ["work"], files: COMMAND_FILES, env: { GSH_CFG: "kept" } });
 	const home = join(update.dir, "work");

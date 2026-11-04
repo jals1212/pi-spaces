@@ -4,7 +4,7 @@ description: "Trigger: pi-spaces, space, spaces, /space, pi-space, pi --space, P
 license: MIT
 metadata:
   author: jals1212
-  version: "1.5"
+  version: "1.6"
 ---
 
 ## Activation Contract
@@ -38,7 +38,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Prepare a space for the program that runs Pi | `pi-space setup <profile>/<name>` (or `<profile>/--every`, or `--every` for every profile with a setup): runs the setup command (`{home}` and `{name}` become the space's folder and name) with the space as `PI_CODING_AGENT_DIR`; never in base |
 | Work in another space | User runs `/space switch <name>`, or `$PI_SPACES_COMMAND --space <name> "<prompt>"` (only when the command has no `{home}`), or `pi-space <profile>/<name>` from a shell |
 | Remove a space | User request only: `pi-space remove <profile>/<name> --yes` keeps a backup in `.backups` |
-| The program's own command (e.g. `upgrade`, `--version`) through a profile | Only when the profile's `command` has `{home}` (e.g. `"gentle-shell --home {home}"`): `pi-space <profile>/<name|base> <command>` runs `<command with {home} filled in> <command>` in that home, with no `--space`. Without `{home}`, `pi-space <profile>/<name> upgrade` would give `upgrade` to Pi as a message |
+| The program's own command (e.g. `--version`) through a profile | Only when the profile's `command` has `{home}` (e.g. `"gentle-shell --home {home}"`): `pi-space <profile>/<name|base> <command>` runs `<command with {home} filled in> <command>` in that home, with no `--space`. It works only when the program accepts that command after its home option. A word in the profile's `homeless` list (e.g. `"homeless": ["upgrade"]`) runs the command without its home part and with no `--space`: `pi-space gentle/base upgrade` → `gentle-shell upgrade`. Without it, tell the user to run such a command directly |
 | Packages of a space | `pi-space update <profile>/<name|base|--every> --extensions` (`--every` alone: every profile; with `{home}` in the command they go through the program), `pi-space install <profile>/<name> <source>`, `pi-space uninstall <profile>/<name> <source>`, `pi-space list <profile>/<name>`; without the CLI, `$PI_SPACES_COMMAND --space <name|base> update --extensions` |
 
 Names (the part after `<profile>/`; a profile name follows the same rule): lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters; `base` (the base home) and the command words (`list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup`, `completion`) are reserved.

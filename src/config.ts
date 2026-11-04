@@ -14,7 +14,7 @@ const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED_VARIABLES = new Set(["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME"]);
 const isReservedVariable = (name: string) => RESERVED_VARIABLES.has(name) || name.startsWith("PI_SPACES_");
 const TOP_KEYS = ["schema", "default", "profiles"];
-const PROFILE_KEYS = ["home", "command", "dir", "setup", "spaceEnv"];
+const PROFILE_KEYS = ["home", "command", "dir", "setup", "spaceEnv", "homeless"];
 const BUILT_IN = "pi";
 
 export class ConfigError extends Error {
@@ -32,6 +32,7 @@ export interface ProfileSpec {
 	dir?: string;
 	setup?: string;
 	spaceEnv?: Record<string, string>;
+	homeless?: string[];
 }
 
 export interface Config {
@@ -43,7 +44,7 @@ export interface Config {
 	profiles: ProfileSpec[];
 }
 
-/** A profile with its paths resolved. `command`, `setup` and `spaceEnv` are set only when the profile has them. */
+/** A profile with its paths resolved. `command`, `setup`, `spaceEnv` and `homeless` are set only when the profile has them. */
 export interface Profile {
 	name: string;
 	/** The base agent home. */
@@ -54,6 +55,8 @@ export interface Profile {
 	setup?: string;
 	/** Variable templates; `{home}` and `{name}` are filled in by spaceEnvFor. */
 	spaceEnv?: Record<string, string>;
+	/** First words that run the command without its home part and with no --space (the program's own global commands). */
+	homeless?: string[];
 }
 
 /**
@@ -145,7 +148,7 @@ function parseProfile(name: string, value: unknown, fail: Fail): ProfileSpec {
 	if (!isObject(value)) return fail(`profile "${name}" must be an object.`);
 	for (const key of Object.keys(value)) {
 		if (!PROFILE_KEYS.includes(key)) {
-			fail(`unknown key "${key}" in profile "${name}"; allowed keys are "home", "command", "dir", "setup" and "spaceEnv".`);
+			fail(`unknown key "${key}" in profile "${name}"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".`);
 		}
 	}
 	const spec: ProfileSpec = { name };
@@ -156,7 +159,18 @@ function parseProfile(name: string, value: unknown, fail: Fail): ProfileSpec {
 		spec[key] = text.trim();
 	}
 	if ("spaceEnv" in value) spec.spaceEnv = parseSpaceEnv(name, value.spaceEnv, fail);
+	if ("homeless" in value) spec.homeless = parseHomeless(name, value.homeless, fail);
 	return spec;
+}
+
+function parseHomeless(profile: string, value: unknown, fail: Fail): string[] {
+	if (!Array.isArray(value) || value.length === 0) return fail(`"homeless" in profile "${profile}" must be a non-empty list of words.`);
+	for (const word of value) {
+		if (typeof word !== "string" || word === "" || /\s/.test(word)) {
+			fail(`"homeless" in profile "${profile}" has ${JSON.stringify(word)}, which is not one word; use words with no spaces.`);
+		}
+	}
+	return [...value];
 }
 
 function parseSpaceEnv(profile: string, value: unknown, fail: Fail): Record<string, string> {
@@ -204,6 +218,7 @@ function resolveProfile(config: Config | undefined, spec: ProfileSpec, env: Env,
 	if (command !== undefined) profile.command = command;
 	if (spec.setup !== undefined) profile.setup = spec.setup;
 	if (spec.spaceEnv !== undefined) profile.spaceEnv = spec.spaceEnv;
+	if (spec.homeless !== undefined) profile.homeless = spec.homeless;
 	return profile;
 }
 

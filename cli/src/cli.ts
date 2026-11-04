@@ -5,7 +5,10 @@
 // paths inside its folder) is unwound back to its base, and PI_CODING_AGENT_DIR is the profile's home. The setup
 // command, which is not Pi and does no switch, gets the space's own home and variables on top of that same base.
 // A command with {home} (`gentle-shell --home {home}`) is the program itself: it runs in the space's home with no
-// --space, and the program's own commands work (`pi-space gentle/base upgrade`); see startFor.
+// --space; the words after the space come after the command, so a program's own command works only where the program
+// takes it after its home option (`pi-space gentle/base setup --dry-run` does; gentle-shell's `upgrade` does not,
+// it is recognized only as the first word); see startFor. A first word of the profile's `homeless` list runs the command
+// without its home part and with no --space instead (`gentle-shell upgrade`); see homelessStart.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -403,6 +406,24 @@ function startFor(scope: Scope, name: string, words: string[]): { program: strin
 	const keys = Object.keys(profile.spaceEnv ?? {});
 	if (keys.length > 0) env.PI_SPACES_BASE_ENV = JSON.stringify(Object.fromEntries(keys.flatMap((key) => (plain[key] === undefined ? [] : [[key, plain[key]]]))));
 	return { program, args: [...args, ...words], env };
+}
+
+/**
+ * When the first word is one of the profile's `homeless` words (a program's own command that takes no home, such as
+ * `upgrade`), the command without its home part, then the words as they are, with no --space and the plain environment
+ * of the profile: every word with {home} is dropped, with an option right before a bare {home} (`--home {home}`), and
+ * {name} is still filled in. Otherwise undefined. Throws when the command has an unclosed quote.
+ */
+function homelessStart(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } | undefined {
+	const { io, profile } = scope;
+	if (words.length === 0 || !profile.homeless?.includes(words[0])) return undefined;
+	const kept: string[] = [];
+	for (const word of splitCommand(io.env.PI_SPACES_COMMAND ?? "")) {
+		if (!word.includes("{home}")) kept.push(word.replaceAll("{name}", () => name));
+		else if (word === "{home}" && kept.length > 1 && kept[kept.length - 1].startsWith("-")) kept.pop();
+	}
+	const [program = "pi", ...args] = kept;
+	return { program, args: [...args, ...words], env: io.childEnv };
 }
 
 /**
@@ -1176,7 +1197,7 @@ async function launch(name: string, args: string[], scope: Scope): Promise<void>
 	if (!checkSpace(name, scope.dir, io)) return io.exit(1);
 	let launched: ReturnType<typeof startFor>;
 	try {
-		launched = startFor(scope, name, promptArgs(args));
+		launched = homelessStart(scope, name, args) ?? startFor(scope, name, promptArgs(args));
 	} catch (error) {
 		io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 		return io.exit(2);
