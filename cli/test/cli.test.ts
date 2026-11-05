@@ -2435,7 +2435,7 @@ const COMMAND_FILES = {
 	},
 };
 
-test("a command with {home}: pi-space <profile>/base words runs it with the profile's home, no --space, and the plain environment", async () => {
+test("a command with {home}: pi-space <profile>/base words runs it with the profile's home, no --space, and the plain environment marked as opened by pi-spaces", async () => {
 	const r = await run(["gentle/base", "upgrade"], { files: COMMAND_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
 	const home = join(r.root, "gentle-agent");
 	assert.equal(r.code, 0, r.err);
@@ -2445,7 +2445,9 @@ test("a command with {home}: pi-space <profile>/base words runs it with the prof
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.GSH_CFG, "kept");
 	assert.equal(env.OTHER, "kept");
-	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
+	// PI_SPACES_BASE_HOME tells the extension pi-spaces opened base, so the status line shows 🪐 gentle/base.
+	assert.equal(env.PI_SPACES_BASE_HOME, home);
+	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
 });
 
 test("a command with {home}: a space gets its folder as {home}, the words after it, and the environment of the space", async () => {
