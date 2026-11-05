@@ -9,8 +9,9 @@ const profile = (commands?: { base: string; space?: string }): Profile => ({
 	dir: "/h/spaces",
 	...(commands ? { commands } : {}),
 });
-const base = { space: undefined, targetHome: "/h/agent", baseHome: "/h/agent" };
-const work = { space: "work", targetHome: "/h/spaces/work", baseHome: "/h/agent" };
+const base = { space: undefined, targetHome: "/h/agent", spaceRoot: "/h", baseHome: "/h/agent" };
+const work = { space: "work", targetHome: "/h/spaces/work", spaceRoot: "/h/spaces/work", baseHome: "/h/agent" };
+const rooted = { space: "work", targetHome: "/h/spaces/work/agent", spaceRoot: "/h/spaces/work", baseHome: "/h/agent" };
 
 test("base runs commands.base with {home} and {name} filled with the base home and base", () => {
 	assert.deepEqual(profileCommand(profile({ base: "my-launcher" }), base), { command: "my-launcher", args: [] });
@@ -50,4 +51,21 @@ test("quotes keep spaces in a word and are removed; a $ stays literal", () => {
 test("an unclosed quote throws", () => {
 	assert.throws(() => splitCommand(`my-launcher "oops`), { message: 'the command has an unclosed " quote' });
 	assert.throws(() => profileCommand(profile({ base: "my-launcher 'oops" }), base), { message: "the command has an unclosed ' quote" });
+});
+
+test("{space} is the space root: for a rooted space its folder above the agent home, for a flat one the home, in base the parent of the base home", () => {
+	const template = { base: "my-launcher --config {space}/cfg", space: "my-launcher --home {home} --space-dir {space} --name {name}" };
+	assert.deepEqual(profileCommand(profile(template), rooted), { command: "my-launcher", args: ["--home", "/h/spaces/work/agent", "--space-dir", "/h/spaces/work", "--name", "work"] });
+	assert.deepEqual(profileCommand(profile(template), work), { command: "my-launcher", args: ["--home", "/h/spaces/work", "--space-dir", "/h/spaces/work", "--name", "work"] });
+	assert.deepEqual(profileCommand(profile(template), base), { command: "my-launcher", args: ["--config", "/h/cfg"] });
+	// Without commands.space, the base command is filled for base and gets --space.
+	assert.deepEqual(profileCommand(profile({ base: "my-launcher --config {space}/cfg" }), rooted), { command: "my-launcher", args: ["--config", "/h/cfg", "--space", "work"] });
+});
+
+test("setupCommand fills {space} in every word, with the root after the name, and {home} as before", () => {
+	assert.deepEqual(setupCommand("run {home} {space} {name} {space}/x", "/s/work/agent", "work", "/s/work"), { program: "run", args: ["/s/work/agent", "/s/work", "work", "/s/work/x"] });
+	// A "$" in the root is put in as written.
+	assert.deepEqual(setupCommand("run {space}", "/s/$&/agent", "w", "/s/$&"), { program: "run", args: ["/s/$&"] });
+	// Without a root (the old three arguments) it is the home: a flat space.
+	assert.deepEqual(setupCommand("run {home} {space}", "/s/work", "work"), { program: "run", args: ["/s/work", "/s/work"] });
 });

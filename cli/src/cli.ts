@@ -10,6 +10,8 @@
 // as its first word, such as `upgrade`, does not); see startFor. A first word of the profile's `homeless` list runs the command
 // without its home part and with no --space instead (`my-launcher upgrade`); see homelessStart.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
+// A space is a root folder, <spaces folder>/<name>, with its agent home inside it, <root>/agent (an old space has no agent
+// folder and its root is its agent home; spaceHome tells which). {home} is the agent home, {space} the root.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
@@ -26,12 +28,15 @@ import {
 	type Env,
 	findOwnDeclaration,
 	hasSetupCommand,
+	isRooted,
 	listSpaces,
+	migrateSpace,
 	type PackageDeclaration,
 	removeSpace,
 	renameSpace,
 	SpaceError,
 	samePath,
+	spaceHome,
 	validateName,
 } from "@jals1212/pi-spaces/spaces";
 import {
@@ -60,6 +65,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
+  pi-space migrate <space|--every>             move an old space's content into its agent/ folder, after a copy in .backups (never base)
   pi-space update <space|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
@@ -69,12 +75,12 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
-  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup) and spaces, --every alone in every profile;
+  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup or migrate) and spaces, --every alone in every profile;
   a failure does not stop the rest, and the exit status is 1 if any failed.
 Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
-  --setup <cmd>                                the setup command instead of the profile's; {home} and {name} become the space's folder and name
+  --setup <cmd>                                the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name
   --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
@@ -114,6 +120,7 @@ export type CliCommand = (
 	| { kind: "packages"; verb: PackageVerb; target: PackageTarget; args: string[] }
 	| { kind: "new"; name: string }
 	| { kind: "setup"; target: PackageTarget }
+	| { kind: "migrate"; target: PackageTarget }
 	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
 	| { kind: "init" }
@@ -135,7 +142,7 @@ function isHelpFlag(word: string): boolean {
 const CALL_HELP: Record<keyof CallOptions, [label: string, text: string]> = {
 	command: ["--command <cmd>", 'the program to run instead of the profile\'s command, e.g. "my-launcher --"; for one profile'],
 	dir: ["--dir <path>", "the spaces folder instead of the profile's; the Pi it starts gets it too; for one profile"],
-	setup: ["--setup <cmd>", "the setup command instead of the profile's; {home} and {name} become the space's folder and name"],
+	setup: ["--setup <cmd>", "the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name"],
 	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)"],
 };
 
@@ -161,7 +168,7 @@ const NAME_OR_EVERY: [string, string][] = [
 	["--every", "the same in every profile: pi first, then the others in alphabetical order"],
 ];
 
-/** The commands, in the order completion lists them. They are reserved words: the core never lets a space be named one. */
+/** The commands, in the order completion lists them. They are reserved words: a space is always named with its profile, so none of them is read as a space. */
 const COMMANDS: Record<string, CommandHelp> = {
 	list: {
 		summary: "list the spaces, or the packages of one",
@@ -175,7 +182,7 @@ const COMMANDS: Record<string, CommandHelp> = {
 	new: {
 		summary: "create a space",
 		usage: "new <space>",
-		about: ["Its settings.json declares the extension. It runs the profile's setup command in it when there is one, and does not start Pi."],
+		about: ["The space is a folder with its agent home, agent/, inside it; agent/settings.json declares the extension. It runs the profile's setup command in it when there is one, and does not start Pi."],
 		args: [["<space>", "<profile>/<name>: the profile and the name of the new space"]],
 		options: [],
 		calls: ["dir", "setup", "config"],
@@ -217,6 +224,22 @@ const COMMANDS: Record<string, CommandHelp> = {
 		],
 		calls: ["dir", "config"],
 		examples: ["pi-space remove pi/work", "pi-space remove pi/work --yes", "pi-space remove pi/work --yes --no-backup"],
+	},
+	migrate: {
+		summary: "move an old space into its agent folder",
+		usage: "migrate <space|--every>",
+		about: [
+			"A space is a folder with its agent home, agent/, inside it. An old space has no agent/ folder and its folder is its agent home; migrate moves its content into agent/, after a copy of the whole space in .backups, and the space keeps its name.",
+			"It never touches base, the space you are in, or a space that already has agent/.",
+		],
+		args: [
+			["<space>", "<profile>/<name>: a space of a profile"],
+			["<profile>/--every", "every space of that profile, never base; one that already has agent/ is skipped, a failure does not stop the rest, and the exit status is 1 if any failed"],
+			["--every", "every space of every profile"],
+		],
+		options: [],
+		calls: ["dir", "config"],
+		examples: ["pi-space migrate pi/work", "pi-space migrate pi/--every", "pi-space migrate --every"],
 	},
 	update: {
 		summary: "update the packages of a space",
@@ -297,8 +320,9 @@ function commandHelp(name: string): string {
 
 /**
  * The call options (--command, --dir, --setup, --config) come first; after a space name every argument belongs to Pi.
- * The commands (list, new, setup, remove, rename, update, install, uninstall, completion) are reserved words, so they
- * are read before a name: the core never lets a space have one of them as its name. `__complete` is the hidden
+ * The commands (list, new, setup, remove, rename, migrate, update, install, uninstall, completion) are reserved words, so they
+ * are read before a name: the core never lets a space have one of them as its name (migrate and init are commands of this CLI
+ * only, and a space is always named with its profile, so `pi/migrate` is still a space). `__complete` is the hidden
  * command the completion script calls; it starts with "_", which no space name does.
  * A space name never starts with "-", so any other option in first place is unknown, not a name.
  */
@@ -329,7 +353,7 @@ function parseCommand(args: string[]): CliCommand {
 	if (first === "list" && rest.length === 0) return { kind: "list" };
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
 	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
-	if (first === "setup") return parseSetup(rest);
+	if (first === "setup" || first === "migrate") return parseTarget(first, rest);
 	if (first === "init") return rest.length === 0 ? { kind: "init" } : { kind: "usage" };
 	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
 	if (first === "__complete") return { kind: "complete", words: rest };
@@ -352,12 +376,12 @@ function parseHelp(rest: string[]): CliCommand {
 	return { kind: "usage" };
 }
 
-/** `setup <name>` or `setup --every`: exactly one argument. */
-function parseSetup(rest: string[]): CliCommand {
+/** `setup <name>` or `setup --every`, and the same for migrate: exactly one argument. */
+function parseTarget(kind: "setup" | "migrate", rest: string[]): CliCommand {
 	if (rest.length !== 1) return { kind: "usage" };
-	if (rest[0] === "--every") return { kind: "setup", target: { every: true } };
+	if (rest[0] === "--every") return { kind, target: { every: true } };
 	if (rest[0].startsWith("-")) return { kind: "unknown-option", option: rest[0] };
-	return { kind: "setup", target: { name: rest[0] } };
+	return { kind, target: { name: rest[0] } };
 }
 
 /**
@@ -420,30 +444,37 @@ function startFor(scope: Scope, name: string, words: string[]): Start {
 	const { io, profile, commands } = scope;
 	if (commands !== undefined && name === BASE) return baseStart(scope, commands.base, words);
 	if (commands?.space !== undefined && !commands.space.includes("{home}")) {
-		const { program, args } = setupCommand(commands.space, join(scope.dir, name), name);
+		const root = rootOf(scope, name);
+		const { program, args } = setupCommand(commands.space, spaceHome(root), name, root);
 		return { program, args: [...args, ...words], env: io.childEnv };
 	}
 	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
 	const template = io.env.PI_SPACES_COMMAND ?? "";
 	if (name === BASE) return baseStart(scope, template, words);
-	const home = join(scope.dir, name);
-	const { program, args } = setupCommand(template, home, name);
+	const root = rootOf(scope, name);
+	const home = spaceHome(root);
+	const { program, args } = setupCommand(template, home, name, root);
 	const plain = io.childEnv ?? io.env;
-	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
+	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name, root), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
 	// The base's own values of the spaceEnv variables, as relaunchEnv keeps them to put back on the way to base.
 	const keys = Object.keys(profile.spaceEnv ?? {});
 	if (keys.length > 0) env.PI_SPACES_BASE_ENV = JSON.stringify(Object.fromEntries(keys.flatMap((key) => (plain[key] === undefined ? [] : [[key, plain[key]]]))));
 	return { program, args: [...args, ...words], env };
 }
 
+/** The root of a space of this scope: <spaces folder>/<name>; for base, the folder above the profile's home. */
+function rootOf(scope: Scope, name: string): string {
+	return name === BASE ? dirname(scope.profile.home) : join(scope.dir, name);
+}
+
 /**
- * Base started with `template` as it is ({home} and {name} are the profile's home and base), the words after it, no
+ * Base started with `template` as it is ({home}, {space} and {name} are the profile's home, the folder above it and base), the words after it, no
  * --space, and the plain environment of the profile plus PI_SPACES_BASE_HOME, which marks base as opened by pi-spaces,
  * as `--space base` does: the extension shows 🪐 <profile>/base.
  */
 function baseStart(scope: Scope, template: string, words: string[]): Start {
 	const { io, profile } = scope;
-	const { program, args } = setupCommand(template, profile.home, BASE);
+	const { program, args } = setupCommand(template, profile.home, BASE, rootOf(scope, BASE));
 	return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
 }
 
@@ -451,14 +482,15 @@ function baseStart(scope: Scope, template: string, words: string[]): Start {
  * When the first word is one of the profile's `homeless` words (a program's own command that takes no home, such as
  * `upgrade`), the command without its home part, then the words as they are, with no --space and the plain environment
  * of the profile: every word with {home} is dropped, with an option right before a bare {home} (`--home {home}`), and
- * {name} is still filled in. Otherwise undefined. Throws when the command has an unclosed quote.
+ * {name} and {space} are still filled in. Otherwise undefined. Throws when the command has an unclosed quote.
  */
 function homelessStart(scope: Scope, name: string, words: string[]): Start | undefined {
 	const { io, profile } = scope;
 	if (words.length === 0 || !profile.homeless?.includes(words[0])) return undefined;
 	const kept: string[] = [];
+	const root = rootOf(scope, name);
 	for (const word of splitCommand(io.env.PI_SPACES_COMMAND ?? "")) {
-		if (!word.includes("{home}")) kept.push(word.replaceAll("{name}", () => name));
+		if (!word.includes("{home}")) kept.push(word.replaceAll("{space}", () => root).replaceAll("{name}", () => name));
 		else if (word === "{home}" && kept.length > 1 && kept[kept.length - 1].startsWith("-")) kept.pop();
 	}
 	const [program = "pi", ...args] = kept;
@@ -467,11 +499,12 @@ function homelessStart(scope: Scope, name: string, words: string[]): Start | und
 
 /**
  * The program and arguments of the setup command for one space: the template split like --command, with every
- * {home} and {name} in each word replaced by the space's folder and name. Throws when it has an unclosed quote.
+ * {home}, {space} and {name} in each word replaced by the space's agent home, its root and its name. An old flat space
+ * has no root of its own, so without `spaceRoot` it is the home. Throws when it has an unclosed quote.
  */
-export function setupCommand(template: string, home: string, name: string): { program: string; args: string[] } {
+export function setupCommand(template: string, home: string, name: string, spaceRoot: string = home): { program: string; args: string[] } {
 	// Replacer functions, so a "$" in the folder or name is put in as written, never read as a pattern.
-	const fill = (word: string) => word.replaceAll("{home}", () => home).replaceAll("{name}", () => name);
+	const fill = (word: string) => word.replaceAll("{home}", () => home).replaceAll("{space}", () => spaceRoot).replaceAll("{name}", () => name);
 	const [program = "", ...args] = splitCommand(template).map(fill);
 	return { program, args };
 }
@@ -714,6 +747,7 @@ function spansProfiles(command: CliCommand): boolean {
 			return true;
 		case "packages":
 		case "setup":
+		case "migrate":
 			return "every" in command.target;
 		default:
 			return false;
@@ -774,6 +808,8 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			}
 			case "setup":
 				return await runSetup(command.target, call);
+			case "migrate":
+				return runMigrate(command.target, call);
 			case "rename": {
 				const ref = qualify(command.from, call);
 				if (!ref) return;
@@ -1073,6 +1109,8 @@ function commandArguments(command: string, profiles: CompletionProfile[]): strin
 			return [...spaceCandidates(profiles, false), ...options];
 		case "setup":
 			return [...spaceCandidates(profiles, false), ...everyCandidates(profiles, "every space of every profile with a setup command", (name) => `every space of ${name}`), ...options];
+		case "migrate":
+			return [...spaceCandidates(profiles, false), ...everyCandidates(profiles, "every space of every profile", (name) => `every space of ${name}`), ...options];
 		case "list":
 		case "update":
 		case "install":
@@ -1128,15 +1166,15 @@ function checkSetup(io: CliIo, source: string): boolean {
 }
 
 /** Runs a setup command in a space, as that space's agent home (with the profile's spaceEnv), and returns its exit status. */
-function spawnSetup(setup: { program: string; args: string[] }, name: string, home: string, io: CliIo, profile: Profile): Promise<number> {
+function spawnSetup(setup: { program: string; args: string[] }, name: string, home: string, root: string, io: CliIo, profile: Profile): Promise<number> {
 	// The profile's spaceEnv, for this space, then the three variables of the space, which a profile cannot set.
-	const spaceEnv = spaceEnvFor(profile, home, name);
+	const spaceEnv = spaceEnvFor(profile, home, name, root);
 	return spawnPi(setup.program, setup.args, io, { ...(io.childEnv ?? io.env), ...spaceEnv, PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home });
 }
 
 /** The setup command for one space, from PI_SPACES_SETUP of this profile's io; checkSetup has accepted it. */
-function setupFor(name: string, home: string, io: CliIo): { program: string; args: string[] } {
-	return setupCommand(io.env.PI_SPACES_SETUP ?? "", home, name);
+function setupFor(name: string, home: string, root: string, io: CliIo): { program: string; args: string[] } {
+	return setupCommand(io.env.PI_SPACES_SETUP ?? "", home, name, root);
 }
 
 async function create(name: string, scope: Scope): Promise<void> {
@@ -1148,9 +1186,11 @@ async function create(name: string, scope: Scope): Promise<void> {
 		const path = createSpace(dir, name, newSpaceDeclaration(io.env, io.home, profile.home));
 		io.stdout.write(`Created space "${name}" at ${path}.\n`);
 		if (withSetup) {
-			const setup = setupFor(name, path, io);
+			// A new space is rooted: the setup runs in its agent home.
+			const home = spaceHome(path);
+			const setup = setupFor(name, home, path, io);
 			io.stdout.write(`Setting it up: ${[setup.program, ...setup.args].join(" ")}\n`);
-			const status = await spawnSetup(setup, name, path, io, profile);
+			const status = await spawnSetup(setup, name, home, path, io, profile);
 			if (status !== 0) {
 				io.stderr.write(`pi-space: Setup failed in space "${name}" (exit status ${status}); the space is kept. Run it again with: pi-space setup ${profile.name}/${name}\n`);
 				return io.exit(status);
@@ -1364,8 +1404,9 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 async function setupEach(scope: Scope, names: string[], failed: string[]): Promise<void> {
 	for (const name of names) {
 		scope.io.stdout.write(`== ${scope.profile.name}/${name}\n`);
-		const home = join(scope.dir, name);
-		if ((await spawnSetup(setupFor(name, home, scope.io), name, home, scope.io, scope.profile)) !== 0) failed.push(`${scope.profile.name}/${name}`);
+		const root = join(scope.dir, name);
+		const home = spaceHome(root);
+		if ((await spawnSetup(setupFor(name, home, root, scope.io), name, home, root, scope.io, scope.profile)) !== 0) failed.push(`${scope.profile.name}/${name}`);
 	}
 }
 
@@ -1416,8 +1457,9 @@ async function runSetup(target: PackageTarget, call: Call): Promise<void> {
 		return io.exit(1);
 	}
 	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
-	const home = join(scope.dir, ref.name);
-	return io.exit(await spawnSetup(setupFor(ref.name, home, scope.io), ref.name, home, scope.io, scope.profile));
+	const root = join(scope.dir, ref.name);
+	const home = spaceHome(root);
+	return io.exit(await spawnSetup(setupFor(ref.name, home, root, scope.io), ref.name, home, root, scope.io, scope.profile));
 }
 
 function finishSetup(failed: string[], io: CliIo): void {
@@ -1426,6 +1468,92 @@ function finishSetup(failed: string[], io: CliIo): void {
 		return io.exit(1);
 	}
 	io.exit(0);
+}
+
+/**
+ * Moves one old space of a scope into its agent folder (migrateSpace: backup first, the active space and base homes
+ * refused) and returns the message to print. Throws a SpaceError for a refusal.
+ */
+function migrateOne(scope: Scope, name: string): string {
+	const { io, dir, profile } = scope;
+	const { home, backup } = migrateSpace(dir, name, agentHome(io.env, io.home), protectedHomes(io, profile), io.home);
+	return `Migrated space "${name}": its agent home is now ${home} (backup: ${backup}).`;
+}
+
+/** Why a migration failed, as the line to print. */
+function migrateFailure(name: string, error: unknown): string {
+	return `pi-space: ${error instanceof SpaceError ? error.message : `could not migrate space "${name}": ${(error as Error).message}`}\n`;
+}
+
+/** Migrates each of `names`, with a `== <profile>/<name>` header; a space that already has agent/ is skipped with a note, the failures are added to `failed`. */
+function migrateEach(scope: Scope, names: string[], failed: string[]): void {
+	const { io } = scope;
+	for (const name of names) {
+		io.stdout.write(`== ${scope.profile.name}/${name}\n`);
+		const root = join(scope.dir, name);
+		if (isRooted(root)) {
+			io.stdout.write(`Space "${name}" already has its agent home in ${spaceHome(root)}; skipped.\n`);
+			continue;
+		}
+		try {
+			io.stdout.write(`${migrateOne(scope, name)}\n`);
+		} catch (error) {
+			io.stderr.write(migrateFailure(name, error));
+			failed.push(`${scope.profile.name}/${name}`);
+		}
+	}
+}
+
+/**
+ * `pi-space migrate`: moves an old space (its folder is its agent home) into `<root>/agent`, with a copy in .backups first.
+ * With <profile>/--every, every space of that profile; with --every, of every profile; never base. A space that already has
+ * agent/ is refused (exit 1) when named, skipped with a note under --every; with --every one failure does not stop the
+ * rest, and the status is 1 if any failed.
+ */
+function runMigrate(target: PackageTarget, call: Call): void {
+	const { io } = call;
+	const finish = (failed: string[]) => {
+		if (failed.length > 0) {
+			io.stderr.write(`pi-space: migrate failed in: ${failed.join(", ")}\n`);
+			return io.exit(1);
+		}
+		io.exit(0);
+	};
+	if ("every" in target) {
+		const scopes = allScopes(call);
+		if (scopes.every((scope) => listSpaces(scope.dir).length === 0)) {
+			io.stdout.write("No spaces yet. Create one with pi-space new <profile>/<name>.\n");
+			return io.exit(0);
+		}
+		const failed: string[] = [];
+		for (const scope of scopes) migrateEach(scope, listSpaces(scope.dir), failed);
+		return finish(failed);
+	}
+	const ref = qualify(target.name, call);
+	if (!ref) return;
+	const scope = scopeOf(call, ref.profile);
+	if (ref.name === EVERY) {
+		const names = listSpaces(scope.dir);
+		if (names.length === 0) {
+			io.stdout.write(`No spaces yet. Create one with pi-space new ${ref.profile}/<name>.\n`);
+			return io.exit(0);
+		}
+		const failed: string[] = [];
+		migrateEach(scope, names, failed);
+		return finish(failed);
+	}
+	if (ref.name === BASE) {
+		io.stderr.write("pi-space: migrate runs only on spaces, not on base (the home Pi starts with).\n");
+		return io.exit(1);
+	}
+	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
+	try {
+		io.stdout.write(`${migrateOne(scope, ref.name)}\n`);
+		return io.exit(0);
+	} catch (error) {
+		io.stderr.write(migrateFailure(ref.name, error));
+		return io.exit(1);
+	}
 }
 
 /** A picker item: `<profile>/<name>` shown, and the profile and space it starts. */
@@ -1444,7 +1572,7 @@ function pickerChoices(call: Call): PickerChoice[] {
 	const scopes = allScopes(call);
 	return scopes.flatMap(({ profile, dir }) =>
 		[BASE, ...listSpaces(dir)].map((space): PickerChoice => {
-			const home = space === BASE ? profile.home : join(dir, space);
+			const home = space === BASE ? profile.home : spaceHome(join(dir, space));
 			return {
 				name: `${profile.name}/${space}`,
 				...(scopes.length > 1 ? { group: profile.name } : {}),

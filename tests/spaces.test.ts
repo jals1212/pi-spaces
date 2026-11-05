@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, renameSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { test } from "node:test";
@@ -10,9 +10,11 @@ import {
 	createSpace,
 	findOwnDeclaration,
 	listSpaces,
+	migrateSpace,
 	removeSpace,
 	renameSpace,
 	SpaceError,
+	spaceHome,
 	spacesDir,
 	validateName,
 } from "../src/spaces.ts";
@@ -82,13 +84,45 @@ test("activeSpace is the space whose folder is the agent home", () => {
 	assert.equal(activeSpace(dir, join(dir, "work", "nested")), undefined);
 });
 
-test("createSpace makes the folder and a settings.json carrying the declaration", () => {
+test("activeSpace maps the agent home of a rooted space, and the folder of a flat one, back to the name", () => {
+	const root = scratch();
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "rooted", "agent"), { recursive: true });
+	mkdirSync(join(dir, "flat"), { recursive: true });
+	assert.equal(activeSpace(dir, join(dir, "rooted", "agent")), "rooted");
+	assert.equal(activeSpace(dir, join(dir, "rooted", "agent") + "/"), "rooted");
+	assert.equal(activeSpace(dir, join(dir, "flat")), "flat");
+	// The root of a rooted space is not its agent home.
+	assert.equal(activeSpace(dir, join(dir, "rooted")), undefined);
+	assert.equal(activeSpace(dir, join(dir, "rooted", "agent", "nested")), undefined);
+});
+
+test("spaceHome is <root>/agent when that is a real folder, and the root itself otherwise", () => {
+	const root = scratch();
+	mkdirSync(join(root, "rooted", "agent"), { recursive: true });
+	mkdirSync(join(root, "flat"));
+	mkdirSync(join(root, "file"));
+	writeFileSync(join(root, "file", "agent"), "x");
+	mkdirSync(join(root, "link"));
+	mkdirSync(join(root, "elsewhere"));
+	symlinkSync(join(root, "elsewhere"), join(root, "link", "agent"));
+	assert.equal(spaceHome(join(root, "rooted")), join(root, "rooted", "agent"));
+	assert.equal(spaceHome(join(root, "flat")), join(root, "flat"));
+	// A file or a symlink named agent does not make a root.
+	assert.equal(spaceHome(join(root, "file")), join(root, "file"));
+	assert.equal(spaceHome(join(root, "link")), join(root, "link"));
+	assert.equal(spaceHome(join(root, "missing")), join(root, "missing"));
+});
+
+test("createSpace makes the root with its agent home inside, and a settings.json there carrying the declaration", () => {
 	const dir = join(scratch(), "spaces");
 	const path = createSpace(dir, "work", "npm:@jals1212/pi-spaces@0.1.0");
 	assert.equal(path, join(dir, "work"));
-	assert.deepEqual(JSON.parse(readFileSync(join(dir, "work", "settings.json"), "utf8")), {
+	assert.deepEqual(readdirSync(join(dir, "work")), ["agent"]);
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "work", "agent", "settings.json"), "utf8")), {
 		packages: ["npm:@jals1212/pi-spaces@0.1.0"],
 	});
+	assert.equal(spaceHome(path), join(path, "agent"));
 });
 
 test("createSpace refuses invalid, reserved and existing names and leaves the folder unchanged", () => {
@@ -107,7 +141,7 @@ test("removeSpace deletes a space and refuses the active one, base, missing name
 	const dir = join(root, "spaces");
 	createSpace(dir, "work", "x");
 	createSpace(dir, "other", "x");
-	const agentHome = join(dir, "other");
+	const agentHome = join(dir, "other", "agent");
 
 	assert.throws(() => removeSpace(dir, "other", agentHome), new SpaceError('Space "other" is active; switch to another space before removing it.'));
 	assert.throws(() => removeSpace(dir, "base", agentHome), new SpaceError('"base" is reserved for the home Pi started with.'));
@@ -148,7 +182,7 @@ test("backupSpace makes the same checks as removeSpace and moves nothing when on
 	const root = scratch();
 	const dir = join(root, "spaces");
 	createSpace(dir, "work", "x");
-	assert.throws(() => backupSpace(dir, "work", join(dir, "work"), [], root), new SpaceError('Space "work" is active; switch to another space before removing it.'));
+	assert.throws(() => backupSpace(dir, "work", join(dir, "work", "agent"), [], root), new SpaceError('Space "work" is active; switch to another space before removing it.'));
 	assert.throws(() => backupSpace(dir, "base", join(root, "agent"), [], root), SpaceError);
 	assert.throws(() => backupSpace(dir, "ghost", join(root, "agent"), [], root), new SpaceError('Space "ghost" does not exist.'));
 	assert.throws(() => backupSpace(dir, BACKUPS, join(root, "agent"), [], root), SpaceError);
@@ -381,12 +415,12 @@ test("renameSpace refuses the active space, symlinks and a space holding the cur
 	createSpace(dir, "work", "x");
 	mkdirSync(join(dir, "agent"));
 	assert.throws(
-		() => renameSpace(dir, "work", "z", join(dir, "work")),
+		() => renameSpace(dir, "work", "z", join(dir, "work", "agent")),
 		new SpaceError('Space "work" is active; switch to another space before renaming it.'),
 	);
 	const base = join(dir, "agent");
 	assert.throws(
-		() => renameSpace(dir, "agent", "z", join(dir, "work"), [base]),
+		() => renameSpace(dir, "agent", "z", join(dir, "work", "agent"), [base]),
 		new SpaceError(`Space "agent" holds the base home ${base}; it cannot be renamed.`),
 	);
 	mkdirSync(join(root, "precious"));
@@ -398,4 +432,119 @@ test("renameSpace refuses the active space, symlinks and a space holding the cur
 	assert.deepEqual(listSpaces(dir), ["agent", "work"]);
 	assert.equal(existsSync(join(dir, "z")), false);
 	assert.ok(existsSync(join(root, "precious")));
+});
+
+/** An old flat space: its root is its agent home. */
+function flatSpace(dir: string, name: string, files: Record<string, string> = { "settings.json": '{"packages":[]}', "sessions/a.jsonl": "one" }): string {
+	const root = join(dir, name);
+	for (const [file, content] of Object.entries(files)) {
+		mkdirSync(join(root, file, ".."), { recursive: true });
+		writeFileSync(join(root, file), content);
+	}
+	return root;
+}
+
+const NOW = new Date("2026-01-02T03:04:05Z");
+const STAMP = "2026-01-02T03-04-05Z";
+
+test("migrateSpace moves an old flat space into <root>/agent after copying it to .backups, and returns root, home and backup", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	const root = flatSpace(dir, "work");
+	flatSpace(dir, "other");
+	const result = migrateSpace(dir, "work", join(base, "agent"), [], base, NOW);
+	assert.deepEqual(result, { root, home: join(root, "agent"), backup: join(dir, BACKUPS, `work-${STAMP}`) });
+	assert.deepEqual(readdirSync(root), ["agent"]);
+	assert.equal(readFileSync(join(root, "agent", "settings.json"), "utf8"), '{"packages":[]}');
+	assert.equal(readFileSync(join(root, "agent", "sessions", "a.jsonl"), "utf8"), "one");
+	// The backup is the old space as it was.
+	assert.equal(readFileSync(join(result.backup, "settings.json"), "utf8"), '{"packages":[]}');
+	assert.equal(readFileSync(join(result.backup, "sessions", "a.jsonl"), "utf8"), "one");
+	assert.equal(existsSync(join(result.backup, "agent")), false);
+	// Nothing else is left in the spaces folder, and the space is still listed, with its agent home.
+	assert.deepEqual(readdirSync(dir).sort(), [BACKUPS, "other", "work"]);
+	assert.deepEqual(listSpaces(dir), ["other", "work"]);
+	assert.equal(activeSpace(dir, join(root, "agent")), "work");
+	// The other space is untouched.
+	assert.equal(spaceHome(join(dir, "other")), join(dir, "other"));
+});
+
+test("migrateSpace keeps a file named agent of the old space, now inside agent/, and numbers a backup of the same second", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	const root = flatSpace(dir, "work", { "agent": "odd", "settings.json": "{}" });
+	mkdirSync(join(dir, BACKUPS, `work-${STAMP}`), { recursive: true });
+	const result = migrateSpace(dir, "work", join(base, "agent"), [], base, NOW);
+	assert.equal(result.backup, join(dir, BACKUPS, `work-${STAMP}-2`));
+	assert.equal(readFileSync(join(root, "agent", "agent"), "utf8"), "odd");
+	assert.equal(readFileSync(join(result.backup, "agent"), "utf8"), "odd");
+});
+
+test("migrateSpace refuses a rooted space, base, a missing or invalid name, the active space and a space holding the base home, changing nothing", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	flatSpace(dir, "work");
+	flatSpace(dir, "held");
+	createSpace(dir, "rooted", "x");
+	const agent = join(base, "agent");
+	const before = () => readdirSync(dir).sort();
+	const cases: [string, string, string[], string][] = [
+		["rooted", agent, [], 'Space "rooted" already has its agent home in ' + join(dir, "rooted", "agent") + "."],
+		["base", agent, [], '"base" is reserved for the home Pi started with.'],
+		["ghost", agent, [], 'Space "ghost" does not exist.'],
+		["Bad Name", agent, [], validateName("Bad Name") as string],
+		["work", join(dir, "work"), [], 'Space "work" is active; switch to another space before migrating it.'],
+		["held", agent, [join(dir, "held", "sub")], `Space "held" holds the base home ${join(dir, "held", "sub")}; it cannot be migrated.`],
+	];
+	const snapshot = before();
+	for (const [name, current, protect, message] of cases) {
+		assert.throws(() => migrateSpace(dir, name, current, protect, base, NOW), new SpaceError(message), name);
+		assert.deepEqual(before(), snapshot, name);
+	}
+	assert.equal(spaceHome(join(dir, "work")), join(dir, "work"));
+	assert.equal(existsSync(join(dir, BACKUPS)), false);
+	// The active rooted space is refused as already migrated, and stays as it was.
+	assert.throws(() => migrateSpace(dir, "rooted", join(dir, "rooted", "agent"), [], base, NOW), SpaceError);
+});
+
+test("migrateSpace refuses a symlink or a space outside the spaces folder", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	flatSpace(base, "elsewhere");
+	mkdirSync(dir);
+	symlinkSync(join(base, "elsewhere"), join(dir, "linked"));
+	assert.throws(() => migrateSpace(dir, "linked", join(base, "agent"), [], base, NOW), new SpaceError(`Space "linked" is not a folder inside ${dir}; migrate it by hand.`));
+	assert.equal(existsSync(join(base, "elsewhere", "agent")), false);
+});
+
+test("migrateSpace with a backups folder that is not a folder fails before moving anything", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	const root = flatSpace(dir, "work");
+	writeFileSync(join(dir, BACKUPS), "file");
+	assert.throws(() => migrateSpace(dir, "work", join(base, "agent"), [], base, NOW), new SpaceError(`The backups folder ${join(dir, BACKUPS)} is not a folder; move it away and try again.`));
+	assert.equal(readFileSync(join(root, "settings.json"), "utf8"), '{"packages":[]}');
+	assert.deepEqual(readdirSync(dir).sort(), [BACKUPS, "work"]);
+});
+
+test("migrateSpace puts the space back when a move fails, keeps the backup and says so", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	const root = flatSpace(dir, "work");
+	// The second move (the old content into agent/) fails; the first (root to a staging name) and the rollback work.
+	let calls = 0;
+	const failing = ((from: string, to: string) => {
+		if (++calls === 2) throw new Error("disk says no");
+		renameSync(from, to);
+	}) as typeof renameSync;
+	assert.throws(
+		() => migrateSpace(dir, "work", join(base, "agent"), [], base, NOW, failing),
+		(error: Error) =>
+			error instanceof SpaceError &&
+			error.message === `Could not migrate space "work": disk says no. The space was put back as it was; its backup is ${join(dir, BACKUPS, `work-${STAMP}`)}.`,
+	);
+	assert.equal(readFileSync(join(root, "settings.json"), "utf8"), '{"packages":[]}');
+	assert.deepEqual(readdirSync(dir).sort(), [BACKUPS, "work"]);
+	assert.deepEqual(readdirSync(join(dir, BACKUPS)), [`work-${STAMP}`]);
+	assert.equal(spaceHome(root), root);
 });

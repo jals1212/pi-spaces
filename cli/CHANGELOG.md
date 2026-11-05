@@ -6,6 +6,28 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.13.0
+
+### Added
+
+- `pi-space migrate <profile>/<name>` (and `<profile>/--every`, `--every`) moves
+  an old space (no `agent/` folder: its folder is its agent home) into
+  `<space>/agent/`, after a copy in `.backups`. It refuses `base`, the space you
+  are in and a space that already has `agent/`; with `--every` it skips the
+  spaces that already have it, goes on after a failure and exits 1 naming the
+  failed ones. Has help, completion and a line in the usage.
+- `{space}` in the setup command, `commands` and `homeless` words: the space's
+  root folder.
+
+### Changed
+
+- `pi-space new` creates the space as a root with its agent home inside
+  (`<space>/agent`) and runs the setup with that folder as `{home}`,
+  `PI_CODING_AGENT_DIR` and `PI_SPACE_HOME`. Starting, setting up, listing and
+  the picker use the agent home of a space that has `agent/`, and the folder of
+  an old space that has not, so both layouts work. Needs the
+  `@jals1212/pi-spaces` that has `spaceHome` and `migrateSpace`.
+
 ## 0.12.1
 
 ### Changed

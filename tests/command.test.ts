@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { completeSpaceArgs, runSpaceCommand, statusText, USAGE, type SpaceCommandDeps } from "../src/command.ts";
-import { BACKUPS, createSpace } from "../src/spaces.ts";
+import { BACKUPS, createSpace, spaceHome } from "../src/spaces.ts";
 
 interface Fake {
 	deps: SpaceCommandDeps;
@@ -61,7 +61,7 @@ test("list shows base and every space, marking the active one", async () => {
 	await runSpaceCommand("list", f.deps);
 	assert.deepEqual(f.notes, [["info", `Spaces in ${f.dir}:\n* base\n  alpha\n  work`]]);
 
-	const h = fake({ home: (dir) => join(dir, "work") });
+	const h = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(h.dir, "work", "x");
 	await runSpaceCommand("list", h.deps);
 	assert.deepEqual(h.notes, [["info", `Spaces in ${h.dir}:\n  base\n* work`]]);
@@ -71,7 +71,7 @@ test("new creates the space with this package's declaration", async () => {
 	const f = fake();
 	await runSpaceCommand("new work", f.deps);
 	assert.deepEqual(f.notes, [["info", `Created space "work" at ${join(f.dir, "work")}. Enter it with /space switch work.`]]);
-	assert.deepEqual(JSON.parse(readFileSync(join(f.dir, "work", "settings.json"), "utf8")), { packages: ["npm:@jals1212/pi-spaces"] });
+	assert.deepEqual(JSON.parse(readFileSync(join(f.dir, "work", "agent", "settings.json"), "utf8")), { packages: ["npm:@jals1212/pi-spaces"] });
 
 	f.notes.length = 0;
 	await runSpaceCommand("new work", f.deps);
@@ -81,6 +81,40 @@ test("new creates the space with this package's declaration", async () => {
 		["error", 'Invalid space name "Bad": use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters).'],
 	]);
 	assert.equal(existsSync(join(f.dir, "Bad")), false);
+});
+
+test("old flat spaces still list, switch and show as active; a rooted one is entered at its agent home with {space} filled", async () => {
+	const f = fake({ home: (dir) => join(dir, "old") });
+	mkdirSync(join(f.dir, "old"), { recursive: true });
+	createSpace(f.dir, "fresh", "x");
+	await runSpaceCommand("list", f.deps);
+	assert.deepEqual(f.notes, [["info", `Spaces in ${f.dir}:\n  base\n  fresh\n* old`]]);
+	assert.equal(statusText(f.dir, join(f.dir, "old"), "pi", { argv: ["n", "p"] }, {}), "🪐 pi/old");
+	assert.equal(spaceHome(join(f.dir, "fresh")), join(f.dir, "fresh", "agent"));
+
+	f.deps.profile = { name: "launcher", home: f.base, dir: f.dir, spaceEnv: { ROOT: "{space}", HOME_DIR: "{home}" } };
+	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "old"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "old" };
+	await runSpaceCommand("switch fresh", f.deps);
+	const entered = f.relaunches[0].env;
+	assert.equal(entered.PI_CODING_AGENT_DIR, join(f.dir, "fresh", "agent"));
+	assert.equal(entered.ROOT, join(f.dir, "fresh"));
+	assert.equal(entered.HOME_DIR, join(f.dir, "fresh", "agent"));
+
+	// A flat target: the root is the home.
+	const g = fake();
+	mkdirSync(join(g.dir, "old"), { recursive: true });
+	g.deps.profile = { name: "launcher", home: g.base, dir: g.dir, spaceEnv: { ROOT: "{space}" } };
+	await runSpaceCommand("switch old", g.deps);
+	assert.equal(g.relaunches[0].env.PI_CODING_AGENT_DIR, join(g.dir, "old"));
+	assert.equal(g.relaunches[0].env.ROOT, join(g.dir, "old"));
+});
+
+test("switch with a command template fills {space} with the root of a rooted space", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { name: "ml", home: f.base, dir: f.dir, commands: { base: "my-launcher", space: "my-launcher --home {home} --root {space}" } };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.relaunches[0].command, { command: "my-launcher", args: ["--home", join(f.dir, "work", "agent"), "--root", join(f.dir, "work")] });
 });
 
 test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", async () => {
@@ -129,21 +163,21 @@ test("switch applies the profile's spaceEnv: set in a space, removed in base, re
 	f.deps.profile = { name: "launcher", home: f.base, dir: f.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
 	await runSpaceCommand("switch work", f.deps);
 	assert.deepEqual(f.relaunches[0].env, {
-		PI_CODING_AGENT_DIR: join(f.dir, "work"),
+		PI_CODING_AGENT_DIR: join(f.dir, "work", "agent"),
 		PI_SPACES_BASE_HOME: f.base,
 		PI_SPACE: "work",
-		HOST_CFG: `${join(f.dir, "work")}/cfg`,
+		HOST_CFG: `${join(f.dir, "work", "agent")}/cfg`,
 		PI_SPACES_BASE_ENV: "{}",
 	});
 
-	const inWork = fake({ home: (dir) => join(dir, "work") });
+	const inWork = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(inWork.dir, "work", "x");
 	createSpace(inWork.dir, "play", "x");
 	inWork.deps.profile = { name: "launcher", home: inWork.base, dir: inWork.dir, spaceEnv: { HOST_CFG: "{home}/cfg" } };
-	inWork.deps.env = { PI_CODING_AGENT_DIR: join(inWork.dir, "work"), PI_SPACES_BASE_HOME: inWork.base, PI_SPACE: "work", HOST_CFG: join(inWork.dir, "work", "cfg") };
+	inWork.deps.env = { PI_CODING_AGENT_DIR: join(inWork.dir, "work", "agent"), PI_SPACES_BASE_HOME: inWork.base, PI_SPACE: "work", HOST_CFG: join(inWork.dir, "work", "agent", "cfg") };
 	await runSpaceCommand("switch play", inWork.deps);
 	await runSpaceCommand("switch base", inWork.deps);
-	assert.equal(inWork.relaunches[0].env.HOST_CFG, `${join(inWork.dir, "play")}/cfg`);
+	assert.equal(inWork.relaunches[0].env.HOST_CFG, `${join(inWork.dir, "play", "agent")}/cfg`);
 	assert.deepEqual(inWork.relaunches[1].env, { PI_CODING_AGENT_DIR: inWork.base, PI_SPACES_BASE_HOME: inWork.base });
 });
 
@@ -242,7 +276,7 @@ test("remove reports a backup that cannot be written and keeps the space", { ski
 	assert.equal(f.notes.length, 1);
 	assert.equal(f.notes[0][0], "error");
 	assert.match(f.notes[0][1], /^Could not back up space "work": .*EACCES.*\. The space was not removed; fix that, or remove it without a backup with --no-backup\.$/);
-	assert.equal(existsSync(join(f.dir, "work", "settings.json")), true);
+	assert.equal(existsSync(join(f.dir, "work", "agent", "settings.json")), true);
 	assert.equal(existsSync(join(f.dir, BACKUPS)), false);
 });
 
@@ -257,7 +291,7 @@ test("remove with an unknown or repeated flag prints the usage and keeps the spa
 });
 
 test("remove refuses the active space and missing names before asking", async () => {
-	const f = fake({ home: (dir) => join(dir, "work") });
+	const f = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(f.dir, "work", "x");
 	await runSpaceCommand("remove work --yes", f.deps);
 	await runSpaceCommand("remove work", f.deps);
@@ -280,15 +314,15 @@ test("switch schedules the relaunch with the space environment and shuts Pi down
 	assert.deepEqual(f.relaunches, [
 		{
 			command: { command: "/n/node", args: ["/p/cli.js"] },
-			env: { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" },
+			env: { PI_CODING_AGENT_DIR: join(f.dir, "work", "agent"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" },
 		},
 	]);
 });
 
 test("switch base goes back to the home Pi started with", async () => {
-	const f = fake({ home: (dir) => join(dir, "work") });
+	const f = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(f.dir, "work", "x");
-	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" };
+	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "work", "agent"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" };
 	await runSpaceCommand("switch base", f.deps);
 	assert.deepEqual(f.notes, [["info", "Switching to the base home; Pi restarts in it."]]);
 	assert.deepEqual(f.relaunches[0].env, { PI_CODING_AGENT_DIR: f.base, PI_SPACES_BASE_HOME: f.base });
@@ -303,17 +337,17 @@ test("switch with a v2 profile runs commands.space for a space, with the same en
 	await runSpaceCommand("switch work", f.deps);
 	assert.deepEqual(f.relaunches, [
 		{
-			command: { command: "my-launcher", args: ["--home", join(f.dir, "work"), "--name", "work"] },
-			env: { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" },
+			command: { command: "my-launcher", args: ["--home", join(f.dir, "work", "agent"), "--name", "work"] },
+			env: { PI_CODING_AGENT_DIR: join(f.dir, "work", "agent"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" },
 		},
 	]);
 	assert.equal(f.shutdowns, 1);
 });
 
 test("switch base with a v2 profile runs commands.base, with the same environment as before", async () => {
-	const f = fake({ home: (dir) => join(dir, "work") });
+	const f = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(f.dir, "work", "x");
-	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" };
+	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "work", "agent"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" };
 	f.deps.profile = { ...launcher({ base: "my-launcher --fast", space: "my-launcher --home {home}" }), home: f.base, dir: f.dir };
 	await runSpaceCommand("switch base", f.deps);
 	assert.deepEqual(f.relaunches, [
@@ -367,11 +401,11 @@ test("rename moves the space and reports it", async () => {
 	await runSpaceCommand("rename a b", f.deps);
 	assert.deepEqual(f.notes, [["info", 'Renamed space "a" to "b".']]);
 	assert.equal(existsSync(join(f.dir, "a")), false);
-	assert.equal(existsSync(join(f.dir, "b", "settings.json")), true);
+	assert.equal(existsSync(join(f.dir, "b", "agent", "settings.json")), true);
 });
 
 test("rename refuses base, the active space, a taken name and a space holding the base home", async () => {
-	const f = fake({ home: (dir) => join(dir, "work") });
+	const f = fake({ home: (dir) => join(dir, "work", "agent") });
 	createSpace(f.dir, "work", "x");
 	createSpace(f.dir, "other", "x");
 	await runSpaceCommand("rename base z", f.deps);
@@ -401,13 +435,13 @@ test("switch without a name offers every space but the current one, and base unl
 	assert.deepEqual(f.selects, [["Switch to space", ["alpha", "work"]]]);
 	assert.deepEqual(f.notes, [["info", 'Switching to space "work"; Pi restarts in it.']]);
 	assert.equal(f.shutdowns, 1);
-	assert.equal(f.relaunches[0].env.PI_CODING_AGENT_DIR, join(f.dir, "work"));
+	assert.equal(f.relaunches[0].env.PI_CODING_AGENT_DIR, join(f.dir, "work", "agent"));
 	assert.equal(f.relaunches[0].env.PI_SPACE, "work");
 
-	const g = fake({ home: (dir) => join(dir, "work"), select: (choices) => choices[0] });
+	const g = fake({ home: (dir) => join(dir, "work", "agent"), select: (choices) => choices[0] });
 	createSpace(g.dir, "work", "x");
 	createSpace(g.dir, "alpha", "x");
-	g.deps.env = { PI_CODING_AGENT_DIR: join(g.dir, "work"), PI_SPACES_BASE_HOME: g.base, PI_SPACE: "work" };
+	g.deps.env = { PI_CODING_AGENT_DIR: join(g.dir, "work", "agent"), PI_SPACES_BASE_HOME: g.base, PI_SPACE: "work" };
 	await runSpaceCommand("switch", g.deps);
 	assert.deepEqual(g.selects, [["Switch to space", ["base", "alpha"]]]);
 	assert.deepEqual(g.notes, [["info", "Switching to the base home; Pi restarts in it."]]);
@@ -415,7 +449,7 @@ test("switch without a name offers every space but the current one, and base unl
 });
 
 test("switch without a name offers only base when the current space is the only one", async () => {
-	const f = fake({ home: (dir) => join(dir, "work"), select: () => undefined });
+	const f = fake({ home: (dir) => join(dir, "work", "agent"), select: () => undefined });
 	createSpace(f.dir, "work", "x");
 	await runSpaceCommand("switch", f.deps);
 	assert.deepEqual(f.selects, [["Switch to space", ["base"]]]);
@@ -461,8 +495,8 @@ test("statusText names the active space as <profile>/<name>, and base only when 
 	const proc = (args: string[]) => ({ argv: ["/n/node", "/p/cli.js", ...args] });
 	const env = (vars: Record<string, string> = {}) => vars;
 	// A space: always named, with the profile of this Pi, as pi-space names it.
-	assert.equal(statusText(f.dir, join(f.dir, "work"), "pi", proc([]), env()), "🪐 pi/work");
-	assert.equal(statusText(f.dir, join(f.dir, "work"), "launcher", proc([]), env()), "🪐 launcher/work");
+	assert.equal(statusText(f.dir, join(f.dir, "work", "agent"), "pi", proc([]), env()), "🪐 pi/work");
+	assert.equal(statusText(f.dir, join(f.dir, "work", "agent"), "launcher", proc([]), env()), "🪐 launcher/work");
 	// The base home from plain pi: nothing.
 	assert.equal(statusText(f.dir, f.base, "pi", proc([]), env()), undefined);
 	assert.equal(statusText(f.dir, f.base, "pi", proc(["-c", "base"]), env()), undefined);
