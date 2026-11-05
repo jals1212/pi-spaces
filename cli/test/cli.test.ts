@@ -1497,7 +1497,7 @@ test("the config file is found in ~/.config/pi-spaces/config.json without PI_SPA
 
 test("config.toml is read before config.json in each folder, and a config.json next to it is named on stderr as ignored", async () => {
 	const json = (dir: string) => ({ schema: SCHEMA, profiles: { ml: { dir } } });
-	const toml = (dir: string) => `schema = "pi-spaces.config/v2"\n[profiles.ml]\ndir = "${dir}"\n`;
+	const toml = (dir: string) => `schema = "pi-spaces.config/v2"\n[profiles.ml]\ndir = ${JSON.stringify(dir)}\n`;
 	const alone = await run(["list"], { files: { [TOML_CONFIG]: toml("~/toml-spaces") } });
 	assert.equal(alone.code, 0, alone.err);
 	assert.equal(alone.err, "");

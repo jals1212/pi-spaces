@@ -790,9 +790,10 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "init":
 			return writeInit(command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home), io);
 	}
-	const found = command.config !== undefined ? { path: resolve(command.config) } : findConfigFile(io.env, io.home);
-	const configFile = found.path;
-	const ignored = ignoredWarning(found);
+	// --config is read as given: only the lookup can shadow a config.json, so only it can warn.
+	const located = command.config !== undefined ? { path: resolve(command.config) } : findConfigFile(io.env, io.home);
+	const configFile = located.path;
+	const ignored = ignoredWarning(located);
 	if (ignored !== undefined) io.stderr.write(`pi-space: ${ignored}\n`);
 	try {
 		const config = loadConfig(configFile);
@@ -848,7 +849,7 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 
 /** The TOML `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
 export function initConfigToml(piHome: string, piDir: string): string {
-	// A JSON string is a valid TOML basic string (the same escapes).
+	// JSON.stringify of a path is a valid TOML basic string: TOML has every escape it writes (\\, \", \n and the like, \uXXXX).
 	return `# pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
 #
 # The built-in profile "pi" is always there, set up like this; add a

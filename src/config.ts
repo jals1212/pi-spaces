@@ -102,14 +102,15 @@ export function configFile(env: Env, home: string, exists: (file: string) => boo
 	// XDG: a blank or relative XDG_CONFIG_HOME is ignored.
 	const xdgHome = env.XDG_CONFIG_HOME?.trim();
 	const configHome = xdgHome && isAbsolute(xdgHome) ? xdgHome : join(home, ".config");
-	const legacy = join(home, ".pi-spaces");
-	for (const folder of [join(configHome, "pi-spaces"), legacy]) {
+	// ~/.pi-spaces: looked at after the XDG folder, and where a new file goes when there is none.
+	const dotFolder = join(home, ".pi-spaces");
+	for (const folder of [join(configHome, "pi-spaces"), dotFolder]) {
 		const toml = join(folder, "config.toml");
 		const json = join(folder, "config.json");
 		if (exists(toml)) return exists(json) ? { path: toml, ignored: json } : { path: toml };
 		if (exists(json)) return { path: json };
 	}
-	return { path: join(legacy, "config.toml") };
+	return { path: join(dotFolder, "config.toml") };
 }
 
 /** The path of configFile: the config file to read, or to write when there is none. */
