@@ -5,8 +5,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type Env, expandTilde, samePath } from "./spaces.ts";
 
-/** The schema this version of pi-spaces reads. */
-export const SCHEMA = "pi-spaces.config/v1";
+/** The newest schema this version of pi-spaces reads and writes; it also reads SCHEMA_V1. */
+export const SCHEMA = "pi-spaces.config/v2";
+/** The first schema: a profile has `command`, `setup` and `homeless` instead of `commands`. */
+export const SCHEMA_V1 = "pi-spaces.config/v1";
 const NEWER_SCHEMA = /^pi-spaces\.config\/v([1-9][0-9]*)$/;
 const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -14,7 +16,9 @@ const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED_VARIABLES = new Set(["PI_CODING_AGENT_DIR", "PI_SPACE", "PI_SPACE_HOME"]);
 const isReservedVariable = (name: string) => RESERVED_VARIABLES.has(name) || name.startsWith("PI_SPACES_");
 const TOP_KEYS = ["schema", "default", "profiles"];
-const PROFILE_KEYS = ["home", "command", "dir", "setup", "spaceEnv", "homeless"];
+const PROFILE_KEYS_V1 = ["home", "command", "dir", "setup", "spaceEnv", "homeless"];
+const PROFILE_KEYS_V2 = ["home", "commands", "dir", "spaceEnv"];
+const COMMAND_KEYS = ["base", "space", "setup"] as const;
 const BUILT_IN = "pi";
 
 export class ConfigError extends Error {
@@ -33,6 +37,18 @@ export interface ProfileSpec {
 	setup?: string;
 	spaceEnv?: Record<string, string>;
 	homeless?: string[];
+	/** v2 only: the command of each action. */
+	commands?: Commands;
+}
+
+/** The commands of a v2 profile. */
+export interface Commands {
+	/** Starts the base home as it is: the words after it, no --space. */
+	base: string;
+	/** Starts a space, with {home} and {name}; without it a space starts with `<base> --space <name>`. */
+	space?: string;
+	/** Prepares a new space, with {home} and {name}. */
+	setup?: string;
 }
 
 export interface Config {
@@ -44,7 +60,11 @@ export interface Config {
 	profiles: ProfileSpec[];
 }
 
-/** A profile with its paths resolved. `command`, `setup`, `spaceEnv` and `homeless` are set only when the profile has them. */
+/**
+ * A profile with its paths resolved. `command`, `setup`, `spaceEnv`, `homeless` and `commands` are set only when the
+ * profile has them. A v2 profile with commands also has `command` (the space command, else base: the one handed on
+ * as PI_SPACES_COMMAND) and `setup` (commands.setup).
+ */
 export interface Profile {
 	name: string;
 	/** The base agent home. */
@@ -57,6 +77,8 @@ export interface Profile {
 	spaceEnv?: Record<string, string>;
 	/** First words that run the command without its home part and with no --space (the program's own global commands). */
 	homeless?: string[];
+	/** v2 only: the base command, run as it is, and the space template when the profile has one. */
+	commands?: { base: string; space?: string };
 }
 
 /**
@@ -101,19 +123,20 @@ export function loadConfig(path: string, read: (path: string) => string = (file)
 	const fail: Fail = (problem) => {
 		throw new ConfigError(`${path}: ${problem}`);
 	};
+	const plain = withoutComments(text, fail);
 	let json: unknown;
 	try {
-		json = JSON.parse(text);
+		json = JSON.parse(plain);
 	} catch (error) {
 		return fail(`not valid JSON: ${reason(error)}`);
 	}
 	if (!isObject(json)) return fail("the top level must be a JSON object.");
 	// The version first: a newer file may use keys this one does not know.
-	checkSchema(json.schema, "schema" in json, fail);
+	const version = checkSchema(json.schema, "schema" in json, fail);
 	for (const key of Object.keys(json)) {
 		if (!TOP_KEYS.includes(key)) fail(`unknown key "${key}"; allowed keys are "schema", "default" and "profiles".`);
 	}
-	const config: Config = { path, profiles: parseProfiles(json.profiles, "profiles" in json, fail) };
+	const config: Config = { path, profiles: parseProfiles(json.profiles, "profiles" in json, version, fail) };
 	if ("default" in json) {
 		const name = json.default;
 		if (typeof name !== "string" || name === "") return fail('"default" must be a string naming a profile.');
@@ -124,32 +147,68 @@ export function loadConfig(path: string, read: (path: string) => string = (file)
 	return config;
 }
 
-function checkSchema(schema: unknown, present: boolean, fail: Fail): void {
+/**
+ * The text with every // and /* *\/ comment outside a string replaced by spaces (line breaks kept), so JSON.parse
+ * reads it and its positions stay the same.
+ */
+function withoutComments(text: string, fail: Fail): string {
+	let out = "";
+	let i = 0;
+	while (i < text.length) {
+		const c = text[i];
+		if (c === '"') {
+			let j = i + 1;
+			while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+			out += text.slice(i, j + 1);
+			i = j + 1;
+		} else if (c === "/" && text[i + 1] === "/") {
+			let j = i;
+			while (j < text.length && text[j] !== "\n") j++;
+			out += " ".repeat(j - i);
+			i = j;
+		} else if (c === "/" && text[i + 1] === "*") {
+			const end = text.indexOf("*/", i + 2);
+			if (end === -1) return fail("a /* comment is not closed.");
+			out += text.slice(i, end + 2).replace(/[^\n]/g, " ");
+			i = end + 2;
+		} else {
+			out += c;
+			i++;
+		}
+	}
+	return out;
+}
+
+/** The schema's version (1 or 2), or a failure. */
+function checkSchema(schema: unknown, present: boolean, fail: Fail): 1 | 2 {
 	if (!present) fail(`"schema" is required; use "${SCHEMA}".`);
-	if (schema === SCHEMA) return;
+	if (schema === SCHEMA) return 2;
+	if (schema === SCHEMA_V1) return 1;
 	const version = typeof schema === "string" ? NEWER_SCHEMA.exec(schema)?.[1] : undefined;
-	// Only a canonical vN with N above 1 is a newer version; v0 and v01 are just invalid.
-	if (version !== undefined && Number(version) > 1) {
-		fail(`"schema" is "${schema}", which needs a newer pi-spaces; this one reads "${SCHEMA}".`);
+	// Only a canonical vN with N above 2 is a newer version; v0 and v01 are just invalid.
+	if (version !== undefined && Number(version) > 2) {
+		fail(`"schema" is "${schema}", which needs a newer pi-spaces; this one reads "${SCHEMA_V1}" and "${SCHEMA}".`);
 	}
 	fail(`invalid "schema" ${JSON.stringify(schema)}; use "${SCHEMA}".`);
 }
 
-function parseProfiles(value: unknown, present: boolean, fail: Fail): ProfileSpec[] {
+function parseProfiles(value: unknown, present: boolean, version: 1 | 2, fail: Fail): ProfileSpec[] {
 	if (!present) return [];
 	if (!isObject(value)) return fail('"profiles" must be an object of profiles.');
-	return Object.entries(value).map(([name, profile]) => parseProfile(name, profile, fail));
+	return Object.entries(value).map(([name, profile]) => parseProfile(name, profile, version, fail));
 }
 
-function parseProfile(name: string, value: unknown, fail: Fail): ProfileSpec {
+/** `"a", "b" and "c"`. */
+const listed = (keys: readonly string[]) => `${keys.slice(0, -1).map((key) => `"${key}"`).join(", ")} and "${keys[keys.length - 1]}"`;
+
+function parseProfile(name: string, value: unknown, version: 1 | 2, fail: Fail): ProfileSpec {
 	if (!PROFILE_NAME.test(name)) {
 		fail(`invalid profile name "${name}": use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters).`);
 	}
 	if (!isObject(value)) return fail(`profile "${name}" must be an object.`);
+	const keys = version === 1 ? PROFILE_KEYS_V1 : PROFILE_KEYS_V2;
 	for (const key of Object.keys(value)) {
-		if (!PROFILE_KEYS.includes(key)) {
-			fail(`unknown key "${key}" in profile "${name}"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".`);
-		}
+		if (!keys.includes(key)) fail(`unknown key "${key}" in profile "${name}"; allowed keys are ${listed(keys)}.`);
 	}
 	const spec: ProfileSpec = { name };
 	for (const key of ["home", "command", "dir", "setup"] as const) {
@@ -160,7 +219,26 @@ function parseProfile(name: string, value: unknown, fail: Fail): ProfileSpec {
 	}
 	if ("spaceEnv" in value) spec.spaceEnv = parseSpaceEnv(name, value.spaceEnv, fail);
 	if ("homeless" in value) spec.homeless = parseHomeless(name, value.homeless, fail);
+	if ("commands" in value) spec.commands = parseCommands(name, value.commands, fail);
 	return spec;
+}
+
+function parseCommands(profile: string, value: unknown, fail: Fail): Commands {
+	if (!isObject(value)) return fail(`"commands" in profile "${profile}" must be an object.`);
+	for (const key of Object.keys(value)) {
+		if (!(COMMAND_KEYS as readonly string[]).includes(key)) {
+			fail(`unknown key "${key}" in "commands" of profile "${profile}"; allowed keys are ${listed(COMMAND_KEYS)}.`);
+		}
+	}
+	const commands: Partial<Commands> = {};
+	for (const key of COMMAND_KEYS) {
+		if (!(key in value)) continue;
+		const text = value[key];
+		if (typeof text !== "string" || text.trim() === "") return fail(`"commands.${key}" in profile "${profile}" must be a non-empty string.`);
+		commands[key] = text.trim();
+	}
+	if (commands.base === undefined) return fail(`"commands.base" in profile "${profile}" is required.`);
+	return commands as Commands;
 }
 
 function parseHomeless(profile: string, value: unknown, fail: Fail): string[] {
@@ -219,6 +297,12 @@ function resolveProfile(config: Config | undefined, spec: ProfileSpec, env: Env,
 	if (spec.setup !== undefined) profile.setup = spec.setup;
 	if (spec.spaceEnv !== undefined) profile.spaceEnv = spec.spaceEnv;
 	if (spec.homeless !== undefined) profile.homeless = spec.homeless;
+	if (spec.commands !== undefined) {
+		const { base, space, setup } = spec.commands;
+		profile.commands = space === undefined ? { base } : { base, space };
+		profile.command = space ?? base;
+		if (setup !== undefined) profile.setup = setup;
+	}
 	return profile;
 }
 

@@ -10,7 +10,7 @@
 // it is recognized only as the first word); see startFor. A first word of the profile's `homeless` list runs the command
 // without its home part and with no --space instead (`gentle-shell upgrade`); see homelessStart.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
@@ -43,6 +43,7 @@ import {
 	profileByName,
 	profileForHome,
 	profileNames,
+	SCHEMA,
 	spaceEnvFor,
 } from "@jals1212/pi-spaces/config";
 
@@ -62,6 +63,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space update <space|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space init                                write a config file with the built-in pi profile in comments
   pi-space completion zsh                      print the zsh completion script (source <(pi-space completion zsh))
   pi-space completion powershell               print the PowerShell completion script (pi-space completion powershell | Out-String | Invoke-Expression)
   pi-space <command> --help                    the help of one command
@@ -114,6 +116,7 @@ export type CliCommand = (
 	| { kind: "setup"; target: PackageTarget }
 	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
+	| { kind: "init" }
 	| { kind: "completion"; shell?: string }
 	| { kind: "complete"; words: string[] }
 	| { kind: "picker" }
@@ -242,6 +245,18 @@ const COMMANDS: Record<string, CommandHelp> = {
 		calls: ["command", "dir", "config"],
 		examples: ["pi-space uninstall pi/work npm:some-package", "pi-space uninstall pi/--every npm:some-package", "pi-space uninstall --every npm:some-package"],
 	},
+	init: {
+		summary: "write a config file with the built-in pi profile in comments",
+		usage: "[--config <path>] init",
+		about: [
+			"It writes the config file (schema v2) with no profiles of its own, and a header of comments that shows how the built-in pi profile is set up and a profile for another program.",
+			"It refuses a file that already exists, and never reads it.",
+		],
+		args: [],
+		options: [],
+		calls: ["config"],
+		examples: ["pi-space init", "pi-space --config ~/dotfiles/pi-spaces.json init"],
+	},
 	completion: {
 		summary: "print the shell completion script",
 		usage: "completion <shell>",
@@ -272,7 +287,7 @@ function commandHelp(name: string): string {
 	const sections: string[][] = [
 		[`Usage: pi-space ${help.usage}`],
 		[`${help.summary[0].toUpperCase()}${help.summary.slice(1)}.`, ...help.about],
-		["Arguments:", ...rows(help.args)],
+		...(help.args.length > 0 ? [["Arguments:", ...rows(help.args)]] : []),
 		["Options:", ...rows(options)],
 		...(calls.length > 0 ? [["Call options (before the command, for this call only):", ...rows(calls)]] : []),
 		["Examples:", ...help.examples.map((example) => `  ${example}`)],
@@ -315,6 +330,7 @@ function parseCommand(args: string[]): CliCommand {
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
 	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
 	if (first === "setup") return parseSetup(rest);
+	if (first === "init") return rest.length === 0 ? { kind: "init" } : { kind: "usage" };
 	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
 	if (first === "__complete") return { kind: "complete", words: rest };
 	if (first === "rename") return rest.length === 2 ? { kind: "rename", from: rest[0], to: rest[1] } : { kind: "usage" };
@@ -387,20 +403,31 @@ function hasHomeCommand(env: Env): boolean {
 	return (env.PI_SPACES_COMMAND ?? "").includes("{home}");
 }
 
+type Start = { program: string; args: string[]; env: Env | undefined };
+
 /**
- * The program, arguments and environment that start the profile's command in one space of a scope with `words` after
- * it. Without {home} in the command it is `<command> --space <name> words` with the Pi environment (launchCommand).
- * With it, the command is run in the space's home as it is, with {home} and {name} filled in (as setup does) and no
- * --space: in base with the plain environment of the profile, in a space with the environment the extension's
- * relaunch would give it from base. Throws when the command has an unclosed quote.
+ * The program, arguments and environment that start one space (or base) of a scope with `words` after it, in this order:
+ * 1. v2 base: commands.base as it is (baseStart).
+ * 2. v2 space whose commands.space has no {home}: the template filled in, with the plain environment, since the
+ *    program switches itself (`my-launcher -- --space {name}`).
+ * 3. A command without {home} (v1, or v2 without commands.space, whose command is base): `<command> --space <name>`,
+ *    with the plain environment (launchCommand); Pi does the switch.
+ * 4. A command with {home} (v1, or a v2 commands.space with it): filled in and run in the home with no --space; base
+ *    as in 1, a space with the environment the extension's relaunch would give it from base.
+ * Throws when the command has an unclosed quote.
  */
-function startFor(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } {
-	const { io, profile } = scope;
+function startFor(scope: Scope, name: string, words: string[]): Start {
+	const { io, profile, commands } = scope;
+	if (commands !== undefined && name === BASE) return baseStart(scope, commands.base, words);
+	if (commands?.space !== undefined && !commands.space.includes("{home}")) {
+		const { program, args } = setupCommand(commands.space, join(scope.dir, name), name);
+		return { program, args: [...args, ...words], env: io.childEnv };
+	}
 	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
-	const home = name === BASE ? profile.home : join(scope.dir, name);
-	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND ?? "", home, name);
-	// PI_SPACES_BASE_HOME marks base as opened by pi-spaces, as `--space base` does: the extension shows 🪐 <profile>/base.
-	if (name === BASE) return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
+	const template = io.env.PI_SPACES_COMMAND ?? "";
+	if (name === BASE) return baseStart(scope, template, words);
+	const home = join(scope.dir, name);
+	const { program, args } = setupCommand(template, home, name);
 	const plain = io.childEnv ?? io.env;
 	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
 	// The base's own values of the spaceEnv variables, as relaunchEnv keeps them to put back on the way to base.
@@ -410,12 +437,23 @@ function startFor(scope: Scope, name: string, words: string[]): { program: strin
 }
 
 /**
+ * Base started with `template` as it is ({home} and {name} are the profile's home and base), the words after it, no
+ * --space, and the plain environment of the profile plus PI_SPACES_BASE_HOME, which marks base as opened by pi-spaces,
+ * as `--space base` does: the extension shows 🪐 <profile>/base.
+ */
+function baseStart(scope: Scope, template: string, words: string[]): Start {
+	const { io, profile } = scope;
+	const { program, args } = setupCommand(template, profile.home, BASE);
+	return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
+}
+
+/**
  * When the first word is one of the profile's `homeless` words (a program's own command that takes no home, such as
  * `upgrade`), the command without its home part, then the words as they are, with no --space and the plain environment
  * of the profile: every word with {home} is dropped, with an option right before a bare {home} (`--home {home}`), and
  * {name} is still filled in. Otherwise undefined. Throws when the command has an unclosed quote.
  */
-function homelessStart(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } | undefined {
+function homelessStart(scope: Scope, name: string, words: string[]): Start | undefined {
 	const { io, profile } = scope;
 	if (words.length === 0 || !profile.homeless?.includes(words[0])) return undefined;
 	const kept: string[] = [];
@@ -602,6 +640,8 @@ interface Scope {
 	dir: string;
 	commandSource: string;
 	setupSource: string;
+	/** The commands of a v2 profile; undefined for a v1 profile, and when --command replaced them for this call. */
+	commands?: { base: string; space?: string };
 }
 
 /** What stands for "every space of a profile" after the slash of `<profile>/--every`. */
@@ -637,6 +677,7 @@ function scopeOf(call: Call, name: string): Scope {
 		dir,
 		commandSource: options.command !== undefined ? "--command" : `profile "${name}" command`,
 		setupSource: options.setup !== undefined ? "--setup" : `profile "${name}" setup`,
+		commands: options.command !== undefined ? undefined : profile.commands,
 	};
 }
 
@@ -708,6 +749,8 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			return printCompletion(command.shell, io);
 		case "complete":
 			return complete(command.words, io);
+		case "init":
+			return writeInit(command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home), io);
 	}
 	const configFile = command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home);
 	try {
@@ -758,6 +801,63 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		io.stderr.write(`pi-space: ${error.message}\n`);
 		return io.exit(2);
 	}
+}
+
+/** The text of the config file `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
+export function initConfigText(piHome: string, piDir: string): string {
+	return `// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+//
+// The built-in profile "pi" is always there, set up like this; add "pi" under
+// "profiles" to change it:
+//
+//   "pi": {
+//     "home": ${JSON.stringify(piHome)},
+//     "dir": ${JSON.stringify(piDir)},
+//     "commands": { "base": "pi", "space": "pi --space {name}" }
+//   }
+//
+// A profile for another program that runs Pi, for example:
+//
+//   "gentle": {
+//     "home": "~/.gentle-shell/agent",
+//     "commands": {
+//       "base": "gentle-shell",
+//       "space": "gentle-shell --home {home}",
+//       "setup": "gentle-shell --home {home} setup"
+//     },
+//     "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+//   }
+{
+  "schema": ${JSON.stringify(SCHEMA)},
+  "profiles": {}
+}
+`;
+}
+
+/**
+ * `pi-space init`: writes the config file, with its folders, unless it exists (exit 1); an existing file is never read.
+ * A file that cannot be written (a folder that cannot be made, no permission) exits 1 with the reason.
+ */
+function writeInit(file: string, io: CliIo): void {
+	const refuseExisting = () => {
+		io.stderr.write(`pi-space: ${file} already exists; edit it, or remove it to write a new one.\n`);
+		return io.exit(1);
+	};
+	if (existsSync(file)) return refuseExisting();
+	const pi = profileByName(undefined, "pi", io.env, io.home);
+	try {
+		mkdirSync(dirname(file), { recursive: true });
+		// wx: a file that appeared since the check above is never overwritten.
+		writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
+	} catch (error) {
+		const { code, path, message } = error as NodeJS.ErrnoException;
+		// That file gets the same answer as one that was there before; anything else names the file and the reason.
+		if (code === "EEXIST" && path === file) return refuseExisting();
+		io.stderr.write(`pi-space: cannot write ${file}: ${message}\n`);
+		return io.exit(1);
+	}
+	io.stdout.write(`Wrote ${file}.\n`);
+	return io.exit(0);
 }
 
 /** `pi-space list`: every profile, its folder, then its base and spaces as `<profile>/<name>`. */
@@ -943,13 +1043,15 @@ interface CompletionProfile {
 	name: string;
 	/** What a space of the profile starts: its command, or pi. */
 	command: string;
+	/** What its base starts: commands.base of a v2 profile, else the same as command. */
+	base: string;
 	spaces: string[];
 }
 
 /** `<profile>/base`, if asked, and `<profile>/<name>`: pi's first, then the custom profiles', each alphabetical. */
 function spaceCandidates(profiles: CompletionProfile[], withBase: boolean): string[] {
 	const spaces = profiles.flatMap((profile) => [
-		...(withBase ? [{ builtIn: profile.name === "pi", value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.command})` }] : []),
+		...(withBase ? [{ builtIn: profile.name === "pi", value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.base})` }] : []),
 		...profile.spaces.map((name) => ({ builtIn: profile.name === "pi", value: `${profile.name}/${name}`, text: `space of ${profile.name} (${profile.command})` })),
 	]);
 	// The built-in pi first; then alphabetical by the whole name, whatever the order of the profiles in the file.
@@ -999,7 +1101,7 @@ function candidates(words: string[], io: CliIo): string[] {
 	const dirOverride = call.dir === undefined ? undefined : resolve(call.dir);
 	const profiles = orderedProfileNames(config).map((name): CompletionProfile => {
 		const profile = profileByName(config, name, io.env, io.home);
-		return { name, command: profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
+		return { name, command: profile.command ?? "pi", base: profile.commands?.base ?? profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
 	});
 	const rest = words.slice(index);
 	if (rest.length === 0) return [...spaceCandidates(profiles, true), ...commandCandidates(false), ...firstOptions(call, index === 0)];

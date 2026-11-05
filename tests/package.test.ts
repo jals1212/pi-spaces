@@ -10,7 +10,7 @@ const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 test("the package exports the built spaces and config modules", async () => {
 	assert.deepEqual(pkg.exports, { "./spaces": "./dist/spaces.js", "./config": "./dist/config.js", "./package.json": "./package.json" });
 	const config = await import("@jals1212/pi-spaces/config");
-	assert.equal(config.SCHEMA, "pi-spaces.config/v1");
+	assert.equal(config.SCHEMA, "pi-spaces.config/v2");
 	assert.equal(typeof config.loadConfig, "function");
 	assert.equal(typeof config.ConfigError, "function");
 	const spaces = await import("@jals1212/pi-spaces/spaces");

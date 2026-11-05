@@ -6,6 +6,32 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.0
+
+### Added
+
+- Config schema `pi-spaces.config/v2`: a profile has `commands` instead of
+  `command`, `setup` and `homeless`. `commands.base` starts the base home as it
+  is (the words after it, no `--space`); `commands.space` is the template of a
+  space, with `{home}` and `{name}` (without it a space starts
+  `<base> --space <name>`); `commands.setup` prepares a new space. For a v2
+  profile `PI_SPACES_COMMAND` is `commands.space`, else `commands.base`, and
+  `PI_SPACES_SETUP` is `commands.setup`. A v1 file keeps working unchanged;
+  [Moving from v1 to v2](README.md#moving-from-v1-to-v2) shows the edit. An
+  older pi-spaces refuses a v2 file as "needs a newer pi-spaces", so update
+  every home before switching the file.
+- The config file accepts `//` and `/* */` comments, in both schemas.
+
+### Changed
+
+- The `SCHEMA` export of `@jals1212/pi-spaces/config` is now
+  `pi-spaces.config/v2`; `SCHEMA_V1` is the first schema. The "needs a newer
+  pi-spaces" message names both: `this one reads "pi-spaces.config/v1" and
+  "pi-spaces.config/v2"`, and a v2 profile's unknown-key message lists
+  `"home", "commands", "dir" and "spaceEnv"`.
+- The `<pi_space>` prompt section says `pi-space <profile>/<name>` starts a
+  space when the command has `{name}` as well as `{home}`.
+
 ## 0.10.0
 
 ### Added

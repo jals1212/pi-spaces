@@ -59,7 +59,7 @@ A new space starts empty except for a `settings.json` that declares this package
 | --- | --- |
 | `/space` | Opens a list of the other spaces and restarts Pi in the one you pick. Without the interactive terminal it lists them instead. |
 | `/space list` | Lists `base` and every space, with `*` on the active one. |
-| `/space new <name>` | Creates an empty space. When a setup command is set (the profile's `setup`, or `PI_SPACES_SETUP`), it names `pi-space setup <profile>/<name>` to run from a shell, with this Pi's profile (`pi` when none matches). |
+| `/space new <name>` | Creates an empty space. When a setup command is set (the profile's `commands.setup`, or `PI_SPACES_SETUP`), it names `pi-space setup <profile>/<name>` to run from a shell, with this Pi's profile (`pi` when none matches). |
 | `/space switch <name>` | Restarts Pi in that space. `base` is the home Pi started with. |
 | `/space switch` | Same as `/space`. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
@@ -75,11 +75,11 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell. It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there. `pi-space` opens a picker of the spaces of every profile and starts Pi in the one you choose, `pi-space <profile>/<name> [pi args...]` starts Pi in a named space, `pi-space new <profile>/<name>` creates one, `pi-space rename <profile>/<old> <new>` renames one, `pi-space remove <profile>/<name>` deletes one, and `pi-space list` lists every profile's spaces. `pi-space list|update|install|uninstall <profile>/<name|--every> ...` runs Pi's package commands in a space, in a profile's spaces, or (`--every` alone) in every profile's. The profile says which program to run, where its spaces live and how to prepare a new space; `--command`, `--dir` and `--setup` override those for one call, for one named profile. `pi-space setup <profile>/<name|--every>` runs the setup command again. A profile `command` with `{home}` is run directly in the space's home instead (`pi-space gentle/work --version` runs `gentle-shell --home <that home> --version`; see [Profiles](#profiles)). The command does not read `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP` as settings: they are what it hands to the Pi it starts. Unless the profile's command has `{home}`, it only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
+The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell. It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there. `pi-space` opens a picker of the spaces of every profile and starts Pi in the one you choose, `pi-space <profile>/<name> [pi args...]` starts Pi in a named space, `pi-space new <profile>/<name>` creates one, `pi-space rename <profile>/<old> <new>` renames one, `pi-space remove <profile>/<name>` deletes one, and `pi-space list` lists every profile's spaces. `pi-space list|update|install|uninstall <profile>/<name|--every> ...` runs Pi's package commands in a space, in a profile's spaces, or (`--every` alone) in every profile's. The profile says which program to run, where its spaces live and how to prepare a new space; `--command`, `--dir` and `--setup` override those for one call, for one named profile. `pi-space setup <profile>/<name|--every>` runs the setup command again. `pi-space init` writes a starter config file. A profile's `commands.space` with `{home}` is run directly in the space's home instead (`pi-space gentle/work --version` runs `gentle-shell --home <that home> --version`), and `pi-space <profile>/base` runs `commands.base` as it is (`gentle-shell`; see [Profiles](#profiles)). The command does not read `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP` as settings: they are what it hands to the Pi it starts. Unless the profile's space command has `{home}` or `{name}`, it only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
 
 ## Profiles
 
-A **profile** describes one program that runs Pi (plain Pi is one too): where its agent home is, the command that starts it, where its spaces live, how to prepare a new space, and the variables it needs per space. Profiles live in an optional JSON file, so you do not need shell variables or functions to tell pi-spaces about a program. Without the file, nothing changes: this is exactly how pi-spaces behaves without any configuration.
+A **profile** describes one program that runs Pi (plain Pi is one too): where its agent home is, the commands that start it, where its spaces live, how to prepare a new space, and the variables it needs per space. Profiles live in an optional JSON file, so you do not need shell variables or functions to tell pi-spaces about a program. Without the file, nothing changes: this is exactly how pi-spaces behaves without any configuration.
 
 The extension uses the profile whose `home` is the base home Pi started with (the one `base` goes back to); inside a space that is the home the space came from. The optional `pi-space` command ([`cli/README.md`](cli/README.md)) reads the same file, and the profile is the first word of every space it takes: `pi-space ml/work`. It does not use `default`: the profile is always named.
 
@@ -96,45 +96,80 @@ A complete example for a program called `my-launcher`, which keeps its own confi
 
 ```json
 {
-  "schema": "pi-spaces.config/v1",
+  "schema": "pi-spaces.config/v2",
   "profiles": {
     "ml": {
       "home": "~/.my-launcher/agent",
-      "command": "my-launcher --",
-      "setup": "my-launcher --home {home} setup",
+      "commands": {
+        "base": "my-launcher --",
+        "setup": "my-launcher --home {home} setup"
+      },
       "spaceEnv": { "MY_LAUNCHER_CONFIG_HOME": "{home}/config" }
     }
   }
 }
 ```
 
-With that file, a space of `my-launcher` lives in `~/.my-launcher/spaces/<name>`, `/space new <name>` points you at `pi-space setup ml/<name>`, and entering the space `work` starts Pi with `MY_LAUNCHER_CONFIG_HOME=~/.my-launcher/spaces/work/config`, while the base home gets no such variable from pi-spaces. From a shell, `pi-space ml/work` starts that space, and an alias such as `alias mlw='pi-space ml/work'` is optional sugar on top.
+With that file, a space of `my-launcher` lives in `~/.my-launcher/spaces/<name>`, `/space new <name>` points you at `pi-space setup ml/<name>`, and entering the space `work` starts Pi with `MY_LAUNCHER_CONFIG_HOME=~/.my-launcher/spaces/work/config`, while the base home gets no such variable from pi-spaces. From a shell, `pi-space ml/work` runs `my-launcher -- --space work`, and an alias such as `alias mlw='pi-space ml/work'` is optional sugar on top.
 
-A program that takes its home with an option can be the whole `command`, with `{home}` in it. Then `pi-space` runs it in the space's home with no `--space`, with the words after the space after the command (`pi-space gentle/work --version` runs `gentle-shell --home ~/.gentle-shell/spaces/work --version`). A program's own command works this way only when the program accepts it after the home option. For one that does not, such as gentle-shell's `upgrade` (recognized only as its first word), list it in `homeless`: `pi-space gentle/base upgrade` then runs `gentle-shell upgrade`, without the home part and without `--space`:
+A program that takes its home with an option gets a `space` command with `{home}` in it. Then `pi-space` runs it in the space's home with no `--space`, with the words after the space after the command. Its `base` is the program as it is, so its own commands work in base. Here is Gentle Shell:
 
 ```json
 {
-  "schema": "pi-spaces.config/v1",
+  "schema": "pi-spaces.config/v2",
   "profiles": {
     "gentle": {
       "home": "~/.gentle-shell/agent",
-      "command": "gentle-shell --home {home}",
-      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" },
-      "homeless": ["upgrade", "self-uninstall", "memory"]
+      "commands": {
+        "base": "gentle-shell",
+        "space": "gentle-shell --home {home}",
+        "setup": "gentle-shell --home {home} setup"
+      },
+      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
     }
   }
 }
 ```
 
-Keep the `spaceEnv`: a `--home` outside a `.gentle-shell` folder without `GENTLE_PI_CONFIG_HOME` makes `gentle-shell` leave an empty `~/.pi/gentle-ai` behind. The details are in [`cli/README.md`](cli/README.md#a-command-with-home).
+With it, `pi-space gentle/base` runs `gentle-shell`, `pi-space gentle/base upgrade` runs `gentle-shell upgrade`, and `pi-space gentle/work` runs `gentle-shell --home ~/.gentle-shell/spaces/work`.
 
-### Schema `pi-spaces.config/v1`
+Why `base` is plain `gentle-shell`: with any `--home`, even `~/.gentle-shell/agent`, gentle-shell reads the shared `~/.pi/gentle-ai` (agent profiles, persona, models) instead of its own `~/.gentle-shell/gentle-ai`. Without `--home` it uses its own. So the base home must start without `--home`.
+
+Keep the `spaceEnv`: a space's `--home` without `GENTLE_PI_CONFIG_HOME` makes `gentle-shell` leave an empty `~/.pi/gentle-ai` behind. The details are in [`cli/README.md`](cli/README.md#a-command-with-home).
+
+`pi-space init` writes a starter file (see [Writing the file](#writing-the-file)). A file in the older format keeps working: see [Moving from v1 to v2](#moving-from-v1-to-v2).
+
+### Writing the file
+
+`pi-space init` writes the config file for you, in the location above (or in `--config <path>`), and refuses a file that already exists. It has no profiles of its own: the built-in `pi` is always there. The file starts with comments that show how `pi` is set up and a profile for another program, then an empty v2 config:
+
+```text
+// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+//
+// The built-in profile "pi" is always there, set up like this; add "pi" under
+// "profiles" to change it:
+//
+//   "pi": {
+//     "home": "~/.pi/agent",
+//     "dir": "~/.pi/spaces",
+//     "commands": { "base": "pi", "space": "pi --space {name}" }
+//   }
+// ...
+{
+  "schema": "pi-spaces.config/v2",
+  "profiles": {}
+}
+```
+
+(The paths are written absolute, for your machine; the header goes on with the Gentle Shell profile above.) The file accepts comments, in both schemas: `//` to the end of the line and `/* ... */`. A comment inside a string is part of the string. An unclosed `/*` makes the file invalid.
+
+### Schema `pi-spaces.config/v2`
 
 Top level (every other key is refused):
 
 | Key | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `schema` | string | yes | Exactly `"pi-spaces.config/v1"`. |
+| `schema` | string | yes | `"pi-spaces.config/v2"`, or `"pi-spaces.config/v1"` (see [Schema versions](#schema-versions)). |
 | `default` | string | no | Accepted and validated (it must name a profile of the file, or `pi`), but not used: neither the extension nor `pi-space` falls back to it. `pi-space` warns when it reads a file that has it; remove the key. |
 | `profiles` | object | no | Profiles by name. Names: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. |
 
@@ -143,13 +178,21 @@ A profile (every other key is refused; every key is optional):
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `home` | string, not empty | `PI_CODING_AGENT_DIR`, else `~/.pi/agent` | The base agent home of the program: the home it starts Pi with, which `base` goes back to. `~` is your home folder; a relative path is taken from it. |
-| `command` | string, not empty | `pi` for the profile `pi`; none for the others | The command that starts the program (`my-launcher --`), in front of `--space <name>`. It may contain `{home}` and `{name}` (`gentle-shell --home {home}`): `pi-space` then runs it directly in the space's home, without `--space`, filling them in with the space's folder and name (in `base`, the profile's `home` and `base`), and the words after the space go after it: `pi-space gentle/base --version` runs `gentle-shell --home ~/.gentle-shell/agent --version`. A program's own command works only when the program accepts it after the home option; for one that does not, see `homeless`. See [A command with `{home}`](cli/README.md#a-command-with-home). |
+| `commands` | object | none (the profile starts `pi`) | The command of each action, below. `base` is required when `commands` is there; any other key is refused. |
 | `dir` | string, not empty | `spaces` next to `home` (`~/.my-launcher/agent` gives `~/.my-launcher/spaces`) | The folder that holds the profile's spaces. `~` and relative paths as in `home`. |
-| `setup` | string, not empty | none | The command that prepares a new space; `{home}` and `{name}` become the space's folder and name. With it, `/space new` names `pi-space setup <profile>/<name>`. |
-| `homeless` | list of words, not empty | none | First words that run `command` without its home: `pi-space <profile>/<name> <word> [args...]` runs `command` with every word that has `{home}` removed (and an option right before a bare `{home}`, so `--home {home}` goes away whole), then the words as they are, with no `--space` and the plain environment of the profile. For a program's own global commands that it accepts only as its first word: `"homeless": ["upgrade"]` with `gentle-shell --home {home}` makes `pi-space gentle/base upgrade` run `gentle-shell upgrade`. Only the first word counts; each word has no spaces. |
 | `spaceEnv` | object of strings | none | Variables that exist only in spaces; see below. Names: letters, digits and `_`, not starting with a digit; not `PI_CODING_AGENT_DIR`, `PI_SPACE`, `PI_SPACE_HOME` or any `PI_SPACES_*`, which pi-spaces sets itself. |
 
-All strings are trimmed. `{home}` and `{name}` are replaced everywhere they appear in a `spaceEnv` value (and `setup`, and `command` when `pi-space` runs it with `{home}`), and `$` in a value stays literal.
+`commands` (each a string, not empty):
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `base` | yes | Starts the base home: `pi-space <profile>/base` runs it as it is, with the words after `base` after it, and no `--space`. `{home}` and `{name}` in it become the profile's `home` and `base`. `pi-space gentle/base upgrade` with `"base": "gentle-shell"` runs `gentle-shell upgrade`. |
+| `space` | no | The template that starts a space; `{home}` and `{name}` become the space's folder and name, and the words after the space go after it. **With `{home}`** (`gentle-shell --home {home}`): run in the space's home, with the environment of the space (its `spaceEnv` and the variables of the home). **Without `{home}`** (`pi --space {name}`): filled in and run with the plain environment, because the program switches itself. **Missing**: `<base> --space <name>`. |
+| `setup` | no | Prepares a new space; `{home}` and `{name}` become the space's folder and name. With it, `/space new` names `pi-space setup <profile>/<name>`. |
+
+`PI_SPACES_COMMAND`, the program told to the model and exported, is `commands.space` when it is there, else `commands.base`; `PI_SPACES_SETUP` is `commands.setup`. The package commands (`update`, `install`, `uninstall`, `list`) go through the same commands: `pi-space update gentle/base` runs `gentle-shell update`, and `pi-space update gentle/work` runs `gentle-shell --home ~/.gentle-shell/spaces/work update`.
+
+All strings are trimmed. `{home}` and `{name}` are replaced everywhere they appear in a `spaceEnv` value and in the commands, and `$` in a value stays literal. The profile has no `command`, `setup` or `homeless` in v2: they are `commands`, and `pi-space <profile>/base upgrade` already runs `<base> upgrade`.
 
 ### `spaceEnv`: what is separate and what is shared
 
@@ -166,19 +209,79 @@ pi-spaces does not create what a variable points to; `setup` (or the program its
 
 ### The built-in `pi` profile
 
-Plain Pi is always a profile named `pi`: command `pi`, no setup, no `spaceEnv`. Its home is `PI_SPACES_BASE_HOME` (set inside a space), else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`.
+Plain Pi is always a profile named `pi`: base `pi`, spaces `pi --space {name}`, no setup, no `spaceEnv`. Its home is `PI_SPACES_BASE_HOME` (set inside a space), else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`. It needs no file; `pi-space init` only shows it in comments.
 
 Inside another program's Pi those variables hold that program's home. When a profile of the file names that folder as its `home`, `pi` does not take it and uses `~/.pi/agent`, so `pi/<name>` is still plain Pi there.
 
-Naming `pi` in `profiles` replaces it as a whole; what that entry leaves out still takes the defaults above for `home` and `command`, never anything from the old built-in's other fields.
+Naming `pi` in `profiles` replaces it as a whole; what that entry leaves out still takes the defaults above for `home` and the command, never anything from the old built-in's other fields.
 
 ### Schema versions
 
-The file says which format it uses in `schema`, so the format can grow without breaking files. This pi-spaces reads `pi-spaces.config/v1` only. A file with a newer `pi-spaces.config/vN` is refused with a message that it needs a newer pi-spaces (update the package); anything else in `schema`, or no `schema`, is refused as invalid. A newer format is never half-read.
+The file says which format it uses in `schema`, so the format can grow without breaking files. This pi-spaces reads `pi-spaces.config/v2` (the format above) and `pi-spaces.config/v1` (see [the v1 format](#the-v1-format)); a v1 file works exactly as before. A file with a newer `pi-spaces.config/vN` is refused with a message that it needs a newer pi-spaces (update the package), for example `"schema" is "pi-spaces.config/v3", which needs a newer pi-spaces; this one reads "pi-spaces.config/v1" and "pi-spaces.config/v2".`; anything else in `schema`, or no `schema`, is refused as invalid. A newer format is never half-read. A pi-spaces older than the one that added v2 refuses a v2 file the same way ("needs a newer pi-spaces").
+
+### The v1 format
+
+The first format, `"schema": "pi-spaces.config/v1"`, is still read. Its profile has `home`, `dir` and `spaceEnv` as above, and these keys instead of `commands`:
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | string, not empty | `pi` for the profile `pi`; none for the others | The command that starts the program (`my-launcher --`), in front of `--space <name>`. With `{home}` and `{name}` in it (`gentle-shell --home {home}`), `pi-space` runs it directly in the space's home, without `--space`, filling them in with the space's folder and name (in `base`, the profile's `home` and `base`), and the words after the space go after it. See [A command with `{home}`](cli/README.md#a-command-with-home). |
+| `setup` | string, not empty | none | The command that prepares a new space; `{home}` and `{name}` become the space's folder and name. |
+| `homeless` | list of words, not empty | none | First words that run `command` without its home: `"homeless": ["upgrade"]` with `gentle-shell --home {home}` makes `pi-space gentle/base upgrade` run `gentle-shell upgrade`, with no `--space` and the plain environment of the profile. Only the first word counts; each word has no spaces. |
+
+A v1 profile with `commands` is refused, and so is a v2 profile with `command`, `setup` or `homeless`.
+
+### Moving from v1 to v2
+
+There is no command for it: edit the file once.
+
+1. Change `schema` to `"pi-spaces.config/v2"`.
+2. `command` with `{home}` becomes `commands.space`, and `commands.base` is that command without the `{home}` words (`--home {home}` removed).
+3. `command` without `{home}` becomes `commands.base`, with no `space`.
+4. `setup` becomes `commands.setup`.
+5. Drop `homeless`: in v2 `pi-space <profile>/base upgrade` already runs `<base> upgrade`.
+
+Before (v1):
+
+```json
+{
+  "schema": "pi-spaces.config/v1",
+  "profiles": {
+    "gentle": {
+      "home": "~/.gentle-shell/agent",
+      "command": "gentle-shell --home {home}",
+      "setup": "gentle-shell --home {home} setup",
+      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" },
+      "homeless": ["upgrade", "self-uninstall", "memory"]
+    }
+  }
+}
+```
+
+After (v2):
+
+```json
+{
+  "schema": "pi-spaces.config/v2",
+  "profiles": {
+    "gentle": {
+      "home": "~/.gentle-shell/agent",
+      "commands": {
+        "base": "gentle-shell",
+        "space": "gentle-shell --home {home}",
+        "setup": "gentle-shell --home {home} setup"
+      },
+      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+    }
+  }
+}
+```
+
+A v1 file keeps working unchanged, so move when you want to. Update pi-spaces first, though: the extension in every home and the `pi-space` command. An older pi-spaces refuses a v2 file with "needs a newer pi-spaces", and then behaves as if there were no file.
 
 ### When the file is wrong
 
-Unknown keys, wrong types, bad names, a `default` that names no profile, an unreadable file and invalid JSON are all refused with a message that names the file and the problem, for example `~/.pi-spaces/config.json: unknown key "hmoe" in profile "ml"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".` Pi never stops for it: the extension shows the message once as a warning when the session starts (on stderr without a terminal UI) and then behaves as if there were no file. A missing file is not an error.
+Unknown keys, wrong types, bad names, a `default` that names no profile, an unreadable file and invalid JSON are all refused with a message that names the file and the problem, for example `~/.pi-spaces/config.json: unknown key "hmoe" in profile "ml"; allowed keys are "home", "commands", "dir" and "spaceEnv".` (in a v1 file the keys are `"home", "command", "dir", "setup", "spaceEnv" and "homeless"`). Pi never stops for it: the extension shows the message once as a warning when the session starts (on stderr without a terminal UI) and then behaves as if there were no file. A missing file is not an error.
 
 ## Configuration reference
 
@@ -194,8 +297,8 @@ Read:
 | --- | --- |
 | `PI_SPACES_DIR` | The spaces folder. A relative value is taken from your home folder. Default: the matching profile's `dir`, else `spaces` next to the base home. |
 | `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.config/pi-spaces/config.json` (or `$XDG_CONFIG_HOME/pi-spaces/config.json`) when that file exists, else `~/.pi-spaces/config.json`. |
-| `PI_SPACES_COMMAND` | The program that starts Pi (default `pi`): told to the model and exported (see below). A switch starts Pi again with the command line it already has, so this is information, not a setting. |
-| `PI_SPACES_SETUP` | The command that prepares a new space. `/space new` names `pi-space setup <profile>/<name>` when it is set. The `pi-space` command sets it for the Pi it starts, from the profile or `--setup`; it does not read it from your shell. |
+| `PI_SPACES_COMMAND` | The program that starts Pi (default `pi`; for a v2 profile its `commands.space`, else `commands.base`): told to the model and exported (see below). A switch starts Pi again with the command line it already has, so this is information, not a setting. |
+| `PI_SPACES_SETUP` | The command that prepares a new space (a v2 profile's `commands.setup`). `/space new` names `pi-space setup <profile>/<name>` when it is set. The `pi-space` command sets it for the Pi it starts, from the profile or `--setup`; it does not read it from your shell. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; its parent holds the default spaces folder. Default: `~/.pi/agent`. |
 
 Set for the Pi a switch starts:
@@ -213,11 +316,11 @@ Set in every Pi this extension runs in, even one started without a switch, for i
 | --- | --- |
 | `PI_SPACE` | The active space's name, unset in the base home: the same variable a switch sets. |
 | `PI_SPACE_HOME` | The agent home this Pi runs with: the space's folder, or the base home. |
-| `PI_SPACES_COMMAND` | Kept when it has a value; set to `pi` when it is unset or blank. The `pi-space` command sets it for the Pi it starts (the profile's `command`, or `--command`), and the extension reads it to tell the model and the tools how Pi was started (see below); `pi-space` itself does not read it from your shell. |
+| `PI_SPACES_COMMAND` | Kept when it has a value; set to `pi` when it is unset or blank. The `pi-space` command sets it for the Pi it starts (the profile's command, or `--command`), and the extension reads it to tell the model and the tools how Pi was started (see below); `pi-space` itself does not read it from your shell. |
 
 ### What the model is told
 
-Before each run the system prompt gets a `<pi_space>` section with the same three facts: the space (or the base home), the agent home, and the command, with `<command> --space <name>` and `/space` as the ways to change space (when the command has `{home}`, `pi-space <profile>/<name>` instead of `<command> --space <name>`). The model knows where it runs without reading the environment. A Pi without structured prompt sections gets no section; the variables are still set.
+Before each run the system prompt gets a `<pi_space>` section with the same three facts: the space (or the base home), the agent home, and the command, with `<command> --space <name>` and `/space` as the ways to change space (when the command has `{home}` or `{name}`, `pi-space <profile>/<name>` instead of `<command> --space <name>`). The model knows where it runs without reading the environment. A Pi without structured prompt sections gets no section; the variables are still set.
 
 ### The `pi-spaces` skill
 
