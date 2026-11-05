@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.0
+
 ### Added
 
 - `homeless` words of a profile: when the first word after the space is one of
@@ -13,7 +15,8 @@ commands and options and a patch version fixes.
   `{home}` (and an option right before a bare `{home}`), `{name}` still filled
   in, then the words as they are, with no `--space` and the plain environment
   of the profile. With `"homeless": ["upgrade"]`, `pi-space gentle/base upgrade`
-  runs `gentle-shell upgrade`. Needs `@jals1212/pi-spaces` with `homeless`.
+  runs `gentle-shell upgrade`. Needs `@jals1212/pi-spaces` 0.10.0, which reads `homeless`; the CLI now
+  depends on `^0.10.0`.
 
 ### Fixed
 

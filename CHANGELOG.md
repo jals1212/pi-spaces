@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.10.0
+
 ### Added
 
 - A profile may list `homeless` words (`"homeless": ["upgrade"]`): with one of
