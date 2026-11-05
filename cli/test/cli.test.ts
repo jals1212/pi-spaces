@@ -37,13 +37,15 @@ Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
   --setup <cmd>                                the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name
-  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
+  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.toml or .json, else ~/.pi-spaces/config.toml or .json); the Pi it starts gets it too
 `;
 
 const SCHEMA = "pi-spaces.config/v1";
 /** A home a test passes as PI_CODING_AGENT_DIR: absolute on every platform (and drive), so the CLI hands it on as written. */
 const SOME_HOME = join(tmpdir(), "pi-spaces-some-home");
 const CONFIG = ".pi-spaces/config.json";
+/** Where `pi-space init` writes with no config file and no --config. */
+const TOML_CONFIG = ".pi-spaces/config.toml";
 
 interface Run {
 	code: number | undefined;
@@ -1493,6 +1495,28 @@ test("the config file is found in ~/.config/pi-spaces/config.json without PI_SPA
 	assert.ok(legacy.out.includes(`Spaces of ml in ${join(legacy.root, "legacy-spaces")}:`), legacy.out);
 });
 
+test("config.toml is read before config.json in each folder, and a config.json next to it is named on stderr as ignored", async () => {
+	const json = (dir: string) => ({ schema: SCHEMA, profiles: { ml: { dir } } });
+	const toml = (dir: string) => `schema = "pi-spaces.config/v2"\n[profiles.ml]\ndir = "${dir}"\n`;
+	const alone = await run(["list"], { files: { [TOML_CONFIG]: toml("~/toml-spaces") } });
+	assert.equal(alone.code, 0, alone.err);
+	assert.equal(alone.err, "");
+	assert.ok(alone.out.includes(`Spaces of ml in ${join(alone.root, "toml-spaces")}:`), alone.out);
+	const both = await run(["list"], { files: { [TOML_CONFIG]: toml("~/toml-spaces"), [CONFIG]: json("~/json-spaces") } });
+	assert.equal(both.code, 0, both.err);
+	assert.ok(both.out.includes(`Spaces of ml in ${join(both.root, "toml-spaces")}:`), both.out);
+	assert.ok(!both.out.includes("json-spaces"), both.out);
+	assert.equal(both.err, `pi-space: ${join(both.root, CONFIG)} is ignored: ${join(both.root, TOML_CONFIG)} is read instead; remove one of them.\n`);
+	// The XDG folder comes first, whatever the format; files in different folders give no warning.
+	const xdg = await run(["list"], { files: { ".config/pi-spaces/config.json": json("~/xdg-spaces"), [TOML_CONFIG]: toml("~/toml-spaces") } });
+	assert.equal(xdg.err, "");
+	assert.ok(xdg.out.includes(`Spaces of ml in ${join(xdg.root, "xdg-spaces")}:`), xdg.out);
+	// --config is read as given, with no warning.
+	const given = await run(["--config", `<root>/${CONFIG}`, "list"], { files: { [TOML_CONFIG]: toml("~/toml-spaces"), [CONFIG]: json("~/json-spaces") } });
+	assert.equal(given.err, "");
+	assert.ok(given.out.includes(`Spaces of ml in ${join(given.root, "json-spaces")}:`), given.out);
+});
+
 test("XDG_CONFIG_HOME moves the config folder; a relative one is ignored", async () => {
 	const profile = (dir: string) => ({ schema: SCHEMA, profiles: { ml: { dir } } });
 	const moved = await run(["list"], {
@@ -1919,7 +1943,7 @@ const OPTION_LINES = {
 	"--command": "option\t--command\tthe program to run instead of the profile's command, e.g. \"my-launcher --\"; for one profile",
 	"--dir": "option\t--dir\tthe spaces folder instead of the profile's; the Pi it starts gets it too; for one profile",
 	"--setup": "option\t--setup\tthe setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name",
-	"--config": "option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)",
+	"--config": "option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.toml or .json, else ~/.pi-spaces/config.toml or .json)",
 	"--help": "option\t--help\tprint the help, or a command's: --help <command>",
 	"--version": "option\t--version\tprint the version",
 };
@@ -2780,6 +2804,33 @@ function initText(root: string): string {
 `;
 }
 
+/** The exact TOML file `pi-space init` writes in a run, with the same homes as initText. */
+function initToml(root: string): string {
+	return `# pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+#
+# The built-in profile "pi" is always there, set up like this; add a
+# [profiles.pi] table to change it:
+#
+#   [profiles.pi]
+#   home = ${JSON.stringify(join(root, "no-agent"))}
+#   dir = ${JSON.stringify(join(root, "spaces"))}
+#   commands = { base = "pi", space = "pi --space {name}" }
+#
+# A profile for another program that runs Pi, for example:
+#
+#   [profiles.ml]
+#   home = "~/.my-launcher/agent"
+#   spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+#
+#   [profiles.ml.commands]
+#   base = "my-launcher"
+#   space = "my-launcher --home {home}"
+#   setup = "my-launcher --home {home} setup"
+
+schema = "pi-spaces.config/v2"
+`;
+}
+
 test("parseCli: init takes no arguments", () => {
 	assert.deepEqual(parseCli(["init"]), { kind: "init" });
 	assert.deepEqual(parseCli(["--config", "c.json", "init"]), { kind: "init", config: "c.json" });
@@ -2787,15 +2838,16 @@ test("parseCli: init takes no arguments", () => {
 	assert.deepEqual(parseCli(["init", "--bogus"]), { kind: "usage" });
 });
 
-test("init writes the config file at the default path with the built-in pi profile in comments, and the file loads", async () => {
-	const r = await run(["init"], { read: [CONFIG] });
+test("init writes the config file in TOML at the default path with the built-in pi profile in comments, and the file loads", async () => {
+	const r = await run(["init"], { read: [TOML_CONFIG, CONFIG] });
 	assert.equal(r.code, 0);
 	assert.equal(r.err, "");
-	assert.equal(r.out, `Wrote ${join(r.root, CONFIG)}.\n`);
-	assert.equal(r.read[CONFIG], initText(r.root));
+	assert.equal(r.out, `Wrote ${join(r.root, TOML_CONFIG)}.\n`);
+	assert.equal(r.read[TOML_CONFIG], initToml(r.root));
+	assert.equal(r.read[CONFIG], undefined);
 	assert.equal(r.spawned.length, 0);
 	// Comments are accepted, so the file is a working config as it is.
-	const listed = await run(["list"], { files: { [CONFIG]: r.read[CONFIG] } });
+	const listed = await run(["list"], { files: { [TOML_CONFIG]: r.read[TOML_CONFIG] } });
 	assert.equal(listed.code, 0);
 	assert.equal(listed.err, "");
 	assert.match(listed.out, /^Spaces of pi in /);
@@ -2808,6 +2860,16 @@ test("init --config <path> writes there and creates the folders on the way", asy
 	assert.equal(r.out, `Wrote ${join(r.root, "deep", "er", "pi-spaces.json")}.\n`);
 	assert.equal(r.read["deep/er/pi-spaces.json"], initText(r.root));
 	assert.equal(r.read[CONFIG], undefined);
+	// A path ending in .toml gets TOML.
+	const toml = await run(["--config", "<root>/deep/pi-spaces.toml", "init"], { read: ["deep/pi-spaces.toml", TOML_CONFIG] });
+	assert.equal(toml.code, 0);
+	assert.equal(toml.err, "");
+	assert.equal(toml.read["deep/pi-spaces.toml"], initToml(toml.root));
+	assert.equal(toml.read[TOML_CONFIG], undefined);
+	// The JSON written for a .json path loads too (its comments are accepted).
+	const listed = await run(["--config", "<root>/deep/er/pi-spaces.json", "list"], { files: { "deep/er/pi-spaces.json": r.read["deep/er/pi-spaces.json"] as string } });
+	assert.equal(listed.code, 0, listed.err);
+	assert.equal(listed.err, "");
 });
 
 test("init refuses an existing file and leaves it as it was, even when it is not a valid config", async () => {

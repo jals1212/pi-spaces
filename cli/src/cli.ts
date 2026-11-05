@@ -42,7 +42,10 @@ import {
 import {
 	ConfigError,
 	type Config,
+	configFile as findConfigFile,
 	configPath,
+	ignoredWarning,
+	isToml,
 	loadConfig,
 	type Profile,
 	profileByName,
@@ -81,7 +84,7 @@ Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
   --setup <cmd>                                the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name
-  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
+  --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.toml or .json, else ~/.pi-spaces/config.toml or .json); the Pi it starts gets it too
 `;
 
 /** This package's version; package.json sits one folder above both src/ and dist/. */
@@ -143,7 +146,7 @@ const CALL_HELP: Record<keyof CallOptions, [label: string, text: string]> = {
 	command: ["--command <cmd>", 'the program to run instead of the profile\'s command, e.g. "my-launcher --"; for one profile'],
 	dir: ["--dir <path>", "the spaces folder instead of the profile's; the Pi it starts gets it too; for one profile"],
 	setup: ["--setup <cmd>", "the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name"],
-	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)"],
+	config: ["--config <path>", "the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.toml or .json, else ~/.pi-spaces/config.toml or .json)"],
 };
 
 /** The help of one command; the summary is the one line completion shows next to it. */
@@ -273,12 +276,13 @@ const COMMANDS: Record<string, CommandHelp> = {
 		usage: "[--config <path>] init",
 		about: [
 			"It writes the config file (schema v2) with no profiles of its own, and a header of comments that shows how the built-in pi profile is set up and a profile for another program.",
+			"The file is TOML (~/.pi-spaces/config.toml when there is no config file yet), or JSON when --config names a path that does not end in .toml.",
 			"It refuses a file that already exists, and never reads it.",
 		],
 		args: [],
 		options: [],
 		calls: ["config"],
-		examples: ["pi-space init", "pi-space --config ~/dotfiles/pi-spaces.json init"],
+		examples: ["pi-space init", "pi-space --config ~/dotfiles/pi-spaces.toml init", "pi-space --config ~/dotfiles/pi-spaces.json init"],
 	},
 	completion: {
 		summary: "print the shell completion script",
@@ -786,7 +790,10 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		case "init":
 			return writeInit(command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home), io);
 	}
-	const configFile = command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home);
+	const found = command.config !== undefined ? { path: resolve(command.config) } : findConfigFile(io.env, io.home);
+	const configFile = found.path;
+	const ignored = ignoredWarning(found);
+	if (ignored !== undefined) io.stderr.write(`pi-space: ${ignored}\n`);
 	try {
 		const config = loadConfig(configFile);
 		if (config?.default !== undefined) {
@@ -839,7 +846,35 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 	}
 }
 
-/** The text of the config file `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
+/** The TOML `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
+export function initConfigToml(piHome: string, piDir: string): string {
+	// A JSON string is a valid TOML basic string (the same escapes).
+	return `# pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+#
+# The built-in profile "pi" is always there, set up like this; add a
+# [profiles.pi] table to change it:
+#
+#   [profiles.pi]
+#   home = ${JSON.stringify(piHome)}
+#   dir = ${JSON.stringify(piDir)}
+#   commands = { base = "pi", space = "pi --space {name}" }
+#
+# A profile for another program that runs Pi, for example:
+#
+#   [profiles.ml]
+#   home = "~/.my-launcher/agent"
+#   spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+#
+#   [profiles.ml.commands]
+#   base = "my-launcher"
+#   space = "my-launcher --home {home}"
+#   setup = "my-launcher --home {home} setup"
+
+schema = ${JSON.stringify(SCHEMA)}
+`;
+}
+
+/** The JSON text of the config file `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
 export function initConfigText(piHome: string, piDir: string): string {
 	return `// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
 //
@@ -884,7 +919,8 @@ function writeInit(file: string, io: CliIo): void {
 	try {
 		mkdirSync(dirname(file), { recursive: true });
 		// wx: a file that appeared since the check above is never overwritten.
-		writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
+		const text = isToml(file) ? initConfigToml(pi.home, pi.dir) : initConfigText(pi.home, pi.dir);
+		writeFileSync(file, text, { flag: "wx" });
 	} catch (error) {
 		const { code, path, message } = error as NodeJS.ErrnoException;
 		// That file gets the same answer as one that was there before; anything else names the file and the reason.

@@ -2,7 +2,8 @@
 // that starts it, where its spaces live, how to set a space up, and the variables it needs per space).
 // Pure and host-agnostic: the file system, the environment and the user's home are all inputs.
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { parse as parseToml, TomlError } from "smol-toml";
 import { type Env, expandTilde, samePath } from "./spaces.ts";
 
 /** The newest schema this version of pi-spaces reads and writes; it also reads SCHEMA_V1. */
@@ -81,25 +82,56 @@ export interface Profile {
 	commands?: { base: string; space?: string };
 }
 
+/** The config file to read and, when it has one, the config.json next to it that config.toml shadows. */
+export interface ConfigFile {
+	path: string;
+	/** A config.json in the same folder as the config.toml that is read: it is not read. */
+	ignored?: string;
+}
+
 /**
- * The config file, in this order: PI_SPACES_CONFIG (a relative value is taken from the user's home); else
- * `<XDG config home>/pi-spaces/config.json` when that file exists (XDG_CONFIG_HOME when it is an absolute path,
- * else ~/.config; the same on Windows); else ~/.pi-spaces/config.json, which stays the answer when no file exists.
- * Nothing is moved or created. `exists` is injectable for tests.
+ * The config file, in this order: PI_SPACES_CONFIG (a relative value is taken from the user's home); else the first
+ * that exists of `<XDG config home>/pi-spaces/config.toml`, `.../config.json` (XDG_CONFIG_HOME when it is an absolute
+ * path, else ~/.config; the same on Windows), `~/.pi-spaces/config.toml` and `~/.pi-spaces/config.json`; else
+ * ~/.pi-spaces/config.toml, which stays the answer when no file exists. A config.json next to the config.toml that is
+ * read comes back as `ignored`. Nothing is moved or created. `exists` is injectable for tests.
  */
-export function configPath(env: Env, home: string, exists: (file: string) => boolean = existsSync): string {
+export function configFile(env: Env, home: string, exists: (file: string) => boolean = existsSync): ConfigFile {
 	const fromEnv = env.PI_SPACES_CONFIG?.trim();
-	if (fromEnv) return resolve(home, expandTilde(fromEnv, home));
+	if (fromEnv) return { path: resolve(home, expandTilde(fromEnv, home)) };
 	// XDG: a blank or relative XDG_CONFIG_HOME is ignored.
 	const xdgHome = env.XDG_CONFIG_HOME?.trim();
 	const configHome = xdgHome && isAbsolute(xdgHome) ? xdgHome : join(home, ".config");
-	const xdgFile = join(configHome, "pi-spaces", "config.json");
-	if (exists(xdgFile)) return xdgFile;
-	return join(home, ".pi-spaces", "config.json");
+	const legacy = join(home, ".pi-spaces");
+	for (const folder of [join(configHome, "pi-spaces"), legacy]) {
+		const toml = join(folder, "config.toml");
+		const json = join(folder, "config.json");
+		if (exists(toml)) return exists(json) ? { path: toml, ignored: json } : { path: toml };
+		if (exists(json)) return { path: json };
+	}
+	return { path: join(legacy, "config.toml") };
 }
 
+/** The path of configFile: the config file to read, or to write when there is none. */
+export function configPath(env: Env, home: string, exists: (file: string) => boolean = existsSync): string {
+	return configFile(env, home, exists).path;
+}
+
+/** The warning for a config.json that a config.toml next to it shadows. */
+export function ignoredWarning(file: ConfigFile): string | undefined {
+	return file.ignored === undefined ? undefined : `${file.ignored} is ignored: ${file.path} is read instead; remove one of them.`;
+}
+
+/** Whether the file is TOML: its extension is .toml, in any case; anything else is JSON. */
+export function isToml(path: string): boolean {
+	return extname(path).toLowerCase() === ".toml";
+}
+
+/** A plain object: a JSON object or a TOML table (null prototype), never an array or a TOML date. */
 function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	if (typeof value !== "object" || value === null) return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
 }
 
 function reason(error: unknown): string {
@@ -123,14 +155,7 @@ export function loadConfig(path: string, read: (path: string) => string = (file)
 	const fail: Fail = (problem) => {
 		throw new ConfigError(`${path}: ${problem}`);
 	};
-	const plain = withoutComments(text, fail);
-	let json: unknown;
-	try {
-		json = JSON.parse(plain);
-	} catch (error) {
-		return fail(`not valid JSON: ${reason(error)}`);
-	}
-	if (!isObject(json)) return fail("the top level must be a JSON object.");
+	const json = isToml(path) ? parseTomlText(text, fail) : parseJsonText(text, fail);
 	// The version first: a newer file may use keys this one does not know.
 	const version = checkSchema(json.schema, "schema" in json, fail);
 	for (const key of Object.keys(json)) {
@@ -145,6 +170,29 @@ export function loadConfig(path: string, read: (path: string) => string = (file)
 		config.default = name;
 	}
 	return config;
+}
+
+function parseTomlText(text: string, fail: Fail): Record<string, unknown> {
+	try {
+		return parseToml(text) as Record<string, unknown>;
+	} catch (error) {
+		if (!(error instanceof TomlError)) throw error;
+		// The parser's first line, without its prefix and code frame, and where it is.
+		const problem = error.message.split("\n")[0].replace(/^Invalid TOML document: /, "");
+		return fail(`not valid TOML: ${problem} (line ${error.line}, column ${error.column}).`);
+	}
+}
+
+function parseJsonText(text: string, fail: Fail): Record<string, unknown> {
+	const plain = withoutComments(text, fail);
+	let json: unknown;
+	try {
+		json = JSON.parse(plain);
+	} catch (error) {
+		return fail(`not valid JSON: ${reason(error)}`);
+	}
+	if (!isObject(json)) return fail("the top level must be a JSON object.");
+	return json;
 }
 
 /**
@@ -340,7 +388,8 @@ export function spaceEnvFor(profile: Profile, spaceHome: string, spaceName: stri
 /**
  * The profile this Pi runs under, from the config file: the one whose home is the base home
  * (PI_SPACES_BASE_HOME, else the agent home). An unusable file never stops Pi: it comes back as
- * a warning and the result is the same as with no file.
+ * a warning and the result is the same as with no file. A config.json that the config.toml next to it
+ * shadows is a warning too (one per line).
  */
 export function activeProfile(
 	env: Env,
@@ -350,12 +399,15 @@ export function activeProfile(
 ): { profile: Profile | undefined; warning: string | undefined } {
 	const baseHome = env.PI_SPACES_BASE_HOME || agentHome;
 	let config: Config | undefined;
-	let warning: string | undefined;
+	const file = configFile(env, home);
+	const warnings: string[] = [];
+	const ignored = ignoredWarning(file);
+	if (ignored !== undefined) warnings.push(ignored);
 	try {
-		config = loadConfig(configPath(env, home), read);
+		config = loadConfig(file.path, read);
 	} catch (error) {
 		if (!(error instanceof ConfigError)) throw error;
-		warning = error.message;
+		warnings.push(error.message);
 	}
-	return { profile: profileForHome(config, baseHome, env, home), warning };
+	return { profile: profileForHome(config, baseHome, env, home), warning: warnings.length > 0 ? warnings.join("\n") : undefined };
 }
