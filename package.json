@@ -48,7 +48,7 @@
     "prepack": "npm run build",
     "test": "node scripts/link-self.mjs && npm run build && node --test \"tests/*.test.ts\" && npm test --prefix cli"
   },
-  "devDependencies": {
+  "dependencies": {
     "cross-spawn": "^7.0.6"
   },
   "peerDependencies": {

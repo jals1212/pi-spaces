@@ -362,7 +362,10 @@ Pi reads its agent home once, when it starts, so a running session cannot move t
 - Any other variable whose value is the old home, or a path inside it, moves to the same path in the new home; in a list such as `PATH`, each entry moves on its own. This keeps variables that a launcher derived from the home consistent. `PWD` and `OLDPWD` are left alone.
 - With a [profile](#profiles) that has `spaceEnv`, those variables are then set, with `{home}` and `{name}` filled in, when the target is a space; when it is `base`, they get back the values the base home had (`PI_SPACES_BASE_ENV`).
 - The same options are kept, such as `--model`, `-e`, `--tools` and other extensions' options. The initial prompt, `@file` arguments, everything after `--`, and the session options (`-c`, `-r`, `--session`, `--session-id`, `--fork`, `--session-dir`, `--no-session`, `-n`) are dropped, because they belong to the home being left.
+- A `--space <name>` option is dropped too, so a Pi that was started with it does not return to that space.
 - Switching works only in the interactive terminal.
+
+**A profile with `commands`** does not start the running Pi again: `/space switch base` runs its `commands.base`, and `/space switch <name>` runs its `commands.space` with `{home}` and `{name}` filled in (or `<commands.base> --space <name>` when it has no `commands.space`), so the program's own setup for the base home is kept. The environment is the one above; the options of the running Pi are not added. A command with an unclosed quote is reported and nothing restarts. Any other profile (a v1 file, or no profile) starts the running Pi again as described above.
 
 `pi --space <name>` acts before Pi opens its interface or runs anything, so it keeps the prompt and the session options too, in every mode.
 

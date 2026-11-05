@@ -294,6 +294,61 @@ test("switch base goes back to the home Pi started with", async () => {
 	assert.deepEqual(f.relaunches[0].env, { PI_CODING_AGENT_DIR: f.base, PI_SPACES_BASE_HOME: f.base });
 });
 
+const launcher = (commands: { base: string; space?: string }) => ({ name: "ml", home: "", dir: "", commands });
+
+test("switch with a v2 profile runs commands.space for a space, with the same environment", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { ...launcher({ base: "my-launcher", space: "my-launcher --home {home} --name {name}" }), home: f.base, dir: f.dir };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.relaunches, [
+		{
+			command: { command: "my-launcher", args: ["--home", join(f.dir, "work"), "--name", "work"] },
+			env: { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" },
+		},
+	]);
+	assert.equal(f.shutdowns, 1);
+});
+
+test("switch base with a v2 profile runs commands.base, with the same environment as before", async () => {
+	const f = fake({ home: (dir) => join(dir, "work") });
+	createSpace(f.dir, "work", "x");
+	f.deps.env = { PI_CODING_AGENT_DIR: join(f.dir, "work"), PI_SPACES_BASE_HOME: f.base, PI_SPACE: "work" };
+	f.deps.profile = { ...launcher({ base: "my-launcher --fast", space: "my-launcher --home {home}" }), home: f.base, dir: f.dir };
+	await runSpaceCommand("switch base", f.deps);
+	assert.deepEqual(f.relaunches, [
+		{ command: { command: "my-launcher", args: ["--fast"] }, env: { PI_CODING_AGENT_DIR: f.base, PI_SPACES_BASE_HOME: f.base } },
+	]);
+	assert.equal(f.shutdowns, 1);
+});
+
+test("switch to a space with a v2 profile without commands.space runs <base> --space <name>", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { ...launcher({ base: "my-launcher" }), home: f.base, dir: f.dir };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.relaunches[0].command, { command: "my-launcher", args: ["--space", "work"] });
+});
+
+test("switch with a profile without commands keeps relaunching this Pi", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { name: "ml", home: f.base, dir: f.dir, command: "my-launcher --home {home}" };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.relaunches[0].command, { command: "/n/node", args: ["/p/cli.js"] });
+	assert.equal(f.shutdowns, 1);
+});
+
+test("switch with an unclosed quote in the profile command notifies the error and relaunches nothing", async () => {
+	const f = fake();
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { ...launcher({ base: "my-launcher", space: "my-launcher 'oops {name}" }), home: f.base, dir: f.dir };
+	await runSpaceCommand("switch work", f.deps);
+	assert.deepEqual(f.notes, [["error", "The command of profile ml cannot be used: the command has an unclosed ' quote."]]);
+	assert.equal(f.relaunches.length, 0);
+	assert.equal(f.shutdowns, 0);
+});
+
 test("switch refuses outside the terminal UI and for unknown spaces, without shutting down", async () => {
 	const f = fake({ mode: "print", hasUI: false });
 	createSpace(f.dir, "work", "x");
