@@ -6,6 +6,26 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.13.0
+
+### Added
+
+- The config file can be TOML: a path ending in `.toml` is read as TOML (with
+  `#` comments), any other as JSON as before. Both have the same keys and
+  checks. TOML is parsed with the `smol-toml` dependency.
+- `configFile(env, home)` returns the config file and, when there is one, the
+  `config.json` that a `config.toml` in the same folder shadows.
+
+### Changed
+
+- The config file is looked up as `config.toml`, then `config.json`, in
+  `~/.config/pi-spaces` (or `$XDG_CONFIG_HOME/pi-spaces`), then in
+  `~/.pi-spaces`; with no file the answer of `configPath` is
+  `~/.pi-spaces/config.toml` (it was `~/.pi-spaces/config.json`). An existing
+  `config.json` keeps working where it is.
+- When `config.toml` and `config.json` are in the same folder, `config.toml` is
+  read and the extension warns that the `config.json` is ignored.
+
 ## 0.12.0
 
 ### Added

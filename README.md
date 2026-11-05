@@ -81,7 +81,7 @@ The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your
 
 ## Profiles
 
-A **profile** describes one program that runs Pi (plain Pi is one too): where its agent home is, the commands that start it, where its spaces live, how to prepare a new space, and the variables it needs per space. Profiles live in an optional JSON file, so you do not need shell variables or functions to tell pi-spaces about a program. Without the file, nothing changes: this is exactly how pi-spaces behaves without any configuration.
+A **profile** describes one program that runs Pi (plain Pi is one too): where its agent home is, the commands that start it, where its spaces live, how to prepare a new space, and the variables it needs per space. Profiles live in an optional file, in TOML or JSON, so you do not need shell variables or functions to tell pi-spaces about a program. Without the file, nothing changes: this is exactly how pi-spaces behaves without any configuration.
 
 The extension uses the profile whose `home` is the base home Pi started with (the one `base` goes back to); inside a space that is the home the space came from. The optional `pi-space` command ([`cli/README.md`](cli/README.md)) reads the same file, and the profile is the first word of every space it takes: `pi-space ml/work`. It does not use `default`: the profile is always named.
 
@@ -89,12 +89,27 @@ The extension uses the profile whose `home` is the base home Pi started with (th
 
 | | |
 | --- | --- |
-| Location | `$XDG_CONFIG_HOME/pi-spaces/config.json` when that file exists (`XDG_CONFIG_HOME` unset, blank or relative means `~/.config`, so `~/.config/pi-spaces/config.json`: easy to keep in your dotfiles), else `~/.pi-spaces/config.json`; on Windows `%USERPROFILE%\.config\pi-spaces\config.json` (`C:\Users\<you>\.config\pi-spaces\config.json`) unless `XDG_CONFIG_HOME` is set, else `%USERPROFILE%\.pi-spaces\config.json`. With both files the first wins. Nothing moves or creates either file. |
+| Location | The first that exists of `$XDG_CONFIG_HOME/pi-spaces/config.toml`, `$XDG_CONFIG_HOME/pi-spaces/config.json`, `~/.pi-spaces/config.toml` and `~/.pi-spaces/config.json` (`XDG_CONFIG_HOME` unset, blank or relative means `~/.config`, so `~/.config/pi-spaces/config.toml`: easy to keep in your dotfiles); with none, `~/.pi-spaces/config.toml`, where `pi-space init` writes. On Windows `~` is `%USERPROFILE%` (`C:\Users\<you>\.config\pi-spaces\config.toml`). The first file found wins. When `config.toml` and `config.json` are in the same folder, `config.toml` is read and a warning names the `config.json` that is ignored (remove one of them). Nothing moves or creates any file. |
+| Format | TOML when the file name ends in `.toml`, else JSON (with comments). Both have the same keys and the same checks; a JSON object is a TOML table. |
 | Change it | `PI_SPACES_CONFIG=<path>` (a leading `~` is your home folder; a relative path is taken from it). The `pi-space` command also takes `--config <path>` (see [`cli/README.md`](cli/README.md)). |
 | Missing | No profiles: Pi, spaces and `pi-space` behave as without this feature. |
 | Invalid | See [When the file is wrong](#when-the-file-is-wrong). |
 
 A complete example for a program called `my-launcher`, which keeps its own configuration outside its agent home:
+
+```toml
+schema = "pi-spaces.config/v2"
+
+[profiles.ml]
+home = "~/.my-launcher/agent"
+spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+
+[profiles.ml.commands]
+base = "my-launcher --"
+setup = "my-launcher --home {home} setup"
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -112,9 +127,26 @@ A complete example for a program called `my-launcher`, which keeps its own confi
 }
 ```
 
+</details>
+
 With that file, a space of `my-launcher` lives in `~/.my-launcher/spaces/<name>` (its agent home is `<name>/agent`), `/space new <name>` points you at `pi-space setup ml/<name>`, and entering the space `work` starts Pi with `MY_LAUNCHER_CONFIG_HOME=~/.my-launcher/spaces/work/agent/config`, while the base home gets no such variable from pi-spaces. From a shell, `pi-space ml/work` runs `my-launcher -- --space work`, and an alias such as `alias mlw='pi-space ml/work'` is optional sugar on top.
 
 Some programs behave differently when they are given their home explicitly (an option such as `--home`), even when it is their own default home. So `commands.base` runs the program exactly as you would run it yourself, and `commands.space` puts it in the space's home. A program that takes its home with an option gets a `space` command with `{home}` in it: `pi-space` runs it in the space's home with no `--space`, with the words after the space after the command, and its `base` is the program as it is, so its own commands work in base. For `my-launcher`:
+
+```toml
+schema = "pi-spaces.config/v2"
+
+[profiles.launcher]
+home = "~/.my-launcher/agent"
+spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+
+[profiles.launcher.commands]
+base = "my-launcher"
+space = "my-launcher --home {home}"
+setup = "my-launcher --home {home} setup"
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -133,6 +165,8 @@ Some programs behave differently when they are given their home explicitly (an o
 }
 ```
 
+</details>
+
 With it, `pi-space launcher/base` runs `my-launcher`, `pi-space launcher/base upgrade` runs `my-launcher upgrade`, and `pi-space launcher/work` runs `my-launcher --home ~/.my-launcher/spaces/work/agent`.
 
 Keep the `spaceEnv` of the program's own config home: without it, a space's `--home` would leave the program's configuration shared with the base home. The details are in [`cli/README.md`](cli/README.md#a-command-with-home).
@@ -142,6 +176,21 @@ Keep the `spaceEnv` of the program's own config home: without it, a space's `--h
 ### Example: gentle-shell
 
 For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-shell` as it is, and each space gets its own config folder, `gentle-ai`, next to its `agent/` folder through `spaceEnv`:
+
+```toml
+schema = "pi-spaces.config/v2"
+
+[profiles.gentle]
+home = "~/.gentle-shell/agent"
+spaceEnv = { GENTLE_PI_CONFIG_HOME = "{space}/gentle-ai" }
+
+[profiles.gentle.commands]
+base = "gentle-shell"
+space = "gentle-shell --home {home}"
+setup = "gentle-shell --home {home} setup"
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -160,21 +209,31 @@ For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-s
 }
 ```
 
+</details>
+
 ### Writing the file
 
 `pi-space init` writes the config file for you, in the location above (or in `--config <path>`), and refuses a file that already exists. It has no profiles of its own: the built-in `pi` is always there. The file starts with comments that show how `pi` is set up and a profile for another program, then an empty v2 config:
 
+```toml
+# pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+#
+# The built-in profile "pi" is always there, set up like this; add a
+# [profiles.pi] table to change it:
+#
+#   [profiles.pi]
+#   home = "~/.pi/agent"
+#   dir = "~/.pi/spaces"
+#   commands = { base = "pi", space = "pi --space {name}" }
+# ...
+
+schema = "pi-spaces.config/v2"
+```
+
+(The paths are written absolute, for your machine; the header goes on with the profile for another program.) The file is TOML, unless `--config` names a path that does not end in `.toml`: that one gets the same header and an empty config in JSON:
+
 ```text
 // pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
-//
-// The built-in profile "pi" is always there, set up like this; add "pi" under
-// "profiles" to change it:
-//
-//   "pi": {
-//     "home": "~/.pi/agent",
-//     "dir": "~/.pi/spaces",
-//     "commands": { "base": "pi", "space": "pi --space {name}" }
-//   }
 // ...
 {
   "schema": "pi-spaces.config/v2",
@@ -182,7 +241,7 @@ For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-s
 }
 ```
 
-(The paths are written absolute, for your machine; the header goes on with the profile for another program.) The file accepts comments, in both schemas: `//` to the end of the line and `/* ... */`. A comment inside a string is part of the string. An unclosed `/*` makes the file invalid.
+Both formats take comments, in both schemas: `#` in TOML; `//` to the end of the line and `/* ... */` in JSON. A comment inside a string is part of the string. An unclosed `/*` makes a JSON file invalid.
 
 ### Schema `pi-spaces.config/v2`
 
@@ -256,13 +315,26 @@ A v1 profile with `commands` is refused, and so is a v2 profile with `command`, 
 
 There is no command for it: edit the file once.
 
-1. Change `schema` to `"pi-spaces.config/v2"`.
+1. Change `schema` to `"pi-spaces.config/v2"` (the steps are the same in TOML and JSON).
 2. `command` with `{home}` becomes `commands.space`, and `commands.base` is that command without the `{home}` words (`--home {home}` removed).
 3. `command` without `{home}` becomes `commands.base`, with no `space`.
 4. `setup` becomes `commands.setup`.
 5. Drop `homeless`: in v2 `pi-space <profile>/base upgrade` already runs `<base> upgrade`.
 
 Before (v1):
+
+```toml
+schema = "pi-spaces.config/v1"
+
+[profiles.launcher]
+home = "~/.my-launcher/agent"
+command = "my-launcher --home {home}"
+setup = "my-launcher --home {home} setup"
+spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+homeless = ["upgrade", "self-uninstall", "memory"]
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -279,7 +351,24 @@ Before (v1):
 }
 ```
 
+</details>
+
 After (v2):
+
+```toml
+schema = "pi-spaces.config/v2"
+
+[profiles.launcher]
+home = "~/.my-launcher/agent"
+spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+
+[profiles.launcher.commands]
+base = "my-launcher"
+space = "my-launcher --home {home}"
+setup = "my-launcher --home {home} setup"
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -298,11 +387,13 @@ After (v2):
 }
 ```
 
+</details>
+
 A v1 file keeps working unchanged, so move when you want to. Update pi-spaces first, though: the extension in every home and the `pi-space` command. An older pi-spaces refuses a v2 file with "needs a newer pi-spaces", and then behaves as if there were no file.
 
 ### When the file is wrong
 
-Unknown keys, wrong types, bad names, a `default` that names no profile, an unreadable file and invalid JSON are all refused with a message that names the file and the problem, for example `~/.pi-spaces/config.json: unknown key "hmoe" in profile "ml"; allowed keys are "home", "commands", "dir" and "spaceEnv".` (in a v1 file the keys are `"home", "command", "dir", "setup", "spaceEnv" and "homeless"`). Pi never stops for it: the extension shows the message once as a warning when the session starts (on stderr without a terminal UI) and then behaves as if there were no file. A missing file is not an error.
+Unknown keys, wrong types, bad names, a `default` that names no profile, an unreadable file and invalid TOML or JSON are all refused with a message that names the file and the problem, for example `~/.pi-spaces/config.toml: unknown key "hmoe" in profile "ml"; allowed keys are "home", "commands", "dir" and "spaceEnv".` (in a v1 file the keys are `"home", "command", "dir", "setup", "spaceEnv" and "homeless"`). Pi never stops for it: the extension shows the message once as a warning when the session starts (on stderr without a terminal UI) and then behaves as if there were no file. A missing file is not an error.
 
 ## Moving an old space
 
@@ -329,7 +420,7 @@ Read:
 | Variable | Meaning |
 | --- | --- |
 | `PI_SPACES_DIR` | The spaces folder. A relative value is taken from your home folder. Default: the matching profile's `dir`, else `spaces` next to the base home. |
-| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: `~/.config/pi-spaces/config.json` (or `$XDG_CONFIG_HOME/pi-spaces/config.json`) when that file exists, else `~/.pi-spaces/config.json`. |
+| `PI_SPACES_CONFIG` | The [config file](#profiles) with the profiles. A leading `~` is your home folder and a relative value is taken from it. Default: the first that exists of `config.toml` and `config.json` in `~/.config/pi-spaces` (or `$XDG_CONFIG_HOME/pi-spaces`), then in `~/.pi-spaces`; else `~/.pi-spaces/config.toml`. A path ending in `.toml` is read as TOML, any other as JSON. |
 | `PI_SPACES_COMMAND` | The program that starts Pi (default `pi`; for a v2 profile its `commands.space`, else `commands.base`): told to the model and exported (see below). A switch starts Pi again with the command line it already has, so this is information, not a setting. |
 | `PI_SPACES_SETUP` | The command that prepares a new space (a v2 profile's `commands.setup`). `/space new` names `pi-space setup <profile>/<name>` when it is set. The `pi-space` command sets it for the Pi it starts, from the profile or `--setup`; it does not read it from your shell. |
 | `PI_CODING_AGENT_DIR` | Pi's agent home; its parent holds the default spaces folder. Default: `~/.pi/agent`. |

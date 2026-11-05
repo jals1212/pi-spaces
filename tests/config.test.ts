@@ -7,6 +7,7 @@ import {
 	activeProfile,
 	type Config,
 	ConfigError,
+	configFile,
 	configPath,
 	expandSpaceEnv,
 	loadConfig,
@@ -46,10 +47,11 @@ const v1 = (rest: Record<string, unknown> = {}) => ({ schema: "pi-spaces.config/
 const v2 = (rest: Record<string, unknown> = {}) => ({ schema: SCHEMA, ...rest });
 const NAME_RULE = 'use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters)';
 
-test("configPath is PI_SPACES_CONFIG, else ~/.pi-spaces/config.json", () => {
-	assert.equal(configPath({}, HOME), path(HOME, ".pi-spaces", "config.json"));
-	assert.equal(configPath({ PI_SPACES_CONFIG: "" }, HOME), path(HOME, ".pi-spaces", "config.json"));
-	assert.equal(configPath({ PI_SPACES_CONFIG: "   " }, HOME), path(HOME, ".pi-spaces", "config.json"));
+test("configPath is PI_SPACES_CONFIG, else ~/.pi-spaces/config.toml", () => {
+	const none = () => false;
+	assert.equal(configPath({}, HOME, none), path(HOME, ".pi-spaces", "config.toml"));
+	assert.equal(configPath({ PI_SPACES_CONFIG: "" }, HOME, none), path(HOME, ".pi-spaces", "config.toml"));
+	assert.equal(configPath({ PI_SPACES_CONFIG: "   " }, HOME, none), path(HOME, ".pi-spaces", "config.toml"));
 	assert.equal(configPath({ PI_SPACES_CONFIG: "/etc/ps.json" }, HOME), path("/etc/ps.json"));
 	assert.equal(configPath({ PI_SPACES_CONFIG: "~/cfg/ps.json" }, HOME), path(HOME, "cfg", "ps.json"));
 	assert.equal(configPath({ PI_SPACES_CONFIG: "~" }, HOME), HOME);
@@ -66,26 +68,57 @@ test("configPath is ~/.config/pi-spaces/config.json when that file exists and PI
 	assert.equal(configPath({}, HOME, only(xdg, legacy)), xdg);
 	// Only the old one, or none: the old path (a missing file stays "no config").
 	assert.equal(configPath({}, HOME, only(legacy)), legacy);
-	assert.equal(configPath({}, HOME, only()), legacy);
+	assert.equal(configPath({}, HOME, only()), path(HOME, ".pi-spaces", "config.toml"));
 	// A blank XDG_CONFIG_HOME is unset.
 	assert.equal(configPath({ XDG_CONFIG_HOME: "" }, HOME, only(xdg)), xdg);
 	assert.equal(configPath({ XDG_CONFIG_HOME: "  " }, HOME, only(xdg)), xdg);
 	// A relative XDG_CONFIG_HOME is ignored (XDG spec): ~/.config is used.
 	assert.equal(configPath({ XDG_CONFIG_HOME: "rel/cfg" }, HOME, only(xdg)), xdg);
-	assert.equal(configPath({ XDG_CONFIG_HOME: "rel/cfg" }, HOME, only(path("rel/cfg/pi-spaces/config.json"), path(HOME, "rel", "cfg", "pi-spaces", "config.json"))), legacy);
+	assert.equal(configPath({ XDG_CONFIG_HOME: "rel/cfg" }, HOME, only(path("rel/cfg/pi-spaces/config.json"), path(HOME, "rel", "cfg", "pi-spaces", "config.json"), legacy)), legacy);
 	// An absolute XDG_CONFIG_HOME replaces ~/.config.
 	const custom = path("/etc/xdg-home", "pi-spaces", "config.json");
 	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(custom)), custom);
 	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(custom, xdg, legacy)), custom);
 	// With XDG_CONFIG_HOME set, ~/.config is not looked at.
-	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(xdg)), legacy);
+	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(xdg, legacy)), legacy);
 	// PI_SPACES_CONFIG wins over both.
 	assert.equal(configPath({ PI_SPACES_CONFIG: "/etc/ps.json" }, HOME, only(xdg, legacy)), path("/etc/ps.json"));
 });
 
+test("configPath looks for config.toml before config.json in each folder, XDG first; with none it is ~/.pi-spaces/config.toml", () => {
+	const xdgToml = path(HOME, ".config", "pi-spaces", "config.toml");
+	const xdgJson = path(HOME, ".config", "pi-spaces", "config.json");
+	const legacyToml = path(HOME, ".pi-spaces", "config.toml");
+	const legacyJson = path(HOME, ".pi-spaces", "config.json");
+	const only = (...files: string[]) => (file: string) => files.includes(file);
+	assert.equal(configPath({}, HOME, only(xdgToml, xdgJson, legacyToml, legacyJson)), xdgToml);
+	assert.equal(configPath({}, HOME, only(xdgJson, legacyToml, legacyJson)), xdgJson);
+	assert.equal(configPath({}, HOME, only(legacyToml, legacyJson)), legacyToml);
+	assert.equal(configPath({}, HOME, only(legacyJson)), legacyJson);
+	assert.equal(configPath({}, HOME, only()), legacyToml);
+	const custom = path("/etc/xdg-home", "pi-spaces", "config.toml");
+	assert.equal(configPath({ XDG_CONFIG_HOME: path("/etc/xdg-home") }, HOME, only(custom, xdgToml)), custom);
+});
+
+test("configFile names the config.json it ignores when config.toml is next to it", () => {
+	const xdgToml = path(HOME, ".config", "pi-spaces", "config.toml");
+	const xdgJson = path(HOME, ".config", "pi-spaces", "config.json");
+	const legacyToml = path(HOME, ".pi-spaces", "config.toml");
+	const legacyJson = path(HOME, ".pi-spaces", "config.json");
+	const only = (...files: string[]) => (file: string) => files.includes(file);
+	assert.deepEqual(configFile({}, HOME, only(xdgToml, xdgJson)), { path: xdgToml, ignored: xdgJson });
+	assert.deepEqual(configFile({}, HOME, only(legacyToml, legacyJson)), { path: legacyToml, ignored: legacyJson });
+	// Files in another folder are not next to it: the first folder wins without a warning, as before.
+	assert.deepEqual(configFile({}, HOME, only(xdgToml, legacyJson)), { path: xdgToml });
+	assert.deepEqual(configFile({}, HOME, only(xdgJson, legacyToml)), { path: xdgJson });
+	assert.deepEqual(configFile({}, HOME, only()), { path: legacyToml });
+	// PI_SPACES_CONFIG is read as given.
+	assert.deepEqual(configFile({ PI_SPACES_CONFIG: "/etc/ps.toml" }, HOME, only(xdgToml, xdgJson)), { path: path("/etc/ps.toml") });
+});
+
 test("configPath finds the XDG file on disk by default", () => {
 	const root = scratch();
-	assert.equal(configPath({}, root), join(root, ".pi-spaces", "config.json"));
+	assert.equal(configPath({}, root), join(root, ".pi-spaces", "config.toml"));
 	mkdirSync(join(root, ".config", "pi-spaces"), { recursive: true });
 	writeFileSync(join(root, ".config", "pi-spaces", "config.json"), "{}");
 	assert.equal(configPath({}, root), join(root, ".config", "pi-spaces", "config.json"));
@@ -212,6 +245,46 @@ test("loadConfig checks v2 commands, and each schema refuses the other's profile
 		failure(v1({ profiles: { launcher: { commands: { base: "x" } } } })),
 		'/c/config.json: unknown key "commands" in profile "launcher"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".',
 	);
+});
+
+test("loadConfig reads a .toml file with the same keys, comments and validation as JSON", () => {
+	const text = [
+		"# pi-spaces config",
+		'schema = "pi-spaces.config/v2" # the version',
+		'default = "ml"',
+		"",
+		"[profiles.ml]",
+		'home = "~/.my-launcher/agent"',
+		"",
+		"[profiles.ml.commands]",
+		'base = "my-launcher"',
+		'space = "my-launcher --home {home}"',
+		"",
+		"[profiles.ml.spaceEnv]",
+		'MY_LAUNCHER_CONFIG_HOME = "{space}/config"',
+	].join("\n");
+	assert.deepEqual(load(text, "/c/config.toml"), {
+		path: "/c/config.toml",
+		default: "ml",
+		profiles: [
+			{
+				name: "ml",
+				home: "~/.my-launcher/agent",
+				commands: { base: "my-launcher", space: "my-launcher --home {home}" },
+				spaceEnv: { MY_LAUNCHER_CONFIG_HOME: "{space}/config" },
+			},
+		],
+	});
+	// The extension decides, in any case.
+	assert.equal(load('schema = "pi-spaces.config/v2"', "/c/CONFIG.TOML")?.profiles.length, 0);
+	assert.equal(failure('schema = "pi-spaces.config/v2"\n[profiles.ml]\nhmoe = "/x"', "/c/config.toml"), '/c/config.toml: unknown key "hmoe" in profile "ml"; allowed keys are "home", "commands", "dir" and "spaceEnv".');
+	assert.equal(failure("", "/c/config.toml"), '/c/config.toml: "schema" is required; use "pi-spaces.config/v2".');
+	assert.equal(failure("schema = \n", "/c/config.toml"), "/c/config.toml: not valid TOML: invalid value (line 1, column 10).");
+	// A TOML date is not a table.
+	assert.equal(failure('schema = "pi-spaces.config/v2"\nprofiles = 1979-05-27', "/c/config.toml"), '/c/config.toml: "profiles" must be an object of profiles.');
+	assert.equal(failure('schema = "pi-spaces.config/v2"\n[profiles]\nml = 1979-05-27', "/c/config.toml"), '/c/config.toml: profile "ml" must be an object.');
+	// Any other extension is JSON, as before.
+	assert.match(failure('schema = "pi-spaces.config/v2"', "/c/config"), /^\/c\/config: not valid JSON: /);
 });
 
 test("loadConfig accepts // and /* */ comments outside strings", () => {
@@ -506,6 +579,18 @@ test("activeProfile without a file is today's behavior: the built-in pi, no warn
 	assert.equal(result.warning, undefined);
 	assert.equal(result.profile?.name, "pi");
 	assert.deepEqual(activeProfile(env, root, join(root, "elsewhere")), { profile: undefined, warning: undefined });
+});
+
+test("activeProfile reads config.toml and warns that the config.json next to it is ignored", () => {
+	const root = scratch();
+	const folder = join(root, ".pi-spaces");
+	mkdirSync(folder);
+	const base = join(root, "launcher", "agent");
+	writeFileSync(join(folder, "config.toml"), `schema = "pi-spaces.config/v2"\n[profiles.launcher]\nhome = ${JSON.stringify(base)}\n`);
+	writeFileSync(join(folder, "config.json"), "not even JSON");
+	const result = activeProfile({}, root, base);
+	assert.equal(result.profile?.name, "launcher");
+	assert.equal(result.warning, `${join(folder, "config.json")} is ignored: ${join(folder, "config.toml")} is read instead; remove one of them.`);
 });
 
 test("activeProfile turns an invalid file into a warning naming it, and behaves as with no config", () => {
