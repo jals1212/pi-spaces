@@ -50,7 +50,8 @@
     "test": "node scripts/link-self.mjs && npm run build && node --test \"tests/*.test.ts\" && npm test --prefix cli"
   },
   "dependencies": {
-    "cross-spawn": "^7.0.6"
+    "cross-spawn": "^7.0.6",
+    "smol-toml": "^1.9.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
