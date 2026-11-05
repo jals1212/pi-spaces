@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.3
+
 ### Added
 
 - A preview image (`pi.image`) for the Pi package gallery, also shown at the
