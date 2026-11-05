@@ -29,7 +29,8 @@
     ],
     "skills": [
       "./skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/jals1212/pi-spaces/main/assets/preview.png"
   },
   "files": [
     "dist",

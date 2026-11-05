@@ -1,5 +1,7 @@
 # 🪐 pi-spaces
 
+![pi-spaces: several Pi agent homes side by side](assets/preview.png)
+
 Named spaces for [Pi](https://pi.dev): keep several agent homes side by side and switch between them from inside Pi.
 
 A space is a complete Pi agent home: its own sign-ins, packages, settings, skills and sessions. Use one per client, per experiment, or to try a package without touching your everyday setup.
