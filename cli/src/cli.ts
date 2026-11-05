@@ -10,7 +10,7 @@
 // it is recognized only as the first word); see startFor. A first word of the profile's `homeless` list runs the command
 // without its home part and with no --space instead (`gentle-shell upgrade`); see homelessStart.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
@@ -43,6 +43,7 @@ import {
 	profileByName,
 	profileForHome,
 	profileNames,
+	SCHEMA,
 	spaceEnvFor,
 } from "@jals1212/pi-spaces/config";
 
@@ -62,6 +63,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space update <space|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space init                                write a config file with the built-in pi profile in comments
   pi-space completion zsh                      print the zsh completion script (source <(pi-space completion zsh))
   pi-space completion powershell               print the PowerShell completion script (pi-space completion powershell | Out-String | Invoke-Expression)
   pi-space <command> --help                    the help of one command
@@ -114,6 +116,7 @@ export type CliCommand = (
 	| { kind: "setup"; target: PackageTarget }
 	| { kind: "rename"; from: string; to: string }
 	| { kind: "remove"; name: string; yes: boolean; backup: boolean }
+	| { kind: "init" }
 	| { kind: "completion"; shell?: string }
 	| { kind: "complete"; words: string[] }
 	| { kind: "picker" }
@@ -242,6 +245,18 @@ const COMMANDS: Record<string, CommandHelp> = {
 		calls: ["command", "dir", "config"],
 		examples: ["pi-space uninstall pi/work npm:some-package", "pi-space uninstall pi/--every npm:some-package", "pi-space uninstall --every npm:some-package"],
 	},
+	init: {
+		summary: "write a config file with the built-in pi profile in comments",
+		usage: "[--config <path>] init",
+		about: [
+			"It writes the config file (schema v2) with no profiles of its own, and a header of comments that shows how the built-in pi profile is set up and a profile for another program.",
+			"It refuses a file that already exists, and never reads it.",
+		],
+		args: [],
+		options: [],
+		calls: ["config"],
+		examples: ["pi-space init", "pi-space --config ~/dotfiles/pi-spaces.json init"],
+	},
 	completion: {
 		summary: "print the shell completion script",
 		usage: "completion <shell>",
@@ -272,7 +287,7 @@ function commandHelp(name: string): string {
 	const sections: string[][] = [
 		[`Usage: pi-space ${help.usage}`],
 		[`${help.summary[0].toUpperCase()}${help.summary.slice(1)}.`, ...help.about],
-		["Arguments:", ...rows(help.args)],
+		...(help.args.length > 0 ? [["Arguments:", ...rows(help.args)]] : []),
 		["Options:", ...rows(options)],
 		...(calls.length > 0 ? [["Call options (before the command, for this call only):", ...rows(calls)]] : []),
 		["Examples:", ...help.examples.map((example) => `  ${example}`)],
@@ -315,6 +330,7 @@ function parseCommand(args: string[]): CliCommand {
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
 	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
 	if (first === "setup") return parseSetup(rest);
+	if (first === "init") return rest.length === 0 ? { kind: "init" } : { kind: "usage" };
 	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
 	if (first === "__complete") return { kind: "complete", words: rest };
 	if (first === "rename") return rest.length === 2 ? { kind: "rename", from: rest[0], to: rest[1] } : { kind: "usage" };
@@ -724,6 +740,8 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			return printCompletion(command.shell, io);
 		case "complete":
 			return complete(command.words, io);
+		case "init":
+			return writeInit(command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home), io);
 	}
 	const configFile = command.config !== undefined ? resolve(command.config) : configPath(io.env, io.home);
 	try {
@@ -774,6 +792,50 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 		io.stderr.write(`pi-space: ${error.message}\n`);
 		return io.exit(2);
 	}
+}
+
+/** The text of the config file `pi-space init` writes: comments that show the built-in pi profile and another one, then an empty v2 config. */
+export function initConfigText(piHome: string, piDir: string): string {
+	return `// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+//
+// The built-in profile "pi" is always there, set up like this; add "pi" under
+// "profiles" to change it:
+//
+//   "pi": {
+//     "home": ${JSON.stringify(piHome)},
+//     "dir": ${JSON.stringify(piDir)},
+//     "commands": { "base": "pi", "space": "pi --space {name}" }
+//   }
+//
+// A profile for another program that runs Pi, for example:
+//
+//   "gentle": {
+//     "home": "~/.gentle-shell/agent",
+//     "commands": {
+//       "base": "gentle-shell",
+//       "space": "gentle-shell --home {home}",
+//       "setup": "gentle-shell --home {home} setup"
+//     },
+//     "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+//   }
+{
+  "schema": ${JSON.stringify(SCHEMA)},
+  "profiles": {}
+}
+`;
+}
+
+/** `pi-space init`: writes the config file, with its folders, unless it exists (exit 1); an existing file is never read. */
+function writeInit(file: string, io: CliIo): void {
+	if (existsSync(file)) {
+		io.stderr.write(`pi-space: ${file} already exists; edit it, or remove it to write a new one.\n`);
+		return io.exit(1);
+	}
+	const pi = profileByName(undefined, "pi", io.env, io.home);
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
+	io.stdout.write(`Wrote ${file}.\n`);
+	return io.exit(0);
 }
 
 /** `pi-space list`: every profile, its folder, then its base and spaces as `<profile>/<name>`. */

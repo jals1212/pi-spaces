@@ -24,6 +24,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space update <space|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
+  pi-space init                                write a config file with the built-in pi profile in comments
   pi-space completion zsh                      print the zsh completion script (source <(pi-space completion zsh))
   pi-space completion powershell               print the PowerShell completion script (pi-space completion powershell | Out-String | Invoke-Expression)
   pi-space <command> --help                    the help of one command
@@ -56,6 +57,8 @@ interface Run {
 	/** The folders in <spaces>/.backups after the run. */
 	backups: string[];
 	root: string;
+	/** The files asked for with `read`, after the run. */
+	read: Record<string, string | undefined>;
 }
 
 async function run(
@@ -113,7 +116,7 @@ async function run(
 			return normalize(text.replaceAll("<root>", root));
 		};
 		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, fill(value)]));
-		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root };
+		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root, read: {} };
 		const io: CliIo = {
 			stdin,
 			stdout: { write: (text: string) => void (result.out += text) },
@@ -136,6 +139,7 @@ async function run(
 		} finally {
 			chmodSync(dir, 0o755);
 		}
+		for (const path of options.read ?? []) result.read[path] = existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : undefined;
 		const backups = join(dir, ".backups");
 		if (existsSync(backups)) result.backups = readdirSync(backups).sort();
 		for (const name of existsSync(dir) ? readdirSync(dir).sort() : []) {
@@ -273,7 +277,7 @@ test("parseCli: --help after a name belongs to Pi", () => {
 });
 
 test("parseCli: --help or -h after a command word, or before one, asks for that command's help", () => {
-	for (const command of ["list", "new", "setup", "rename", "remove", "update", "install", "uninstall", "completion"]) {
+	for (const command of ["list", "new", "setup", "rename", "remove", "update", "install", "uninstall", "init", "completion"]) {
 		const expected = { kind: "command-help", command };
 		assert.deepEqual(parseCli([command, "--help"]), expected, command);
 		assert.deepEqual(parseCli([command, "-h"]), expected, command);
@@ -377,6 +381,7 @@ const HELP_USAGE: Record<string, string> = {
 	update: "Usage: pi-space update <space|--every> [pi args...]",
 	install: "Usage: pi-space install <space|--every> <source> [pi args...]",
 	uninstall: "Usage: pi-space uninstall <space|--every> <source> [pi args...]",
+	init: "Usage: pi-space [--config <path>] init",
 	completion: "Usage: pi-space completion <shell>",
 };
 
@@ -456,7 +461,7 @@ test("--help <unknown> names the commands on stderr and exits 2", async () => {
 		const r = await run(argv, { files: { [CONFIG]: "{nope" } });
 		assert.equal(r.code, 2, argv.join(" "));
 		assert.equal(r.out, "");
-		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, rename, remove, update, install, uninstall, completion.\n');
+		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, rename, remove, update, install, uninstall, init, completion.\n');
 		assert.equal(r.spawned.length, 0);
 	}
 });
@@ -1884,9 +1889,10 @@ const COMPLETE_FILES = {
 	"other-spaces/zed/.keep": "",
 };
 
-const FIRST_COMMANDS = ["command install", "command list", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
+const FIRST_COMMANDS = ["command init", "command install", "command list", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
 
 const COMMAND_LINES = [
+	"command\tinit\twrite a config file with the built-in pi profile in comments",
 	"command\tinstall\tinstall a package in a space",
 	"command\tlist\tlist the spaces, or the packages of one",
 	"command\tnew\tcreate a space",
@@ -2726,4 +2732,103 @@ test("a command with {home}: the picker starts the chosen space the same way", a
 	const gentle = r.spawned.filter(({ program }) => program === "gentle-shell");
 	assert.deepEqual(gentle.map(({ args }) => args), [["--home", join(r.dir, "work")]]);
 	assert.equal(setupEnvOf(r, r.spawned.indexOf(gentle[0])).PI_SPACE, "work");
+});
+
+/** The file `pi-space init` writes, for a run whose pi home is <root>/no-agent and whose spaces folder is <root>/spaces. */
+function initText(root: string): string {
+	return `// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
+//
+// The built-in profile "pi" is always there, set up like this; add "pi" under
+// "profiles" to change it:
+//
+//   "pi": {
+//     "home": ${JSON.stringify(join(root, "no-agent"))},
+//     "dir": ${JSON.stringify(join(root, "spaces"))},
+//     "commands": { "base": "pi", "space": "pi --space {name}" }
+//   }
+//
+// A profile for another program that runs Pi, for example:
+//
+//   "gentle": {
+//     "home": "~/.gentle-shell/agent",
+//     "commands": {
+//       "base": "gentle-shell",
+//       "space": "gentle-shell --home {home}",
+//       "setup": "gentle-shell --home {home} setup"
+//     },
+//     "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+//   }
+{
+  "schema": "pi-spaces.config/v2",
+  "profiles": {}
+}
+`;
+}
+
+test("parseCli: init takes no arguments", () => {
+	assert.deepEqual(parseCli(["init"]), { kind: "init" });
+	assert.deepEqual(parseCli(["--config", "c.json", "init"]), { kind: "init", config: "c.json" });
+	assert.deepEqual(parseCli(["init", "extra"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["init", "--bogus"]), { kind: "usage" });
+});
+
+test("init writes the config file at the default path with the built-in pi profile in comments, and the file loads", async () => {
+	const r = await run(["init"], { read: [CONFIG] });
+	assert.equal(r.code, 0);
+	assert.equal(r.err, "");
+	assert.equal(r.out, `Wrote ${join(r.root, CONFIG)}.\n`);
+	assert.equal(r.read[CONFIG], initText(r.root));
+	assert.equal(r.spawned.length, 0);
+	// Comments are accepted, so the file is a working config as it is.
+	const listed = await run(["list"], { files: { [CONFIG]: r.read[CONFIG] } });
+	assert.equal(listed.code, 0);
+	assert.equal(listed.err, "");
+	assert.match(listed.out, /^Spaces of pi in /);
+});
+
+test("init --config <path> writes there and creates the folders on the way", async () => {
+	const r = await run(["--config", "<root>/deep/er/pi-spaces.json", "init"], { read: ["deep/er/pi-spaces.json", CONFIG] });
+	assert.equal(r.code, 0);
+	assert.equal(r.err, "");
+	assert.equal(r.out, `Wrote ${join(r.root, "deep", "er", "pi-spaces.json")}.\n`);
+	assert.equal(r.read["deep/er/pi-spaces.json"], initText(r.root));
+	assert.equal(r.read[CONFIG], undefined);
+});
+
+test("init refuses an existing file and leaves it as it was, even when it is not a valid config", async () => {
+	for (const content of ["{nope", JSON.stringify({ schema: "pi-spaces.config/v2", profiles: { x: {} } })]) {
+		const r = await run(["init"], { files: { [CONFIG]: content }, read: [CONFIG] });
+		assert.equal(r.code, 1);
+		assert.equal(r.out, "");
+		assert.equal(r.err, `pi-space: ${join(r.root, CONFIG)} already exists; edit it, or remove it to write a new one.\n`);
+		assert.equal(r.read[CONFIG], content);
+	}
+	const custom = await run(["--config", "<root>/mine.json", "init"], { files: { "mine.json": "keep" }, read: ["mine.json", CONFIG] });
+	assert.equal(custom.code, 1);
+	assert.equal(custom.err, `pi-space: ${join(custom.root, "mine.json")} already exists; edit it, or remove it to write a new one.\n`);
+	assert.equal(custom.read["mine.json"], "keep");
+	assert.equal(custom.read[CONFIG], undefined);
+});
+
+test("init with arguments is a usage error and writes nothing", async () => {
+	for (const argv of [["init", "extra"], ["init", "--bogus"]]) {
+		const r = await run(argv, { read: [CONFIG] });
+		assert.equal(r.code, 2, argv.join(" "));
+		assert.equal(r.out, "");
+		assert.equal(r.err, USAGE);
+		assert.equal(r.read[CONFIG], undefined);
+	}
+});
+
+test("init --help shows the help of init and writes nothing", async () => {
+	const r = await run(["init", "--help"], { read: [CONFIG] });
+	assert.equal(r.code, 0);
+	assert.equal(r.err, "");
+	assert.equal(r.out.split("\n")[0], "Usage: pi-space [--config <path>] init");
+	assert.match(r.out, /Write a config file with the built-in pi profile in comments\./);
+	assert.match(r.out, /--config <path>/);
+	assert.equal(r.read[CONFIG], undefined);
+	const other = await run(["--help", "init"], { read: [CONFIG] });
+	assert.equal(other.out, r.out);
+	assert.equal(other.read[CONFIG], undefined);
 });
