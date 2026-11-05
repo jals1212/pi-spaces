@@ -126,26 +126,12 @@ setup = "my-launcher --home {home} setup"
   }
 }
 ```
+
 </details>
 
 With that file, a space of `my-launcher` lives in `~/.my-launcher/spaces/<name>` (its agent home is `<name>/agent`), `/space new <name>` points you at `pi-space setup ml/<name>`, and entering the space `work` starts Pi with `MY_LAUNCHER_CONFIG_HOME=~/.my-launcher/spaces/work/agent/config`, while the base home gets no such variable from pi-spaces. From a shell, `pi-space ml/work` runs `my-launcher -- --space work`, and an alias such as `alias mlw='pi-space ml/work'` is optional sugar on top.
 
 Some programs behave differently when they are given their home explicitly (an option such as `--home`), even when it is their own default home. So `commands.base` runs the program exactly as you would run it yourself, and `commands.space` puts it in the space's home. A program that takes its home with an option gets a `space` command with `{home}` in it: `pi-space` runs it in the space's home with no `--space`, with the words after the space after the command, and its `base` is the program as it is, so its own commands work in base. For `my-launcher`:
-
-```toml
-schema = "pi-spaces.config/v2"
-
-[profiles.launcher]
-home = "~/.my-launcher/agent"
-spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
-
-[profiles.launcher.commands]
-base = "my-launcher"
-space = "my-launcher --home {home}"
-setup = "my-launcher --home {home} setup"
-```
-
-<details><summary>The same in JSON</summary>
 
 ```toml
 schema = "pi-spaces.config/v2"
@@ -178,7 +164,7 @@ setup = "my-launcher --home {home} setup"
   }
 }
 ```
-</details>
+
 </details>
 
 With it, `pi-space launcher/base` runs `my-launcher`, `pi-space launcher/base upgrade` runs `my-launcher upgrade`, and `pi-space launcher/work` runs `my-launcher --home ~/.my-launcher/spaces/work/agent`.
@@ -222,6 +208,7 @@ setup = "gentle-shell --home {home} setup"
   }
 }
 ```
+
 </details>
 
 ### Writing the file
@@ -363,9 +350,25 @@ homeless = ["upgrade", "self-uninstall", "memory"]
   }
 }
 ```
+
 </details>
 
 After (v2):
+
+```toml
+schema = "pi-spaces.config/v2"
+
+[profiles.launcher]
+home = "~/.my-launcher/agent"
+spaceEnv = { MY_LAUNCHER_CONFIG_HOME = "{home}/config" }
+
+[profiles.launcher.commands]
+base = "my-launcher"
+space = "my-launcher --home {home}"
+setup = "my-launcher --home {home} setup"
+```
+
+<details><summary>The same in JSON</summary>
 
 ```json
 {
@@ -383,6 +386,8 @@ After (v2):
   }
 }
 ```
+
+</details>
 
 A v1 file keeps working unchanged, so move when you want to. Update pi-spaces first, though: the extension in every home and the `pi-space` command. An older pi-spaces refuses a v2 file with "needs a newer pi-spaces", and then behaves as if there were no file.
 
