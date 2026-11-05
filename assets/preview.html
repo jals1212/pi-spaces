@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- Source of assets/preview.png, the Pi package gallery preview (package.json pi.image).
+     Regenerate on macOS: qlmanage -t -s 1280 -o <dir> assets/preview.html, then
+     sips -c 640 1280 <dir>/preview.html.png --out assets/preview.png
+     (Quick Look renders a 1000px square page: the image is the band in its middle, hence the zoom and margin below). -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { width: 100%; height: 1000px; overflow: hidden;
+    background: radial-gradient(circle at 15% 45%, #2b2350 0%, #141226 40%, #0c0b18 75%); }
+  body { zoom: 0.78125; }
+  html, body { margin: 0; }
+  body { width: 1280px; height: 640px; margin-top: 320px; }
+  body {
+    color: #e8e6f3;
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex; align-items: center; gap: 56px; padding: 0 72px;
+  }
+  .left { width: 470px; }
+  .planet { font-size: 92px; line-height: 1; }
+  h1 { font-size: 64px; font-weight: 800; letter-spacing: -1.5px; margin-top: 14px; }
+  p { font-size: 25px; line-height: 1.38; color: #b9b4d6; margin-top: 18px; }
+  .tags { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .tags span { font: 600 17px/1 ui-monospace, "SF Mono", Menlo, monospace; color: #d7c8ff;
+    background: #2a2448; border: 1px solid #463c78; border-radius: 999px; padding: 9px 14px; }
+  .term { flex: 1; background: #17152b; border: 1px solid #3a3366; border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45); overflow: hidden; }
+  .bar { height: 38px; background: #201d3a; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+  .bar i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .body { padding: 22px 26px 26px; font: 20px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: #cfcbe6; }
+  .prompt { color: #8be9b0; }
+  .dim { color: #7a7499; }
+  .group { color: #b39dff; margin-top: 8px; }
+  .row { padding-left: 18px; }
+  .sel { background: #3b2f7a; color: #fff; border-radius: 6px; margin-left: -8px; padding-left: 26px; }
+  .status { margin-top: 18px; border-top: 1px solid #2f2a55; padding-top: 14px; display: flex; justify-content: space-between; }
+  .status b { color: #ffd479; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="planet">🪐</div>
+    <h1>pi-spaces</h1>
+    <p>Named spaces for Pi: several agent homes side by side, each with its own sign-ins, packages, settings and sessions.</p>
+    <div class="tags"><span>/space</span><span>pi-space</span><span>profiles</span></div>
+  </div>
+  <div class="term">
+    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <div class="body">
+      <div><span class="prompt">❯</span> pi-space</div>
+      <div class="dim">Pick a space (type to filter)</div>
+      <div class="group">pi</div>
+      <div class="row">pi/base</div>
+      <div class="row sel">pi/work</div>
+      <div class="row">pi/experiments</div>
+      <div class="group">launcher</div>
+      <div class="row">launcher/base</div>
+      <div class="row">launcher/client-a</div>
+      <div class="status"><span class="dim">/space switch base</span><b>🪐 pi/work</b></div>
+    </div>
+  </div>
+</body>
+</html>
