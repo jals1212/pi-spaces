@@ -1,6 +1,7 @@
 // The /space command, kept apart from Pi's extension API so it can be tested directly.
 import { join } from "node:path";
 import type { Profile } from "./config.ts";
+import { profileCommand } from "./launch.ts";
 import { type Command, parseSpaceFlag, relaunchEnv, resolveSwitch } from "./relaunch.ts";
 import {
 	activeSpace,
@@ -158,7 +159,14 @@ function switchTo(name: string, deps: SpaceCommandDeps): void {
 	if (ctx.mode !== "tui") throw new SpaceError("/space switch needs the interactive terminal.");
 	const currentHome = deps.currentHome();
 	const target = resolveSwitch({ dir: deps.dir, name, currentHome, env: deps.env });
-	deps.relaunch(deps.command(), relaunchEnv(deps.env, { ...target, currentHome, spaceEnv: deps.profile?.spaceEnv }));
+	// A profile with `commands` starts its own program for the target; otherwise this Pi starts again.
+	let command: Command | undefined;
+	try {
+		command = profileCommand(deps.profile, target);
+	} catch (error) {
+		throw new SpaceError(`The command of profile ${deps.profile?.name} cannot be used: ${(error as Error).message}.`);
+	}
+	deps.relaunch(command ?? deps.command(), relaunchEnv(deps.env, { ...target, currentHome, spaceEnv: deps.profile?.spaceEnv }));
 	ctx.ui.notify(
 		target.space === undefined ? "Switching to the base home; Pi restarts in it." : `Switching to space "${target.space}"; Pi restarts in it.`,
 		"info",

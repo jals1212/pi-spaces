@@ -1,6 +1,6 @@
 // Relaunch: Pi reads its agent home once at startup, so entering a space means
 // running the same Pi command again with PI_CODING_AGENT_DIR pointing at the space.
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
 import { delimiter, join, resolve, sep } from "node:path";
 import { expandSpaceEnv } from "./config.ts";
 import { activeSpace, BASE, listSpaces, type Env, SpaceError, validateName } from "./spaces.ts";
@@ -25,7 +25,7 @@ const SESSION_VALUE_OPTIONS = new Set(["--session", "--session-id", "--fork", "-
 
 /**
  * The arguments to start Pi with again: options are kept; the initial prompt, @file
- * arguments, session options and everything after "--" are dropped.
+ * arguments, session options, --space with its value and everything after "--" are dropped.
  */
 export function filterArgs(args: string[]): string[] {
 	const kept: string[] = [];
@@ -36,6 +36,11 @@ export function filterArgs(args: string[]): string[] {
 		const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
 		const inlineValue = name !== arg;
 		if (SESSION_FLAGS.has(name)) continue;
+		// A Pi started with --space must not return to that space after a switch.
+		if (name === "--space") {
+			if (!inlineValue) i++;
+			continue;
+		}
 		if (SESSION_VALUE_OPTIONS.has(name)) {
 			if (!inlineValue) i++;
 			continue;
@@ -222,7 +227,8 @@ export function planStartup(input: { proc: Proc; dir: string; currentHome: strin
 
 /** Runs the command now with inherited stdio and returns its exit code (1 when it cannot start). */
 export function runNow(command: Command, env: Env): number {
-	const result = spawnSync(command.command, command.args, { stdio: "inherit", env: env as NodeJS.ProcessEnv });
+	// cross-spawn is child_process.spawnSync, plus the Windows lookup of .cmd shims for a bare program name.
+	const result = crossSpawn.sync(command.command, command.args, { stdio: "inherit", env: env as NodeJS.ProcessEnv });
 	if (result.error) {
 		process.stderr.write(`pi-spaces: could not start Pi again: ${result.error.message}\n`);
 		return 1;
