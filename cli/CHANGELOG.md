@@ -6,6 +6,25 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.0
+
+### Added
+
+- `homeless` words of a profile: when the first word after the space is one of
+  them, `pi-space` runs the profile's command without every word that has
+  `{home}` (and an option right before a bare `{home}`), `{name}` still filled
+  in, then the words as they are, with no `--space` and the plain environment
+  of the profile. With `"homeless": ["upgrade"]`, `pi-space gentle/base upgrade`
+  runs `gentle-shell upgrade`. Needs `@jals1212/pi-spaces` 0.10.0, which reads `homeless`; the CLI now
+  depends on `^0.10.0`.
+
+### Fixed
+
+- `pi-space gentle/base upgrade` did not run gentle-shell's `upgrade` as 0.10.0
+  said: it ran `gentle-shell --home <home> upgrade`, and gentle-shell
+  recognizes `upgrade` only as its first word, so it went to Pi. `homeless`
+  covers it; the README says so.
+
 ## 0.10.0
 
 ### Added

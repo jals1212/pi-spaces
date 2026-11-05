@@ -6,6 +6,23 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.10.0
+
+### Added
+
+- A profile may list `homeless` words (`"homeless": ["upgrade"]`): with one of
+  them first, `pi-space` runs the profile's `command` without its home part
+  and without `--space`, so `pi-space gentle/base upgrade` runs
+  `gentle-shell upgrade`. A non-empty list of words with no spaces; anything
+  else is refused like any wrong key. An older pi-spaces refuses a file with
+  `homeless` as an unknown key, so update every home before adding it.
+
+### Fixed
+
+- The README and the skill no longer say that `pi-space gentle/base upgrade`
+  runs gentle-shell's `upgrade` through `--home`: gentle-shell recognizes it
+  only as its first word, so after `--home` it goes to Pi. `homeless` covers it.
+
 ## 0.9.0
 
 ### Added
