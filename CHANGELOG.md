@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.0
+
 ### Added
 
 - Config schema `pi-spaces.config/v2`: a profile has `commands` instead of
