@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- With a profile command that has `{home}`, `pi-space <profile>/base` hands
+  Pi `PI_SPACES_BASE_HOME` again, so the status line shows
+  `🪐 <profile>/base` as it does with `--space base`.
+
 ## 0.11.0
 
 ### Added
