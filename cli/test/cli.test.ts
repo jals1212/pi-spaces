@@ -155,7 +155,7 @@ async function run(
 			const file = [join(dir, name, "agent", "settings.json"), join(dir, name, "settings.json")].find((path) => existsSync(path));
 			if (file) result.settings[name] = JSON.parse(readFileSync(file, "utf8"));
 		}
-		if (existsSync(dir)) result.tree = readdirSync(dir, { recursive: true }).map(String).sort();
+		if (existsSync(dir)) result.tree = readdirSync(dir, { recursive: true }).map((path) => String(path).replaceAll("\\", "/")).sort();
 		return result;
 	} finally {
 		rmSync(root, { recursive: true, force: true });
