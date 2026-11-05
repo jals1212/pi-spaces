@@ -42,16 +42,77 @@ test("resolveSwitch targets a space folder or the base home, and refuses the res
 	mkdirSync(join(dir, "work"), { recursive: true });
 	const base = join(root, "agent");
 
-	assert.deepEqual(resolveSwitch({ dir, name: "work", currentHome: base, env: {} }), { space: "work", targetHome: join(dir, "work"), baseHome: base });
+	assert.deepEqual(resolveSwitch({ dir, name: "work", currentHome: base, env: {} }), { space: "work", targetHome: join(dir, "work"), spaceRoot: join(dir, "work"), baseHome: base });
 	assert.deepEqual(resolveSwitch({ dir, name: "base", currentHome: join(dir, "work"), env: { PI_SPACES_BASE_HOME: base } }), {
 		space: undefined,
 		targetHome: base,
+		spaceRoot: root,
 		baseHome: base,
 	});
 	assert.throws(() => resolveSwitch({ dir, name: "ghost", currentHome: base, env: {} }), new SpaceError('Space "ghost" does not exist.'));
 	assert.throws(() => resolveSwitch({ dir, name: "work", currentHome: join(dir, "work"), env: { PI_SPACES_BASE_HOME: base } }), new SpaceError('Already in space "work".'));
 	assert.throws(() => resolveSwitch({ dir, name: "base", currentHome: base, env: {} }), new SpaceError("Already in the base home."));
 	assert.throws(() => resolveSwitch({ dir, name: "Bad", currentHome: base, env: {} }), SpaceError);
+});
+
+test("resolveSwitch enters a rooted space at its agent home, and knows the root", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "rooted", "agent"), { recursive: true });
+	mkdirSync(join(dir, "flat"));
+	const base = join(root, "agent");
+	assert.deepEqual(resolveSwitch({ dir, name: "rooted", currentHome: base, env: {} }), {
+		space: "rooted",
+		targetHome: join(dir, "rooted", "agent"),
+		spaceRoot: join(dir, "rooted"),
+		baseHome: base,
+	});
+	// From inside a rooted space: another space, base, and the same one again.
+	const inside = { currentHome: join(dir, "rooted", "agent"), env: { PI_SPACES_BASE_HOME: base } };
+	assert.deepEqual(resolveSwitch({ dir, name: "flat", ...inside }), { space: "flat", targetHome: join(dir, "flat"), spaceRoot: join(dir, "flat"), baseHome: base });
+	assert.deepEqual(resolveSwitch({ dir, name: "base", ...inside }), { space: undefined, targetHome: base, spaceRoot: root, baseHome: base });
+	assert.throws(() => resolveSwitch({ dir, name: "rooted", ...inside }), new SpaceError('Already in space "rooted".'));
+});
+
+test("relaunchEnv enters a rooted space: the agent home for PI_CODING_AGENT_DIR and {home}, the root for {space}, and back to base", () => {
+	const path = (...parts: string[]) => resolve(join(...parts));
+	const base = path("/h/agent");
+	const spaceRoot = path("/h/spaces/work");
+	const home = join(spaceRoot, "agent");
+	const spaceEnv = { HOST_CFG: "{space}/cfg", HOST_HOME: "{home}/x", HOST_NAME: "{name}" };
+	const entered = relaunchEnv({ PI_CODING_AGENT_DIR: base, HOST_CFG: path("/shared/cfg"), HOST_OTHER: join(base, "y") }, { currentHome: base, targetHome: home, spaceRoot, baseHome: base, space: "work", spaceEnv });
+	assert.deepEqual(entered, {
+		PI_CODING_AGENT_DIR: home,
+		HOST_CFG: `${spaceRoot}/cfg`,
+		HOST_HOME: `${home}/x`,
+		HOST_NAME: "work",
+		HOST_OTHER: join(home, "y"),
+		PI_SPACES_BASE_HOME: base,
+		PI_SPACE: "work",
+		PI_SPACES_BASE_ENV: JSON.stringify({ HOST_CFG: path("/shared/cfg") }),
+	});
+	const back = relaunchEnv({ ...entered, PI_SPACES_BASE_HOME: base }, { currentHome: home, targetHome: base, spaceRoot: path("/h"), baseHome: base, space: undefined, spaceEnv });
+	assert.deepEqual(back, { PI_CODING_AGENT_DIR: base, HOST_CFG: path("/shared/cfg"), HOST_OTHER: join(base, "y"), PI_SPACES_BASE_HOME: base });
+	// A flat space: the root is the agent home, so {space} and {home} are the same folder.
+	const flat = relaunchEnv({ PI_CODING_AGENT_DIR: base }, { currentHome: base, targetHome: spaceRoot, spaceRoot, baseHome: base, space: "work", spaceEnv: { A: "{space}", B: "{home}" } });
+	assert.equal(flat.A, spaceRoot);
+	assert.equal(flat.B, spaceRoot);
+});
+
+test("planStartup enters a rooted space at its agent home, with {space} in its spaceEnv", () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
+	const dir = join(root, "spaces");
+	mkdirSync(join(dir, "work", "agent"), { recursive: true });
+	const base = join(root, "agent");
+	const proc = (args: string[]) => ({ execPath: "/n/node", execArgv: [], argv: ["/n/node", "/p/cli.js", ...args] });
+	const home = join(dir, "work", "agent");
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work"]), dir, currentHome: base, env: { PI_CODING_AGENT_DIR: base }, spaceEnv: { CFG: "{space}/cfg" } }), {
+		kind: "relaunch",
+		command: { command: "/n/node", args: ["/p/cli.js"] },
+		env: { PI_CODING_AGENT_DIR: home, PI_SPACE: "work", PI_SPACES_BASE_HOME: base, CFG: `${join(dir, "work")}/cfg`, PI_SPACES_BASE_ENV: "{}" },
+	});
+	// Already inside it: nothing to do.
+	assert.deepEqual(planStartup({ proc: proc(["--space", "work"]), dir, currentHome: home, env: { PI_SPACES_BASE_HOME: base } }), { kind: "none" });
 });
 
 test("relaunchEnv points Pi at the target and rewrites every variable inside the current home", () => {

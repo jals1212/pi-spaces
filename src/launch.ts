@@ -1,5 +1,6 @@
 // The command a switch runs for a profile with `commands`: the profile's own base or space command, filled in.
 // Internal module: pure functions only, nothing here starts a process.
+import { dirname } from "node:path";
 import type { Profile } from "./config.ts";
 import { BASE } from "./spaces.ts";
 
@@ -8,26 +9,32 @@ export interface LaunchCommand {
 	args: string[];
 }
 
-/** Where a switch goes: a space (with its home), or the base home when `space` is undefined. */
+/**
+ * Where a switch goes: a space (with its agent home and its root), or the base home when `space` is undefined.
+ * `spaceRoot` is the folder that holds the space's agent home (the home itself for an old flat space; for base, the
+ * folder above the base home).
+ */
 export interface LaunchTarget {
 	space: string | undefined;
 	targetHome: string;
+	spaceRoot: string;
 	baseHome: string;
 }
 
 /**
  * The command that starts `target` for a profile with `commands`, or undefined when the profile has none (a v1
  * profile, or no profile), so the caller keeps its own relaunch:
- * - base: `commands.base`, with {home} and {name} filled with the base home and "base";
- * - a space: `commands.space` filled with the space's home and name, else `<commands.base> --space <name>`.
+ * - base: `commands.base`, with {home}, {space} and {name} filled with the base home, its parent folder and "base";
+ * - a space: `commands.space` filled with the space's agent home, root and name, else `<commands.base> --space <name>`.
  * Throws an Error when the command has an unclosed quote.
  */
 export function profileCommand(profile: Profile | undefined, target: LaunchTarget): LaunchCommand | undefined {
 	const commands = profile?.commands;
 	if (commands === undefined) return undefined;
-	if (target.space === undefined) return toCommand(setupCommand(commands.base, target.baseHome, BASE));
-	if (commands.space !== undefined) return toCommand(setupCommand(commands.space, target.targetHome, target.space));
-	const { program, args } = setupCommand(commands.base, target.baseHome, BASE);
+	const baseRoot = dirname(target.baseHome);
+	if (target.space === undefined) return toCommand(setupCommand(commands.base, target.baseHome, BASE, baseRoot));
+	if (commands.space !== undefined) return toCommand(setupCommand(commands.space, target.targetHome, target.space, target.spaceRoot));
+	const { program, args } = setupCommand(commands.base, target.baseHome, BASE, baseRoot);
 	return toCommand({ program, args: [...args, "--space", target.space] });
 }
 
@@ -36,12 +43,13 @@ function toCommand({ program, args }: { program: string; args: string[] }): Laun
 }
 
 /**
- * The program and arguments of a command template: split like a shell line (see splitCommand), with every {home}
- * and {name} in each word replaced. Throws when it has an unclosed quote.
+ * The program and arguments of a command template: split like a shell line (see splitCommand), with every {home},
+ * {space} and {name} in each word replaced. An old flat space has no root of its own, so without `spaceRoot` it is the
+ * home. Throws when it has an unclosed quote.
  */
-export function setupCommand(template: string, home: string, name: string): { program: string; args: string[] } {
+export function setupCommand(template: string, home: string, name: string, spaceRoot: string = home): { program: string; args: string[] } {
 	// Replacer functions, so a "$" in the folder or name is put in as written, never read as a pattern.
-	const fill = (word: string) => word.replaceAll("{home}", () => home).replaceAll("{name}", () => name);
+	const fill = (word: string) => word.replaceAll("{home}", () => home).replaceAll("{space}", () => spaceRoot).replaceAll("{name}", () => name);
 	const [program = "", ...args] = splitCommand(template).map(fill);
 	return { program, args };
 }

@@ -6,6 +6,33 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- A space is a root folder with its agent home inside it, always named `agent`:
+  `<spaces folder>/<name>/agent` is `PI_CODING_AGENT_DIR` (and `{home}`) for every
+  profile, as `~/.pi/agent` is for Pi's own home. `/space new` and
+  `createSpace` make the root with `agent/settings.json`. Spaces made before,
+  with no `agent/` folder, keep working as they are (their folder is the agent
+  home); list, rename, remove, backups, `/space switch` and the active-space
+  detection work for both layouts, and rename, remove and backups act on the
+  root.
+- `{space}` in `spaceEnv` values and in `commands` and `setup`: the space's root
+  folder (the same folder as `{home}` for an old space; in base, the folder that
+  holds the profile's `home`). `expandSpaceEnv`, `spaceEnvFor` and `setupCommand`
+  take it as an optional last argument.
+- `spaceHome(root)`, `isRooted(root)`, `AGENT` and `migrateSpace(...)` in
+  `@jals1212/pi-spaces/spaces`: `migrateSpace` copies an old space to
+  `.backups/<name>-<UTC time>`, then moves its content into `<root>/agent`,
+  undoing the moves if one fails. See
+  [Moving an old space](README.md#moving-an-old-space).
+
+### Changed
+
+- `createSpace` returns the space's root (as before) but writes
+  `settings.json` in `<root>/agent`. `SwitchTarget` and `LaunchTarget` carry
+  `spaceRoot`, and `targetHome` of a space with an `agent/` folder is that
+  folder. `PI_SPACE_HOME` is the space's agent home.
+
 ## 0.11.3
 
 ### Added

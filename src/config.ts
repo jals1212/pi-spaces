@@ -45,9 +45,9 @@ export interface ProfileSpec {
 export interface Commands {
 	/** Starts the base home as it is: the words after it, no --space. */
 	base: string;
-	/** Starts a space, with {home} and {name}; without it a space starts with `<base> --space <name>`. */
+	/** Starts a space, with {home}, {space} and {name}; without it a space starts with `<base> --space <name>`. */
 	space?: string;
-	/** Prepares a new space, with {home} and {name}. */
+	/** Prepares a new space, with {home}, {space} and {name}. */
 	setup?: string;
 }
 
@@ -73,7 +73,7 @@ export interface Profile {
 	dir: string;
 	command?: string;
 	setup?: string;
-	/** Variable templates; `{home}` and `{name}` are filled in by spaceEnvFor. */
+	/** Variable templates; `{home}`, `{space}` and `{name}` are filled in by spaceEnvFor. */
 	spaceEnv?: Record<string, string>;
 	/** First words that run the command without its home part and with no --space (the program's own global commands). */
 	homeless?: string[];
@@ -322,15 +322,19 @@ export function profileForHome(config: Config | undefined, baseHome: string, env
 	return undefined;
 }
 
-/** The templates with every `{home}` and `{name}` replaced. Replacer functions keep `$` literal. */
-export function expandSpaceEnv(templates: Record<string, string>, spaceHome: string, spaceName: string): Record<string, string> {
-	const fill = (template: string) => template.replace(/\{home\}/g, () => spaceHome).replace(/\{name\}/g, () => spaceName);
+/**
+ * The templates with every `{home}`, `{space}` and `{name}` replaced: the space's agent home, its root and its name.
+ * An old flat space has no root of its own, so without `spaceRoot` it is the home. Replacer functions keep `$` literal.
+ */
+export function expandSpaceEnv(templates: Record<string, string>, spaceHome: string, spaceName: string, spaceRoot: string = spaceHome): Record<string, string> {
+	const fill = (template: string) =>
+		template.replace(/\{home\}/g, () => spaceHome).replace(/\{space\}/g, () => spaceRoot).replace(/\{name\}/g, () => spaceName);
 	return Object.fromEntries(Object.entries(templates).map(([key, template]) => [key, fill(template)]));
 }
 
-/** The variables a space gets: the profile's spaceEnv for this space's folder and name (none without spaceEnv). */
-export function spaceEnvFor(profile: Profile, spaceHome: string, spaceName: string): Record<string, string> {
-	return expandSpaceEnv(profile.spaceEnv ?? {}, spaceHome, spaceName);
+/** The variables a space gets: the profile's spaceEnv for this space's agent home, name and root (none without spaceEnv). */
+export function spaceEnvFor(profile: Profile, spaceHome: string, spaceName: string, spaceRoot: string = spaceHome): Record<string, string> {
+	return expandSpaceEnv(profile.spaceEnv ?? {}, spaceHome, spaceName, spaceRoot);
 }
 
 /**

@@ -1,9 +1,9 @@
 // Relaunch: Pi reads its agent home once at startup, so entering a space means
 // running the same Pi command again with PI_CODING_AGENT_DIR pointing at the space.
 import crossSpawn from "cross-spawn";
-import { delimiter, join, resolve, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { expandSpaceEnv } from "./config.ts";
-import { activeSpace, BASE, listSpaces, type Env, SpaceError, validateName } from "./spaces.ts";
+import { activeSpace, BASE, listSpaces, type Env, SpaceError, spaceHome, validateName } from "./spaces.ts";
 
 // Pi options that take a separate value, so the value is kept (or dropped) with them.
 const VALUE_OPTIONS = new Set([
@@ -62,7 +62,10 @@ export function filterArgs(args: string[]): string[] {
 export interface SwitchTarget {
 	/** The space to enter, or undefined for the base home. */
 	space: string | undefined;
+	/** The agent home to run in: `<root>/agent` for a space that has one, else the space's folder, or the base home. */
 	targetHome: string;
+	/** The space's root (the folder above its agent home; the home itself for an old flat space); for base, the folder above the base home. */
+	spaceRoot: string;
 	baseHome: string;
 }
 
@@ -74,14 +77,15 @@ export function resolveSwitch(input: { dir: string; name: string; currentHome: s
 	if (name === BASE) {
 		if (baseHome === undefined) throw new SpaceError("The base home is unknown in this session; start Pi without a space.");
 		if (resolve(currentHome) === resolve(baseHome)) throw new SpaceError("Already in the base home.");
-		return { space: undefined, targetHome: baseHome, baseHome };
+		return { space: undefined, targetHome: baseHome, spaceRoot: dirname(baseHome), baseHome };
 	}
 	const error = validateName(name);
 	if (error) throw new SpaceError(error);
 	if (!listSpaces(dir).includes(name)) throw new SpaceError(`Space "${name}" does not exist.`);
 	if (current === name) throw new SpaceError(`Already in space "${name}".`);
 	if (baseHome === undefined) throw new SpaceError("The base home is unknown in this session; start Pi without a space.");
-	return { space: name, targetHome: join(dir, name), baseHome };
+	const spaceRoot = join(dir, name);
+	return { space: name, targetHome: spaceHome(spaceRoot), spaceRoot, baseHome };
 }
 
 // PWD and OLDPWD describe the working directory, which the relaunch keeps.
@@ -92,8 +96,8 @@ const NOT_REWRITTEN = new Set(["PI_SPACES_DIR", "PI_SPACES_BASE_HOME", "PI_SPACE
  * The environment for the relaunched Pi. Every variable whose value is the current home,
  * or a path inside it, moves to the same path in the target home, so variables a host
  * set from the home stay consistent without this package knowing the host.
- * With the profile's spaceEnv templates, those variables are then set for a space with `{home}` and `{name}`
- * filled in, recomputed for each space. The base's own values of them are kept in PI_SPACES_BASE_ENV on the way
+ * With the profile's spaceEnv templates, those variables are then set for a space with `{home}` (its agent home),
+ * `{space}` (its root) and `{name}` filled in, recomputed for each space. The base's own values of them are kept in PI_SPACES_BASE_ENV on the way
  * out and put back on the way back, so the base home runs exactly as it was started.
  */
 export function relaunchEnv(env: Env, target: SwitchTarget & { currentHome: string; spaceEnv?: Record<string, string> }): Env {
@@ -113,7 +117,7 @@ export function relaunchEnv(env: Env, target: SwitchTarget & { currentHome: stri
 		const saved = baseValues(env, target);
 		for (const key of Object.keys(target.spaceEnv)) delete next[key];
 		if (target.space !== undefined) {
-			Object.assign(next, expandSpaceEnv(target.spaceEnv, target.targetHome, target.space));
+			Object.assign(next, expandSpaceEnv(target.spaceEnv, target.targetHome, target.space, target.spaceRoot));
 			next.PI_SPACES_BASE_ENV = JSON.stringify(saved);
 		} else {
 			Object.assign(next, saved);
