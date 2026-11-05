@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.2
+
 ### Fixed
 
 - `/space switch` with a v2 profile runs the profile's `commands` (`commands.base`
