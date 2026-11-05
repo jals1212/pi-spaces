@@ -6,6 +6,11 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The docs and the skill use a generic launcher in their examples; the README
+  keeps one example profile for a real program.
+
 ## 0.11.0
 
 ### Added

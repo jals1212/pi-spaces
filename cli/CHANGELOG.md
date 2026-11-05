@@ -6,6 +6,11 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The file `pi-space init` writes, the help text and the docs use a generic
+  launcher in their examples instead of a specific program.
+
 ## 0.12.0
 
 ### Added

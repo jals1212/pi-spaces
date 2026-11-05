@@ -5,9 +5,9 @@ import { test } from "node:test";
 import { displayWidth, initialState, parseKeys, type PickerHost, type PickerItem, renderPicker, runPicker, splitIncomplete, step, visibleItems } from "../src/picker.ts";
 
 const ITEMS: PickerItem[] = [
-	{ group: "gentle", name: "base" },
-	{ group: "gentle", name: "contigo", active: true },
-	{ group: "gentle", name: "work" },
+	{ group: "ml", name: "base" },
+	{ group: "ml", name: "contigo", active: true },
+	{ group: "ml", name: "work" },
 	{ group: "pi", name: "base" },
 	{ group: "pi", name: "lab" },
 ];
@@ -73,7 +73,7 @@ test("renderPicker: a hint, the filter, a header per group, the cursor and the a
 	assert.deepEqual(renderPicker(initialState(ITEMS), 24), [
 		"🪐 Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter",
 		"> ",
-		"gentle",
+		"ml",
 		"    base",
 		"  > contigo (active)",
 		"    work",

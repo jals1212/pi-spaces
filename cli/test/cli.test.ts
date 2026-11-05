@@ -1619,23 +1619,23 @@ test("remove protects the selected profile's home as it protects the base home",
 });
 
 const QUALIFIED = {
-	[CONFIG]: { schema: SCHEMA, profiles: { gentle: { command: "gentle-cmd --", home: "~/gentle/agent", dir: "~/gentle-spaces" } } },
-	"gentle-spaces/work/.keep": "",
+	[CONFIG]: { schema: SCHEMA, profiles: { launcher: { command: "launcher-cmd --", home: "~/launcher/agent", dir: "~/launcher-spaces" } } },
+	"launcher-spaces/work/.keep": "",
 };
 
-const BARE = (name: string, profiles = "pi, gentle") => `pi-space: Name the space with its profile, as <profile>/${name} (profiles: ${profiles}).\n`;
+const BARE = (name: string, profiles = "pi, launcher") => `pi-space: Name the space with its profile, as <profile>/${name} (profiles: ${profiles}).\n`;
 
 test("<profile>/<name> starts Pi in that profile's space with its command, and hands it the profile's folder and command", async () => {
-	const r = await run(["gentle/work", "-c"], { files: QUALIFIED });
+	const r = await run(["launcher/work", "-c"], { files: QUALIFIED });
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.err, "");
-	assert.deepEqual(programsOf(r), [{ program: "gentle-cmd", args: ["--", "--space", "work", "-c"] }]);
-	assert.equal(setupEnvOf(r).PI_SPACES_DIR, join(r.root, "gentle-spaces"));
-	assert.equal(setupEnvOf(r).PI_SPACES_COMMAND, "gentle-cmd --");
+	assert.deepEqual(programsOf(r), [{ program: "launcher-cmd", args: ["--", "--space", "work", "-c"] }]);
+	assert.equal(setupEnvOf(r).PI_SPACES_DIR, join(r.root, "launcher-spaces"));
+	assert.equal(setupEnvOf(r).PI_SPACES_COMMAND, "launcher-cmd --");
 	const pi = await run(["pi/work"], { spaces: ["work"] });
 	assert.equal(pi.code, 0, pi.err);
 	assert.deepEqual(programsOf(pi), [{ program: "pi", args: ["--space", "work"] }]);
-	assert.deepEqual(programsOf(await run(["gentle/base"], { files: QUALIFIED })), [{ program: "gentle-cmd", args: ["--", "--space", "base"] }]);
+	assert.deepEqual(programsOf(await run(["launcher/base"], { files: QUALIFIED })), [{ program: "launcher-cmd", args: ["--", "--space", "base"] }]);
 });
 
 test("a name without its profile exits 2 and names the form; nothing starts, is created or removed", async () => {
@@ -1654,12 +1654,12 @@ test("a name without its profile exits 2 and names the form; nothing starts, is 
 test("an unknown profile exits 2 and lists the known ones", async () => {
 	const r = await run(["ghost/work"], { spaces: ["work"], files: QUALIFIED });
 	assert.equal(r.code, 2);
-	assert.equal(r.err, 'pi-space: Unknown profile "ghost"; known profiles: gentle, pi.\n');
+	assert.equal(r.err, 'pi-space: Unknown profile "ghost"; known profiles: launcher, pi.\n');
 	assert.equal(r.spawned.length, 0);
 });
 
 test("--profile was replaced by <profile>/<name>", async () => {
-	const r = await run(["--profile", "gentle", "work"], { files: QUALIFIED });
+	const r = await run(["--profile", "launcher", "work"], { files: QUALIFIED });
 	assert.equal(r.code, 2);
 	assert.equal(r.out, "");
 	assert.equal(r.err, "pi-space: --profile was replaced by: pi-space <profile>/<name>\n");
@@ -1681,18 +1681,18 @@ test("PI_SPACES_COMMAND, PI_SPACES_DIR and PI_SPACES_SETUP are not read: the nam
 });
 
 test("a config's default is ignored with a warning on stderr; the file still applies", async () => {
-	const files = { [CONFIG]: { ...QUALIFIED[CONFIG], default: "gentle" }, "gentle-spaces/work/.keep": "" };
+	const files = { [CONFIG]: { ...QUALIFIED[CONFIG], default: "launcher" }, "launcher-spaces/work/.keep": "" };
 	const r = await run(["pi/work"], { spaces: ["work"], files });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(programsOf(r), [{ program: "pi", args: ["--space", "work"] }]);
 	assert.equal(r.err, `pi-space: ${join(r.root, CONFIG)}: "default" is no longer used; name each space with its profile (<profile>/<name>) and remove "default" from the file.\n`);
-	assert.deepEqual(programsOf(await run(["gentle/work"], { files })), [{ program: "gentle-cmd", args: ["--", "--space", "work"] }]);
+	assert.deepEqual(programsOf(await run(["launcher/work"], { files })), [{ program: "launcher-cmd", args: ["--", "--space", "work"] }]);
 });
 
 test("list alone lists every profile: its folder, then base and the spaces, each with its profile", async () => {
 	const r = await run(["list"], { spaces: ["work"], files: QUALIFIED });
 	assert.equal(r.code, 0, r.err);
-	assert.equal(r.out, `Spaces of pi in ${r.dir}:\n  pi/base\n  pi/work\nSpaces of gentle in ${join(r.root, "gentle-spaces")}:\n  gentle/base\n  gentle/work\n`);
+	assert.equal(r.out, `Spaces of pi in ${r.dir}:\n  pi/base\n  pi/work\nSpaces of launcher in ${join(r.root, "launcher-spaces")}:\n  launcher/base\n  launcher/work\n`);
 	const none = await run(["list"]);
 	assert.equal(none.out, `Spaces of pi in ${none.dir}:\n  pi/base\nNo spaces yet. Create one with pi-space new <profile>/<name>.\n`);
 });
@@ -1702,7 +1702,7 @@ test("<profile>/--every runs in that profile's base and spaces; --every alone in
 	assert.equal(one.code, 0, one.err);
 	assert.equal(one.out, "== pi/base\nran base\n== pi/a\nran a\n");
 	assert.deepEqual(programsOf(one).map(({ program }) => program), ["pi", "pi"]);
-	// zeta comes before gentle in the file; the order is pi, then alphabetical.
+	// zeta comes before launcher in the file; the order is pi, then alphabetical.
 	const files = {
 		...QUALIFIED,
 		[CONFIG]: { schema: SCHEMA, profiles: { zeta: { command: "zeta-cmd --", home: "~/zeta/agent", dir: "~/zeta-spaces" }, ...QUALIFIED[CONFIG].profiles } },
@@ -1710,29 +1710,29 @@ test("<profile>/--every runs in that profile's base and spaces; --every alone in
 	};
 	const all = await run(["update", "--every", "--extensions"], { spaces: ["a"], files, statuses: { work: 3 } });
 	assert.equal(all.code, 1);
-	assert.equal(all.out, "== pi/base\n== pi/a\n== gentle/base\n== gentle/work\n== zeta/base\n== zeta/z\n");
-	assert.equal(all.err, "pi-space: update failed in: gentle/work\n");
+	assert.equal(all.out, "== pi/base\n== pi/a\n== launcher/base\n== launcher/work\n== zeta/base\n== zeta/z\n");
+	assert.equal(all.err, "pi-space: update failed in: launcher/work\n");
 	assert.deepEqual(programsOf(all), [
 		{ program: "pi", args: ["--space", "base", "update", "--extensions"] },
 		{ program: "pi", args: ["--space", "a", "update", "--extensions"] },
-		{ program: "gentle-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
-		{ program: "gentle-cmd", args: ["--", "--space", "work", "update", "--extensions"] },
+		{ program: "launcher-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
+		{ program: "launcher-cmd", args: ["--", "--space", "work", "update", "--extensions"] },
 		{ program: "zeta-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
 		{ program: "zeta-cmd", args: ["--", "--space", "z", "update", "--extensions"] },
 	]);
 	assert.equal(setupEnvOf(all, 1).PI_SPACES_DIR, all.dir);
-	assert.equal(setupEnvOf(all, 3).PI_SPACES_DIR, join(all.root, "gentle-spaces"));
+	assert.equal(setupEnvOf(all, 3).PI_SPACES_DIR, join(all.root, "launcher-spaces"));
 	assert.equal(setupEnvOf(all, 5).PI_SPACES_DIR, join(all.root, "zeta-spaces"));
 });
 
 test("setup --every alone runs in the spaces of every profile with a setup command; a profile without one is named", async () => {
-	const files = { [CONFIG]: { schema: SCHEMA, profiles: { gentle: { ...QUALIFIED[CONFIG].profiles.gentle, setup: "gentle-setup {home}" } } }, "gentle-spaces/work/.keep": "" };
+	const files = { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { ...QUALIFIED[CONFIG].profiles.launcher, setup: "launcher-setup {home}" } } }, "launcher-spaces/work/.keep": "" };
 	const all = await run(["setup", "--every"], { spaces: ["a"], files });
 	assert.equal(all.code, 0, all.err);
-	assert.equal(all.out, "== gentle/work\n");
-	assert.deepEqual(programsOf(all), [{ program: "gentle-setup", args: [join(all.root, "gentle-spaces", "work")] }]);
+	assert.equal(all.out, "== launcher/work\n");
+	assert.deepEqual(programsOf(all), [{ program: "launcher-setup", args: [join(all.root, "launcher-spaces", "work")] }]);
 	const option = await run(["--setup", "s {name}", "setup", "--every"], { spaces: ["a"], files });
-	assert.equal(option.out, "== pi/a\n== gentle/work\n");
+	assert.equal(option.out, "== pi/a\n== launcher/work\n");
 	assert.deepEqual(programsOf(option), [{ program: "s", args: ["a"] }, { program: "s", args: ["work"] }]);
 	const none = await run(["setup", "pi/a"], { spaces: ["a"], files });
 	assert.equal(none.code, 2);
@@ -1752,7 +1752,7 @@ test("--command and --dir apply to one profile: the picker, list alone and --eve
 		assert.equal(r.err, message, argv.join(" "));
 		assert.equal(r.spawned.length, 0, argv.join(" "));
 	}
-	const one = await run(["--command", "x --", "--dir", "<root>/gentle-spaces", "pi/work"], { files: QUALIFIED });
+	const one = await run(["--command", "x --", "--dir", "<root>/launcher-spaces", "pi/work"], { files: QUALIFIED });
 	assert.deepEqual(programsOf(one), [{ program: "x", args: ["--", "--space", "work"] }]);
 });
 
@@ -1763,14 +1763,14 @@ test("rename keeps the profile: the new name alone or with the same profile; ano
 		assert.equal(r.out, 'Renamed space "work" to "fresh".\n');
 		assert.deepEqual(r.left, ["fresh"]);
 	}
-	const other = await run(["rename", "pi/work", "gentle/fresh"], { spaces: ["work"], files: QUALIFIED });
+	const other = await run(["rename", "pi/work", "launcher/fresh"], { spaces: ["work"], files: QUALIFIED });
 	assert.equal(other.code, 2);
 	assert.equal(other.err, "pi-space: A space keeps its profile: rename pi/work to pi/<name>.\n");
 	assert.deepEqual(other.left, ["work"]);
 });
 
 test("the warning about default is printed once per call that uses the profiles, and never for help, version, completion or __complete", async () => {
-	const files = { [CONFIG]: { ...QUALIFIED[CONFIG], default: "gentle" }, "gentle-spaces/work/.keep": "" };
+	const files = { [CONFIG]: { ...QUALIFIED[CONFIG], default: "launcher" }, "launcher-spaces/work/.keep": "" };
 	for (const argv of [["--help"], ["--version"], ["completion", "zsh"], ["__complete"], ["list", "--help"], ["--help", "list"]]) {
 		const r = await run(argv, { files });
 		assert.equal(r.code, 0, argv.join(" "));
@@ -1783,7 +1783,7 @@ test("the warning about default is printed once per call that uses the profiles,
 	const bare = await run(["work"], { files });
 	assert.equal(bare.code, 2);
 	assert.equal(bare.err, `${warning(bare.root)}${BARE("work")}`);
-	const none = await run(["gentle/work"], { files: QUALIFIED });
+	const none = await run(["launcher/work"], { files: QUALIFIED });
 	assert.equal(none.err, "");
 });
 
@@ -1808,10 +1808,10 @@ test("setup --every checks the setup command of every profile before it runs any
 });
 
 test("picker: the space this Pi runs in is marked in its profile's group, and Enter starts it with that profile's command", async () => {
-	const r = await run([], { tty: true, input: "\r", files: QUALIFIED, env: { PI_SPACE_HOME: "<root>/gentle-spaces/work" } });
+	const r = await run([], { tty: true, input: "\r", files: QUALIFIED, env: { PI_SPACE_HOME: "<root>/launcher-spaces/work" } });
 	assert.equal(r.code, 0, r.err);
-	assert.match(r.out, /\ngentle\n.*> gentle\/work \(active\)/s);
-	assert.deepEqual(programsOf(r), [{ program: "gentle-cmd", args: ["--", "--space", "work"] }]);
+	assert.match(r.out, /\nlauncher\n.*> launcher\/work \(active\)/s);
+	assert.deepEqual(programsOf(r), [{ program: "launcher-cmd", args: ["--", "--space", "work"] }]);
 });
 
 test("completion zsh prints a script that registers pi-space and asks __complete; another shell or none exits 2", async () => {
@@ -1882,10 +1882,10 @@ async function complete(words: string[], options: Parameters<typeof run>[1] = {}
 	return (await completeLines(words, options)).map((line) => line.split("\t").slice(0, 2).join(" "));
 }
 
-/** Two profiles: gentle (its own command and folder, one space) and the built-in pi (the folder of the run). */
+/** Two profiles: launcher (its own command and folder, one space) and the built-in pi (the folder of the run). */
 const COMPLETE_FILES = {
-	[CONFIG]: { schema: SCHEMA, profiles: { gentle: { command: "gentle-cmd --", dir: "~/gentle-spaces" } } },
-	"gentle-spaces/work/.keep": "",
+	[CONFIG]: { schema: SCHEMA, profiles: { launcher: { command: "launcher-cmd --", dir: "~/launcher-spaces" } } },
+	"launcher-spaces/work/.keep": "",
 	"other-spaces/zed/.keep": "",
 };
 
@@ -1912,12 +1912,12 @@ const OPTION_LINES = {
 	"--version": "option\t--version\tprint the version",
 };
 
-/** The spaces of the two profiles of COMPLETE_FILES with one pi space "a": pi's first, then gentle's, each alphabetical. */
+/** The spaces of the two profiles of COMPLETE_FILES with one pi space "a": pi's first, then launcher's, each alphabetical. */
 const GSH_AND_PI_SPACES = [
 	"space\tpi/a\tspace of pi (pi)",
 	"space\tpi/base\tbase home of pi (pi)",
-	"space\tgentle/base\tbase home of gentle (gentle-cmd --)",
-	"space\tgentle/work\tspace of gentle (gentle-cmd --)",
+	"space\tlauncher/base\tbase home of launcher (launcher-cmd --)",
+	"space\tlauncher/work\tspace of launcher (launcher-cmd --)",
 ];
 
 test("__complete: the first word offers the spaces as <profile>/<name>, pi's first, then the custom profiles', each in alphabetical order, then the commands, then the options, one <group>\\t<value>\\t<description> per line", async () => {
@@ -1934,9 +1934,9 @@ test("__complete: the first word offers the spaces as <profile>/<name>, pi's fir
 });
 
 test("__complete: a v2 profile shows commands.base for its base and its space command for its spaces", async () => {
-	const files = { [CONFIG]: { schema: V2, profiles: { v: { commands: { base: "gentle-shell", space: "gentle-shell --home {home}" }, dir: "~/v-spaces" }, w: { commands: { base: "w-base" }, dir: "~/w-spaces" } } }, "v-spaces/work/.keep": "", "w-spaces/one/.keep": "" };
+	const files = { [CONFIG]: { schema: V2, profiles: { v: { commands: { base: "my-launcher", space: "my-launcher --home {home}" }, dir: "~/v-spaces" }, w: { commands: { base: "w-base" }, dir: "~/w-spaces" } } }, "v-spaces/work/.keep": "", "w-spaces/one/.keep": "" };
 	const lines = (await completeLines([], { files })).filter((line) => line.startsWith("space\t") && !line.startsWith("space\tpi/"));
-	assert.deepEqual(lines, ["space\tv/base\tbase home of v (gentle-shell)", "space\tv/work\tspace of v (gentle-shell --home {home})", "space\tw/base\tbase home of w (w-base)", "space\tw/one\tspace of w (w-base)"]);
+	assert.deepEqual(lines, ["space\tv/base\tbase home of v (my-launcher)", "space\tv/work\tspace of v (my-launcher --home {home})", "space\tw/base\tbase home of w (w-base)", "space\tw/one\tspace of w (w-base)"]);
 });
 
 test("__complete: with no config the first word offers only the built-in pi, with its spaces sorted", async () => {
@@ -1985,8 +1985,8 @@ test("__complete: --profile is gone: it is never offered, and a word after it co
 		assert.ok(!lines.some((line) => line.includes("--profile") || line.startsWith("profile\t")), words.join(" "));
 	}
 	assert.deepEqual(await complete(["--profile"], { files: COMPLETE_FILES }), []);
-	assert.deepEqual(await complete(["--profile", "gentle"], { files: COMPLETE_FILES }), []);
-	assert.deepEqual(await complete(["--profile", "gentle", "list"], { files: COMPLETE_FILES }), []);
+	assert.deepEqual(await complete(["--profile", "launcher"], { files: COMPLETE_FILES }), []);
+	assert.deepEqual(await complete(["--profile", "launcher", "list"], { files: COMPLETE_FILES }), []);
 });
 
 test("__complete: after --config or --dir it hands over to the file completion of the shell; after --command or --setup there is nothing", async () => {
@@ -2001,22 +2001,22 @@ test("__complete: remove and rename offer the qualified spaces of every profile,
 	const options = { spaces: ["a"], files: COMPLETE_FILES };
 	assert.deepEqual(await completeLines(["remove"], options), [
 		"space\tpi/a\tspace of pi (pi)",
-		"space\tgentle/work\tspace of gentle (gentle-cmd --)",
+		"space\tlauncher/work\tspace of launcher (launcher-cmd --)",
 		"option\t--yes\tdo not ask; keep a backup",
 		"option\t--no-backup\tdelete without a backup",
 		"option\t--help\tthe help of this command",
 	]);
-	assert.deepEqual(await completeLines(["rename"], options), ["space\tpi/a\tspace of pi (pi)", "space\tgentle/work\tspace of gentle (gentle-cmd --)", "option\t--help\tthe help of this command"]);
+	assert.deepEqual(await completeLines(["rename"], options), ["space\tpi/a\tspace of pi (pi)", "space\tlauncher/work\tspace of launcher (launcher-cmd --)", "option\t--help\tthe help of this command"]);
 	assert.deepEqual(await complete(["new"], options), ["option --help"]);
 });
 
 test("__complete: setup offers the qualified spaces, then --every (every profile with a setup command) and <profile>/--every for each profile", async () => {
 	assert.deepEqual(await completeLines(["setup"], { spaces: ["a"], files: COMPLETE_FILES }), [
 		"space\tpi/a\tspace of pi (pi)",
-		"space\tgentle/work\tspace of gentle (gentle-cmd --)",
+		"space\tlauncher/work\tspace of launcher (launcher-cmd --)",
 		"target\t--every\tevery space of every profile with a setup command",
 		"target\tpi/--every\tevery space of pi",
-		"target\tgentle/--every\tevery space of gentle",
+		"target\tlauncher/--every\tevery space of launcher",
 		"option\t--help\tthe help of this command",
 	]);
 });
@@ -2027,7 +2027,7 @@ test("__complete: list, update, install and uninstall offer base and spaces of e
 			...GSH_AND_PI_SPACES,
 			"target\t--every\tevery profile, base first",
 			"target\tpi/--every\tbase and every space of pi",
-			"target\tgentle/--every\tbase and every space of gentle",
+			"target\tlauncher/--every\tbase and every space of launcher",
 			"option\t--help\tthe help of this command",
 		], verb);
 	}
@@ -2035,7 +2035,7 @@ test("__complete: list, update, install and uninstall offer base and spaces of e
 
 test("__complete: nothing after a name that is complete, nor a second word that is free text", async () => {
 	const options = { spaces: ["work"], files: COMPLETE_FILES };
-	for (const words of [["rename", "pi/work"], ["remove", "pi/work"], ["new", "x"], ["pi/work"], ["update", "pi/work"], ["update", "--every"], ["bogus"], ["setup", "gentle/--every"], ["completion", "zsh"]]) assert.deepEqual(await complete(words, options), [], words.join(" "));
+	for (const words of [["rename", "pi/work"], ["remove", "pi/work"], ["new", "x"], ["pi/work"], ["update", "pi/work"], ["update", "--every"], ["bogus"], ["setup", "launcher/--every"], ["completion", "zsh"]]) assert.deepEqual(await complete(words, options), [], words.join(" "));
 });
 
 test("__complete honors --config typed: it lists the profiles of that file", async () => {
@@ -2052,13 +2052,13 @@ test("__complete honors --dir typed: the spaces of that folder under every profi
 	const options = { spaces: ["a"], files: COMPLETE_FILES };
 	assert.deepEqual(await completeLines(["--dir", "<root>/other-spaces", "remove"], options), [
 		"space\tpi/zed\tspace of pi (pi)",
-		"space\tgentle/zed\tspace of gentle (gentle-cmd --)",
+		"space\tlauncher/zed\tspace of launcher (launcher-cmd --)",
 		"option\t--yes\tdo not ask; keep a backup",
 		"option\t--no-backup\tdelete without a backup",
 		"option\t--help\tthe help of this command",
 	]);
-	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space pi/base", "space pi/zed", "space gentle/base", "space gentle/zed", "target --every", "target pi/--every", "target gentle/--every", "option --help"]);
-	assert.deepEqual((await complete(["--dir", "<root>/other-spaces"], options)).filter((line) => line.startsWith("space ")), ["space pi/base", "space pi/zed", "space gentle/base", "space gentle/zed"]);
+	assert.deepEqual(await complete(["--dir", "<root>/other-spaces", "list"], options), ["space pi/base", "space pi/zed", "space launcher/base", "space launcher/zed", "target --every", "target pi/--every", "target launcher/--every", "option --help"]);
+	assert.deepEqual((await complete(["--dir", "<root>/other-spaces"], options)).filter((line) => line.startsWith("space ")), ["space pi/base", "space pi/zed", "space launcher/base", "space launcher/zed"]);
 });
 
 test("__complete: --command and --setup typed leave the candidates as they were", async () => {
@@ -2277,21 +2277,21 @@ test("bin/pi-space.mjs <profile>/<name> starts the profile's command with the pr
 const UNWIND = {
 	[CONFIG]: {
 		schema: SCHEMA,
-		profiles: { gentle: { command: "gentle-cmd --", home: "~/gentle/agent", dir: "~/gentle/spaces", setup: "gentle-setup {home}", spaceEnv: { GSH_CFG: "{home}/cfg" } } },
+		profiles: { launcher: { command: "launcher-cmd --", home: "~/launcher/agent", dir: "~/launcher/spaces", setup: "launcher-setup {home}", spaceEnv: { GSH_CFG: "{home}/cfg" } } },
 	},
-	"gentle/spaces/a/.keep": "",
-	"gentle/spaces/b/.keep": "",
+	"launcher/spaces/a/.keep": "",
+	"launcher/spaces/b/.keep": "",
 	".pi/spaces/work/.keep": "",
 };
-const IN_GSH_BASE = { PI_CODING_AGENT_DIR: "<root>/gentle/agent", PI_SPACE_HOME: "<root>/gentle/agent", PI_SPACES_COMMAND: "gentle-cmd --" };
+const IN_GSH_BASE = { PI_CODING_AGENT_DIR: "<root>/launcher/agent", PI_SPACE_HOME: "<root>/launcher/agent", PI_SPACES_COMMAND: "launcher-cmd --" };
 const IN_GSH_SPACE = {
-	PI_CODING_AGENT_DIR: "<root>/gentle/spaces/a",
-	PI_SPACES_BASE_HOME: "<root>/gentle/agent",
+	PI_CODING_AGENT_DIR: "<root>/launcher/spaces/a",
+	PI_SPACES_BASE_HOME: "<root>/launcher/agent",
 	PI_SPACE: "a",
-	PI_SPACE_HOME: "<root>/gentle/spaces/a",
-	GSH_CFG: "<root>/gentle/spaces/a/cfg",
+	PI_SPACE_HOME: "<root>/launcher/spaces/a",
+	GSH_CFG: "<root>/launcher/spaces/a/cfg",
 	PI_SPACES_BASE_ENV: JSON.stringify({ GSH_CFG: "<root>/shared/cfg" }),
-	OTHER: "<root>/gentle/spaces/a/x",
+	OTHER: "<root>/launcher/spaces/a/x",
 };
 const SPACE_VARIABLES = ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"];
 
@@ -2309,14 +2309,14 @@ test("from inside another profile's base Pi, pi/work and pi/base start Pi in the
 });
 
 test("from inside a space, another space of the same profile gets the base's values, not the caller space's", async () => {
-	const r = await run(["gentle/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	const r = await run(["launcher/b"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(r.code, 0, r.err);
-	assert.deepEqual(programsOf(r), [{ program: "gentle-cmd", args: ["--", "--space", "b"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "launcher-cmd", args: ["--", "--space", "b"] }]);
 	const env = setupEnvOf(r);
-	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "gentle", "agent"));
+	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "launcher", "agent"));
 	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
-	assert.equal(env.OTHER, join(r.root, "gentle", "agent", "x"));
-	assert.equal(env.PI_SPACES_DIR, join(r.root, "gentle", "spaces"));
+	assert.equal(env.OTHER, join(r.root, "launcher", "agent", "x"));
+	assert.equal(env.PI_SPACES_DIR, join(r.root, "launcher", "spaces"));
 	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
 });
 
@@ -2326,42 +2326,42 @@ test("from inside a space, a space of another profile also gets the base's space
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, ".pi", "agent"));
 	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
-	assert.equal(env.OTHER, join(r.root, "gentle", "agent", "x"));
+	assert.equal(env.OTHER, join(r.root, "launcher", "agent", "x"));
 	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
 });
 
 test("unwinding a space removes a spaceEnv variable the base did not have, moves each list entry on its own and keeps PWD", async () => {
-	const list = ["<root>/gentle/spaces/a/bin", "/usr/bin", "<root>/gentle/spaces/ab", "<root>/gentle/spaces/a"].join(delimiter);
-	const env = { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "{}", LIST: list, PWD: "<root>/gentle/spaces/a/project" };
-	const r = await run(["gentle/b", "-c"], { files: UNWIND, env });
+	const list = ["<root>/launcher/spaces/a/bin", "/usr/bin", "<root>/launcher/spaces/ab", "<root>/launcher/spaces/a"].join(delimiter);
+	const env = { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "{}", LIST: list, PWD: "<root>/launcher/spaces/a/project" };
+	const r = await run(["launcher/b", "-c"], { files: UNWIND, env });
 	const child = setupEnvOf(r);
 	assert.equal("GSH_CFG" in child, false);
-	assert.equal(child.LIST, ["<root>/gentle/agent/bin", "/usr/bin", "<root>/gentle/spaces/ab", "<root>/gentle/agent"].map((entry) => normalize(entry.replace("<root>", r.root))).join(delimiter));
-	assert.equal(child.PWD, join(r.root, "gentle", "spaces", "a", "project"));
+	assert.equal(child.LIST, ["<root>/launcher/agent/bin", "/usr/bin", "<root>/launcher/spaces/ab", "<root>/launcher/agent"].map((entry) => normalize(entry.replace("<root>", r.root))).join(delimiter));
+	assert.equal(child.PWD, join(r.root, "launcher", "spaces", "a", "project"));
 	// A damaged PI_SPACES_BASE_ENV means no base values.
-	const damaged = await run(["gentle/b"], { files: UNWIND, env: { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "not json" } });
+	const damaged = await run(["launcher/b"], { files: UNWIND, env: { ...IN_GSH_SPACE, PI_SPACES_BASE_ENV: "not json" } });
 	assert.equal(damaged.code, 0, damaged.err);
 	assert.equal("GSH_CFG" in setupEnvOf(damaged), false);
 });
 
 test("from a plain terminal the started Pi gets the named profile's home and nothing of a space", async () => {
-	const r = await run(["gentle/b"], { files: UNWIND, env: { GSH_CFG: "<root>/shared/cfg", OTHER: "kept" } });
+	const r = await run(["launcher/b"], { files: UNWIND, env: { GSH_CFG: "<root>/shared/cfg", OTHER: "kept" } });
 	assert.equal(r.code, 0, r.err);
 	const env = setupEnvOf(r);
-	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "gentle", "agent"));
+	assert.equal(env.PI_CODING_AGENT_DIR, join(r.root, "launcher", "agent"));
 	assert.equal(env.GSH_CFG, join(r.root, "shared", "cfg"));
 	assert.equal(env.OTHER, "kept");
 	for (const key of SPACE_VARIABLES) assert.equal(key in env, false, key);
 });
 
 test("package commands and --every start each Pi in the named profile's home, unwound from the caller's space", async () => {
-	const update = await run(["update", "gentle/b"], { files: UNWIND, env: IN_GSH_SPACE });
-	assert.equal(setupEnvOf(update).PI_CODING_AGENT_DIR, join(update.root, "gentle", "agent"));
+	const update = await run(["update", "launcher/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	assert.equal(setupEnvOf(update).PI_CODING_AGENT_DIR, join(update.root, "launcher", "agent"));
 	assert.equal(setupEnvOf(update).GSH_CFG, join(update.root, "shared", "cfg"));
 	const every = await run(["update", "--every"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).PI_CODING_AGENT_DIR), [
 		...[".pi", ".pi"].map((folder) => join(every.root, folder, "agent")),
-		...["agent", "agent", "agent"].map((folder) => join(every.root, "gentle", folder)),
+		...["agent", "agent", "agent"].map((folder) => join(every.root, "launcher", folder)),
 	]);
 	for (const index of every.spawned.keys()) {
 		for (const key of SPACE_VARIABLES) assert.equal(key in setupEnvOf(every, index), false, key);
@@ -2370,37 +2370,37 @@ test("package commands and --every start each Pi in the named profile's home, un
 });
 
 test("the setup command runs with the new space's own values on top of the unwound base, not the caller space's", async () => {
-	const r = await run(["new", "gentle/c"], { files: UNWIND, env: IN_GSH_SPACE });
+	const r = await run(["new", "launcher/c"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(r.code, 0, r.err);
-	const home = join(r.root, "gentle", "spaces", "c");
+	const home = join(r.root, "launcher", "spaces", "c");
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.PI_SPACE, "c");
 	assert.equal(env.PI_SPACE_HOME, home);
 	assert.equal(env.GSH_CFG, `${home}/cfg`);
-	assert.equal(env.OTHER, join(r.root, "gentle", "agent", "x"));
+	assert.equal(env.OTHER, join(r.root, "launcher", "agent", "x"));
 	assert.equal("PI_SPACES_BASE_HOME" in env, false);
 	assert.equal("PI_SPACES_BASE_ENV" in env, false);
-	const again = await run(["setup", "gentle/b"], { files: UNWIND, env: IN_GSH_SPACE });
+	const again = await run(["setup", "launcher/b"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(setupEnvOf(again).PI_SPACE, "b");
-	assert.equal(setupEnvOf(again).GSH_CFG, `${join(again.root, "gentle", "spaces", "b")}/cfg`);
+	assert.equal(setupEnvOf(again).GSH_CFG, `${join(again.root, "launcher", "spaces", "b")}/cfg`);
 });
 
 test("remove and rename still refuse the space the caller is in, from the caller's real environment", async () => {
-	const removed = await run(["remove", "gentle/a", "--yes"], { files: UNWIND, env: IN_GSH_SPACE });
+	const removed = await run(["remove", "launcher/a", "--yes"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(removed.code, 1);
 	assert.match(removed.err, /is active/);
 	assert.equal(removed.spawned.length, 0);
-	const renamed = await run(["rename", "gentle/a", "z"], { files: UNWIND, env: IN_GSH_SPACE });
+	const renamed = await run(["rename", "launcher/a", "z"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(renamed.code, 1);
 	assert.match(renamed.err, /is active/);
 });
 
-/** The user's gentle profile: its command ends with "--", then Pi's arguments. */
-const LAUNCHER_FILES_GENTLE = { [CONFIG]: { schema: SCHEMA, profiles: { gentle: { home: "~/gentle-agent", command: "gentle-shell --" } } } };
+/** The user's launcher profile: its command ends with "--", then Pi's arguments. */
+const LAUNCHER_FILES = { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { home: "~/launcher-agent", command: "my-launcher --" } } } };
 
 test("a space with several words and no option for Pi gets them as one message, the @files apart before it", async () => {
-	const words = await run(["gentle/base", "no", "puedo", "hacer", "upgrade", "https://example.com/x#y"], { files: LAUNCHER_FILES_GENTLE });
+	const words = await run(["launcher/base", "no", "puedo", "hacer", "upgrade", "https://example.com/x#y"], { files: LAUNCHER_FILES });
 	assert.equal(words.code, 0, words.err);
 	assert.deepEqual(words.spawned[0].args, ["--", "--space", "base", "no puedo hacer upgrade https://example.com/x#y"]);
 	const files = await run(["pi/work", "@a.md", "explain", "this", "@b.md"], { spaces: ["work"] });
@@ -2436,49 +2436,49 @@ test("a first word that is one of Pi's commands is never joined with the words a
 });
 
 /** A profile whose command has {home}: the program itself runs in the space's home, with no --space. */
-const HOME_COMMAND = "gentle-shell --home {home}";
+const HOME_COMMAND = "my-launcher --home {home}";
 const COMMAND_FILES = {
 	[CONFIG]: {
 		schema: SCHEMA,
 		profiles: {
-			gentle: { home: "~/gentle-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { GSH_CFG: "{home}/cfg" } },
+			launcher: { home: "~/launcher-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { GSH_CFG: "{home}/cfg" } },
 			bare: { home: "~/bare-agent", command: "bare --home {home} --name {name}", dir: "~/bare-spaces" },
 		},
 	},
 };
 
 test("a command with {home}: pi-space <profile>/base words runs it with the profile's home, no --space, and the plain environment marked as opened by pi-spaces", async () => {
-	const r = await run(["gentle/base", "upgrade"], { files: COMMAND_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
-	const home = join(r.root, "gentle-agent");
+	const r = await run(["launcher/base", "upgrade"], { files: COMMAND_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const home = join(r.root, "launcher-agent");
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.err, "");
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["--home", home, "upgrade"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--home", home, "upgrade"] }]);
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.GSH_CFG, "kept");
 	assert.equal(env.OTHER, "kept");
-	// PI_SPACES_BASE_HOME tells the extension pi-spaces opened base, so the status line shows 🪐 gentle/base.
+	// PI_SPACES_BASE_HOME tells the extension pi-spaces opened base, so the status line shows 🪐 launcher/base.
 	assert.equal(env.PI_SPACES_BASE_HOME, home);
 	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
 });
 
 test("a command with {home}: a space gets its folder as {home}, the words after it, and the environment of the space", async () => {
-	const r = await run(["gentle/work", "--version"], { spaces: ["work"], files: COMMAND_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const r = await run(["launcher/work", "--version"], { spaces: ["work"], files: COMMAND_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
 	const home = join(r.dir, "work");
 	assert.equal(r.code, 0, r.err);
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["--home", home, "--version"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--home", home, "--version"] }]);
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.PI_SPACE, "work");
 	assert.equal(env.PI_SPACE_HOME, home);
-	assert.equal(env.PI_SPACES_BASE_HOME, join(r.root, "gentle-agent"));
+	assert.equal(env.PI_SPACES_BASE_HOME, join(r.root, "launcher-agent"));
 	assert.equal(env.GSH_CFG, `${home}/cfg`);
 	assert.equal(env.PI_SPACES_BASE_ENV, JSON.stringify({ GSH_CFG: "kept" }));
 	assert.equal(env.OTHER, "kept");
 	// A spaceEnv variable the base does not have is not in PI_SPACES_BASE_ENV.
-	const unset = await run(["gentle/work"], { spaces: ["work"], files: COMMAND_FILES });
+	const unset = await run(["launcher/work"], { spaces: ["work"], files: COMMAND_FILES });
 	assert.equal(setupEnvOf(unset).PI_SPACES_BASE_ENV, "{}");
-	assert.deepEqual(programsOf(unset), [{ program: "gentle-shell", args: ["--home", join(unset.dir, "work")] }]);
+	assert.deepEqual(programsOf(unset), [{ program: "my-launcher", args: ["--home", join(unset.dir, "work")] }]);
 	// Without spaceEnv there is no PI_SPACES_BASE_ENV.
 	const none = await run(["bare/work"], { spaces: ["work"], files: { [CONFIG]: { schema: SCHEMA, profiles: { bare: { home: "~/bare-agent", command: HOME_COMMAND, dir: "~/spaces" } } } } });
 	assert.equal("PI_SPACES_BASE_ENV" in setupEnvOf(none), false);
@@ -2495,20 +2495,20 @@ test("a command with {home}: {name} is the space's name, or base, in every word;
 });
 
 test("a command with {home}: words with no option are joined as one message after the filled command, and options pass as they are", async () => {
-	const words = await run(["gentle/work", "fix", "the", "tests"], { spaces: ["work"], files: COMMAND_FILES });
+	const words = await run(["launcher/work", "fix", "the", "tests"], { spaces: ["work"], files: COMMAND_FILES });
 	assert.deepEqual(words.spawned[0].args, ["--home", join(words.dir, "work"), "fix the tests"]);
-	const option = await run(["gentle/work", "-c", "fix", "it"], { spaces: ["work"], files: COMMAND_FILES });
+	const option = await run(["launcher/work", "-c", "fix", "it"], { spaces: ["work"], files: COMMAND_FILES });
 	assert.deepEqual(option.spawned[0].args, ["--home", join(option.dir, "work"), "-c", "fix", "it"]);
-	const install = await run(["gentle/work", "install", "npm:x"], { spaces: ["work"], files: COMMAND_FILES });
+	const install = await run(["launcher/work", "install", "npm:x"], { spaces: ["work"], files: COMMAND_FILES });
 	assert.deepEqual(install.spawned[0].args, ["--home", join(install.dir, "work"), "install", "npm:x"]);
 });
 
 test("a command with {home} given as --command works for a profile without one, and a command without {home} keeps --space", async () => {
 	const r = await run(["--command", HOME_COMMAND, "pi/work", "hello"], { spaces: ["work"] });
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["--home", join(r.dir, "work"), "hello"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--home", join(r.dir, "work"), "hello"] }]);
 	assert.equal(setupEnvOf(r).PI_SPACE, "work");
-	const plain = await run(["--command", "gentle-shell --", "pi/work", "hello"], { spaces: ["work"] });
-	assert.deepEqual(programsOf(plain), [{ program: "gentle-shell", args: ["--", "--space", "work", "hello"] }]);
+	const plain = await run(["--command", "my-launcher --", "pi/work", "hello"], { spaces: ["work"] });
+	assert.deepEqual(programsOf(plain), [{ program: "my-launcher", args: ["--", "--space", "work", "hello"] }]);
 	assert.equal("PI_SPACES_BASE_HOME" in setupEnvOf(plain), false);
 });
 
@@ -2517,7 +2517,7 @@ const HOMELESS_FILES = {
 	[CONFIG]: {
 		schema: SCHEMA,
 		profiles: {
-			gentle: { home: "~/gentle-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { GSH_CFG: "{home}/cfg" }, homeless: ["upgrade", "memory"] },
+			launcher: { home: "~/launcher-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { GSH_CFG: "{home}/cfg" }, homeless: ["upgrade", "memory"] },
 			eq: { home: "~/eq-agent", command: "eq --home={home} --name {name}", dir: "~/eq-spaces", homeless: ["upgrade"] },
 			bare: { home: "~/bare-agent", command: "bare {home} --", dir: "~/bare-spaces", homeless: ["upgrade"] },
 			plain: { home: "~/plain-agent", command: "my-launcher --", dir: "~/plain-spaces", homeless: ["upgrade"] },
@@ -2526,32 +2526,32 @@ const HOMELESS_FILES = {
 };
 
 test("homeless: a first word of the profile's homeless runs the command without --home {home}, then the words, with the plain environment", async () => {
-	const base = await run(["gentle/base", "upgrade"], { files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const base = await run(["launcher/base", "upgrade"], { files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
 	assert.equal(base.code, 0, base.err);
 	assert.equal(base.err, "");
-	assert.deepEqual(programsOf(base), [{ program: "gentle-shell", args: ["upgrade"] }]);
-	const space = await run(["gentle/work", "upgrade", "--channel", "main"], { spaces: ["work"], files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	assert.deepEqual(programsOf(base), [{ program: "my-launcher", args: ["upgrade"] }]);
+	const space = await run(["launcher/work", "upgrade", "--channel", "main"], { spaces: ["work"], files: HOMELESS_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
 	assert.equal(space.code, 0, space.err);
-	assert.deepEqual(programsOf(space), [{ program: "gentle-shell", args: ["upgrade", "--channel", "main"] }]);
+	assert.deepEqual(programsOf(space), [{ program: "my-launcher", args: ["upgrade", "--channel", "main"] }]);
 	// Not the space's environment: the plain one of the profile, as in base.
 	const env = setupEnvOf(space);
-	assert.equal(env.PI_CODING_AGENT_DIR, join(space.root, "gentle-agent"));
+	assert.equal(env.PI_CODING_AGENT_DIR, join(space.root, "launcher-agent"));
 	assert.equal(env.GSH_CFG, "kept");
 	assert.equal(env.OTHER, "kept");
 	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
 	// Its words are never joined into a message; the exit status is the program's.
-	const words = await run(["gentle/work", "memory", "migrate", "now"], { spaces: ["work"], files: HOMELESS_FILES, status: 3 });
+	const words = await run(["launcher/work", "memory", "migrate", "now"], { spaces: ["work"], files: HOMELESS_FILES, status: 3 });
 	assert.equal(words.code, 3);
-	assert.deepEqual(programsOf(words), [{ program: "gentle-shell", args: ["memory", "migrate", "now"] }]);
+	assert.deepEqual(programsOf(words), [{ program: "my-launcher", args: ["memory", "migrate", "now"] }]);
 });
 
 test("homeless: only the first word counts, and a profile without it keeps the home", async () => {
-	const later = await run(["gentle/work", "please", "upgrade"], { spaces: ["work"], files: HOMELESS_FILES });
-	assert.deepEqual(programsOf(later), [{ program: "gentle-shell", args: ["--home", join(later.dir, "work"), "please upgrade"] }]);
-	const other = await run(["gentle/work", "setup"], { spaces: ["work"], files: HOMELESS_FILES });
-	assert.deepEqual(programsOf(other), [{ program: "gentle-shell", args: ["--home", join(other.dir, "work"), "setup"] }]);
-	const without = await run(["gentle/base", "upgrade"], { files: COMMAND_FILES });
-	assert.deepEqual(programsOf(without), [{ program: "gentle-shell", args: ["--home", join(without.root, "gentle-agent"), "upgrade"] }]);
+	const later = await run(["launcher/work", "please", "upgrade"], { spaces: ["work"], files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(later), [{ program: "my-launcher", args: ["--home", join(later.dir, "work"), "please upgrade"] }]);
+	const other = await run(["launcher/work", "setup"], { spaces: ["work"], files: HOMELESS_FILES });
+	assert.deepEqual(programsOf(other), [{ program: "my-launcher", args: ["--home", join(other.dir, "work"), "setup"] }]);
+	const without = await run(["launcher/base", "upgrade"], { files: COMMAND_FILES });
+	assert.deepEqual(programsOf(without), [{ program: "my-launcher", args: ["--home", join(without.root, "launcher-agent"), "upgrade"] }]);
 });
 
 test("homeless: every word with {home} is dropped, and an option right before a bare {home}; {name} stays", async () => {
@@ -2570,7 +2570,7 @@ const V2_FILES = {
 	[CONFIG]: {
 		schema: V2,
 		profiles: {
-			gentle: { home: "~/gentle-agent", dir: "~/spaces", commands: { base: "gentle-shell", setup: "gentle-shell setup --home {home}" }, spaceEnv: { GSH_CFG: "{home}/cfg" } },
+			launcher: { home: "~/launcher-agent", dir: "~/spaces", commands: { base: "my-launcher", setup: "my-launcher setup --home {home}" }, spaceEnv: { GSH_CFG: "{home}/cfg" } },
 			homed: { home: "~/homed-agent", dir: "~/homed-spaces", commands: { base: "homed", space: "homed --home {home} --name {name}", setup: "homed-setup {home} {name}" }, spaceEnv: { GSH_CFG: "{home}/cfg" } },
 			named: { home: "~/named-agent", dir: "~/named-spaces", commands: { base: "named", space: "my-launcher -- --space {name}" } },
 		},
@@ -2578,11 +2578,11 @@ const V2_FILES = {
 };
 
 test("v2: <profile>/base runs commands.base as it is with the words after it, no --space, the plain environment marked as opened by pi-spaces", async () => {
-	const r = await run(["gentle/base", "fix", "the", "tests"], { files: V2_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
-	const home = join(r.root, "gentle-agent");
+	const r = await run(["launcher/base", "fix", "the", "tests"], { files: V2_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const home = join(r.root, "launcher-agent");
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.err, "");
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["fix the tests"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["fix the tests"] }]);
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.PI_SPACES_BASE_HOME, home);
@@ -2590,8 +2590,8 @@ test("v2: <profile>/base runs commands.base as it is with the words after it, no
 	assert.equal(env.OTHER, "kept");
 	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
 	// An option passes as it is.
-	const option = await run(["gentle/base", "--version"], { files: V2_FILES });
-	assert.deepEqual(programsOf(option), [{ program: "gentle-shell", args: ["--version"] }]);
+	const option = await run(["launcher/base", "--version"], { files: V2_FILES });
+	assert.deepEqual(programsOf(option), [{ program: "my-launcher", args: ["--version"] }]);
 });
 
 test("v2: a space whose commands.space has {home} runs it filled, with the environment of the space", async () => {
@@ -2614,13 +2614,13 @@ test("v2: a space whose commands.space has {home} runs it filled, with the envir
 });
 
 test("v2: without commands.space a space runs <base> --space <name> with the words, and the plain environment", async () => {
-	const r = await run(["gentle/work", "hello", "there"], { files: { ...V2_FILES, "spaces/work/.keep": "" }, env: { OTHER: "kept" } });
+	const r = await run(["launcher/work", "hello", "there"], { files: { ...V2_FILES, "spaces/work/.keep": "" }, env: { OTHER: "kept" } });
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.err, "");
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["--space", "work", "hello there"] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--space", "work", "hello there"] }]);
 	const env = setupEnvOf(r);
 	assert.equal(env.OTHER, "kept");
-	assert.equal(env.PI_SPACES_COMMAND, "gentle-shell");
+	assert.equal(env.PI_SPACES_COMMAND, "my-launcher");
 	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
 });
 
@@ -2635,83 +2635,83 @@ test("v2: a commands.space with {name} and no {home} runs filled, with the plain
 });
 
 test("v2: package commands run commands.base in base, and the space's own command in a space", async () => {
-	const base = await run(["update", "gentle/base", "--extensions"], { files: V2_FILES });
+	const base = await run(["update", "launcher/base", "--extensions"], { files: V2_FILES });
 	assert.equal(base.code, 0, base.err);
-	assert.deepEqual(programsOf(base), [{ program: "gentle-shell", args: ["update", "--extensions"] }]);
-	assert.equal(setupEnvOf(base).PI_SPACES_BASE_HOME, join(base.root, "gentle-agent"));
+	assert.deepEqual(programsOf(base), [{ program: "my-launcher", args: ["update", "--extensions"] }]);
+	assert.equal(setupEnvOf(base).PI_SPACES_BASE_HOME, join(base.root, "launcher-agent"));
 	assert.equal("PI_SPACE" in setupEnvOf(base), false);
-	const space = await run(["install", "gentle/work", "npm:x", "-l"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
-	assert.deepEqual(programsOf(space), [{ program: "gentle-shell", args: ["--space", "work", "install", "npm:x", "-l"] }]);
+	const space = await run(["install", "launcher/work", "npm:x", "-l"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(space), [{ program: "my-launcher", args: ["--space", "work", "install", "npm:x", "-l"] }]);
 	const named = await run(["list", "named/work"], { files: { ...V2_FILES, "named-spaces/work/.keep": "" } });
 	assert.deepEqual(programsOf(named), [{ program: "my-launcher", args: ["--", "--space", "work", "list"] }]);
 });
 
 test("v2: <profile>/--every runs the package command in base, then in each space", async () => {
-	const r = await run(["update", "gentle/--every"], { files: { ...V2_FILES, "spaces/b/.keep": "", "spaces/a/.keep": "" }, echo: true });
+	const r = await run(["update", "launcher/--every"], { files: { ...V2_FILES, "spaces/b/.keep": "", "spaces/a/.keep": "" }, echo: true });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(programsOf(r), [
-		{ program: "gentle-shell", args: ["update"] },
-		{ program: "gentle-shell", args: ["--space", "a", "update"] },
-		{ program: "gentle-shell", args: ["--space", "b", "update"] },
+		{ program: "my-launcher", args: ["update"] },
+		{ program: "my-launcher", args: ["--space", "a", "update"] },
+		{ program: "my-launcher", args: ["--space", "b", "update"] },
 	]);
-	assert.equal(r.out, "== gentle/base\nran \n== gentle/a\nran a\n== gentle/b\nran b\n");
+	assert.equal(r.out, "== launcher/base\nran \n== launcher/a\nran a\n== launcher/b\nran b\n");
 });
 
 test("v2: setup runs commands.setup filled for the space, with the environment of the space", async () => {
-	const r = await run(["setup", "gentle/work"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	const r = await run(["setup", "launcher/work"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
 	const home = join(r.dir, "work");
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.err, "");
-	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["setup", "--home", home] }]);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["setup", "--home", home] }]);
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_SPACE, "work");
 	assert.equal(env.PI_SPACE_HOME, home);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.GSH_CFG, `${home}/cfg`);
-	assert.equal(env.PI_SPACES_SETUP, "gentle-shell setup --home {home}");
+	assert.equal(env.PI_SPACES_SETUP, "my-launcher setup --home {home}");
 });
 
 test("v2: --command replaces commands for the call, with its v1 meaning", async () => {
-	const base = await run(["--command", "other --", "gentle/base", "hi"], { files: V2_FILES });
+	const base = await run(["--command", "other --", "launcher/base", "hi"], { files: V2_FILES });
 	assert.equal(base.code, 0, base.err);
 	assert.deepEqual(programsOf(base), [{ program: "other", args: ["--", "--space", "base", "hi"] }]);
 	const space = await run(["--command", "other --", "named/work", "hi"], { files: { ...V2_FILES, "named-spaces/work/.keep": "" } });
 	assert.deepEqual(programsOf(space), [{ program: "other", args: ["--", "--space", "work", "hi"] }]);
 	assert.equal("PI_SPACE" in setupEnvOf(space), false);
-	const homed = await run(["--command", "other {home}", "gentle/work", "hi"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	const homed = await run(["--command", "other {home}", "launcher/work", "hi"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
 	assert.deepEqual(programsOf(homed), [{ program: "other", args: [join(homed.dir, "work"), "hi"] }]);
 	assert.equal(setupEnvOf(homed).PI_SPACE, "work");
 });
 
 test("a command with {home}: package commands run <command> <verb> args in base and in a space, with the same environment", async () => {
-	const update = await run(["update", "gentle/work", "--extensions"], { spaces: ["work"], files: COMMAND_FILES, env: { GSH_CFG: "kept" } });
+	const update = await run(["update", "launcher/work", "--extensions"], { spaces: ["work"], files: COMMAND_FILES, env: { GSH_CFG: "kept" } });
 	const home = join(update.dir, "work");
 	assert.equal(update.code, 0, update.err);
-	assert.deepEqual(programsOf(update), [{ program: "gentle-shell", args: ["--home", home, "update", "--extensions"] }]);
+	assert.deepEqual(programsOf(update), [{ program: "my-launcher", args: ["--home", home, "update", "--extensions"] }]);
 	assert.equal(setupEnvOf(update).PI_SPACE, "work");
 	assert.equal(setupEnvOf(update).PI_SPACES_BASE_ENV, JSON.stringify({ GSH_CFG: "kept" }));
-	const list = await run(["list", "gentle/base"], { files: COMMAND_FILES });
-	assert.deepEqual(programsOf(list), [{ program: "gentle-shell", args: ["--home", join(list.root, "gentle-agent"), "list"] }]);
+	const list = await run(["list", "launcher/base"], { files: COMMAND_FILES });
+	assert.deepEqual(programsOf(list), [{ program: "my-launcher", args: ["--home", join(list.root, "launcher-agent"), "list"] }]);
 	assert.equal("PI_SPACE" in setupEnvOf(list), false);
-	const install = await run(["install", "gentle/work", "npm:x", "-l"], { spaces: ["work"], files: COMMAND_FILES });
-	assert.deepEqual(programsOf(install), [{ program: "gentle-shell", args: ["--home", join(install.dir, "work"), "install", "npm:x", "-l"] }]);
+	const install = await run(["install", "launcher/work", "npm:x", "-l"], { spaces: ["work"], files: COMMAND_FILES });
+	assert.deepEqual(programsOf(install), [{ program: "my-launcher", args: ["--home", join(install.dir, "work"), "install", "npm:x", "-l"] }]);
 });
 
 test("a command with {home}: <profile>/--every and --every run it in base and each space, each in its own home", async () => {
-	const r = await run(["update", "gentle/--every"], { spaces: ["work", "alpha"], files: COMMAND_FILES, echo: true, statuses: { alpha: 3 } });
+	const r = await run(["update", "launcher/--every"], { spaces: ["work", "alpha"], files: COMMAND_FILES, echo: true, statuses: { alpha: 3 } });
 	assert.equal(r.code, 1);
-	assert.equal(r.out, "== gentle/base\nran \n== gentle/alpha\nran alpha\n== gentle/work\nran work\n");
-	assert.equal(r.err, "pi-space: update failed in: gentle/alpha\n");
+	assert.equal(r.out, "== launcher/base\nran \n== launcher/alpha\nran alpha\n== launcher/work\nran work\n");
+	assert.equal(r.err, "pi-space: update failed in: launcher/alpha\n");
 	assert.deepEqual(r.spawned.map(({ args }) => args), [
-		["--home", join(r.root, "gentle-agent"), "update"],
+		["--home", join(r.root, "launcher-agent"), "update"],
 		["--home", join(r.dir, "alpha"), "update"],
 		["--home", join(r.dir, "work"), "update"],
 	]);
-	assert.deepEqual(r.spawned.map((_, index) => setupEnvOf(r, index).PI_CODING_AGENT_DIR), [join(r.root, "gentle-agent"), join(r.dir, "alpha"), join(r.dir, "work")]);
+	assert.deepEqual(r.spawned.map((_, index) => setupEnvOf(r, index).PI_CODING_AGENT_DIR), [join(r.root, "launcher-agent"), join(r.dir, "alpha"), join(r.dir, "work")]);
 	const all = await run(["update", "--every"], { spaces: ["work"], files: COMMAND_FILES });
 	assert.equal(all.spawned.filter(({ program }) => program === "pi").every(({ args }) => args[0] === "--space"), true);
 	const own = all.spawned.filter(({ program }) => program !== "pi");
-	assert.deepEqual([...new Set(own.map(({ program }) => program))], ["bare", "gentle-shell"]);
+	assert.deepEqual([...new Set(own.map(({ program }) => program))], ["bare", "my-launcher"]);
 	assert.equal(own.every(({ args }) => args[0] === "--home" && args.at(-1) === "update" && !args.includes("--space")), true);
 });
 
@@ -2727,11 +2727,11 @@ test("a command with {home} and an unclosed quote exits 2 naming its source, bef
 });
 
 test("a command with {home}: the picker starts the chosen space the same way", async () => {
-	const r = await run([], { spaces: ["work"], tty: true, input: "gentle/work\r", files: COMMAND_FILES });
+	const r = await run([], { spaces: ["work"], tty: true, input: "launcher/work\r", files: COMMAND_FILES });
 	assert.equal(r.code, 0, r.err);
-	const gentle = r.spawned.filter(({ program }) => program === "gentle-shell");
-	assert.deepEqual(gentle.map(({ args }) => args), [["--home", join(r.dir, "work")]]);
-	assert.equal(setupEnvOf(r, r.spawned.indexOf(gentle[0])).PI_SPACE, "work");
+	const launcher = r.spawned.filter(({ program }) => program === "my-launcher");
+	assert.deepEqual(launcher.map(({ args }) => args), [["--home", join(r.dir, "work")]]);
+	assert.equal(setupEnvOf(r, r.spawned.indexOf(launcher[0])).PI_SPACE, "work");
 });
 
 /**
@@ -2752,14 +2752,14 @@ function initText(root: string): string {
 //
 // A profile for another program that runs Pi, for example:
 //
-//   "gentle": {
-//     "home": "~/.gentle-shell/agent",
+//   "ml": {
+//     "home": "~/.my-launcher/agent",
 //     "commands": {
-//       "base": "gentle-shell",
-//       "space": "gentle-shell --home {home}",
-//       "setup": "gentle-shell --home {home} setup"
+//       "base": "my-launcher",
+//       "space": "my-launcher --home {home}",
+//       "setup": "my-launcher --home {home} setup"
 //     },
-//     "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+//     "spaceEnv": { "MY_LAUNCHER_CONFIG_HOME": "{home}/config" }
 //   }
 {
   "schema": "pi-spaces.config/v2",
