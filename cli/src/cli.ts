@@ -399,7 +399,8 @@ function startFor(scope: Scope, name: string, words: string[]): { program: strin
 	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
 	const home = name === BASE ? profile.home : join(scope.dir, name);
 	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND ?? "", home, name);
-	if (name === BASE) return { program, args: [...args, ...words], env: io.childEnv };
+	// PI_SPACES_BASE_HOME marks base as opened by pi-spaces, as `--space base` does: the extension shows 🪐 <profile>/base.
+	if (name === BASE) return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
 	const plain = io.childEnv ?? io.env;
 	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
 	// The base's own values of the spaceEnv variables, as relaunchEnv keeps them to put back on the way to base.
