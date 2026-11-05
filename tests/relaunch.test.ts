@@ -21,6 +21,14 @@ test("filterArgs keeps options and drops the prompt, @files, session options and
 	assert.deepEqual(filterArgs(["--my-ext-flag", "-a"]), ["--my-ext-flag", "-a"]);
 });
 
+test("filterArgs drops --space with its value, so a switch does not bounce back into the space", () => {
+	assert.deepEqual(filterArgs(["--space", "work", "--model", "m", "prompt"]), ["--model", "m"]);
+	assert.deepEqual(filterArgs(["--model", "m", "--space=work", "--verbose"]), ["--model", "m", "--verbose"]);
+	assert.deepEqual(filterArgs(["--space", "work"]), []);
+	assert.deepEqual(filterArgs(["--space"]), []);
+	assert.deepEqual(filterArgs(["--spaces", "x", "--space-x=1", "--verbose"]), ["--spaces", "x", "--space-x=1", "--verbose"]);
+});
+
 test("filterArgs keeps the value of an unknown extension flag, as Pi parses it", () => {
 	assert.deepEqual(filterArgs(["--my-flag", "v", "--model", "m", "prompt"]), ["--my-flag", "v", "--model", "m"]);
 	assert.deepEqual(filterArgs(["--my-flag", "--other", "@f.md"]), ["--my-flag", "--other"]);

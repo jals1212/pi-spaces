@@ -6,6 +6,15 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.2
+
+### Fixed
+
+- `/space switch` with a v2 profile runs the profile's `commands` (`commands.base`
+  for base, `commands.space` or `<base> --space <name>` for a space) instead of
+  starting the running Pi again, so a launcher's own setup for base is kept. A
+  Pi started with `--space` no longer returns to that space after a switch.
+
 ## 0.11.1
 
 ### Changed
