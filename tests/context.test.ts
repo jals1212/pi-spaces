@@ -12,12 +12,18 @@ function setup() {
 	const base = join(root, "agent");
 	mkdirSync(base);
 	createSpace(dir, "work", "npm:@jals1212/pi-spaces");
-	return { dir, base, work: join(dir, "work") };
+	return { dir, base, work: join(dir, "work", "agent"), root: join(dir, "work") };
 }
 
 test("spaceInfo names the active space, its home and the configured command", () => {
 	const { dir, work } = setup();
 	assert.deepEqual(spaceInfo(dir, work, { PI_SPACES_COMMAND: "my-launcher --" }), { space: "work", home: work, command: "my-launcher --" });
+});
+
+test("spaceInfo of an old flat space names it and its folder as the agent home", () => {
+	const { dir } = setup();
+	mkdirSync(join(dir, "old"));
+	assert.deepEqual(spaceInfo(dir, join(dir, "old"), {}), { space: "old", home: join(dir, "old"), command: "pi" });
 });
 
 test("spaceInfo in the base home has no space, and the command defaults to pi", () => {
@@ -79,6 +85,13 @@ test("spacePrompt for a command with {name} also says pi-space <profile>/<name> 
 	const prompt = spacePrompt({ space: undefined, home: "/h/agent", command: "my-launcher -- --space {name}" });
 	assert.match(prompt, /`pi-space <profile>\/<name>` starts it in a space/);
 	assert.doesNotMatch(prompt, /--space <name>/);
+});
+
+test("spacePrompt for a command with {space} says pi-space <profile>/<name> starts a space", () => {
+	const prompt = spacePrompt({ space: "work", home: "/h/spaces/work/agent", command: "my-launcher --root {space}" });
+	assert.match(prompt, /`pi-space <profile>\/<name>` starts it in a space/);
+	assert.doesNotMatch(prompt, /--space <name>/);
+	assert.match(prompt, /Agent home: \/h\/spaces\/work\/agent \(PI_SPACE_HOME\)\./);
 });
 
 test("spacePrompt for a command with {home} says pi-space <profile>/<name> starts a space, not <command> --space", () => {

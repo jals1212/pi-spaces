@@ -8,6 +8,7 @@ import {
 	type Config,
 	ConfigError,
 	configPath,
+	expandSpaceEnv,
 	loadConfig,
 	profileByName,
 	profileForHome,
@@ -471,6 +472,14 @@ test("spaceEnvFor replaces every {home} and {name}, and leaves $ and other brace
 	// A home with $ patterns stays literal too.
 	assert.equal(spaceEnvFor(profile, "/s/$&", "w").CFG, "/s/$&/cfg");
 	assert.deepEqual(spaceEnvFor(profileByName(undefined, "pi", {}, HOME), "/s/work", "work"), {});
+});
+
+test("spaceEnvFor and expandSpaceEnv fill {space} with the space root, and with the home for a flat space", () => {
+	const profile = profileByName(load(v1({ profiles: { launcher: { spaceEnv: { CFG: "{space}/cfg", BOTH: "{home}|{space}|{name}", COST: "{space}$&" } } } })), "launcher", {}, HOME);
+	assert.deepEqual(spaceEnvFor(profile, "/s/work/agent", "work", "/s/work"), { CFG: "/s/work/cfg", BOTH: "/s/work/agent|/s/work|work", COST: "/s/work$&" });
+	// A flat space has no root of its own: the old three arguments.
+	assert.deepEqual(spaceEnvFor(profile, "/s/work", "work"), { CFG: "/s/work/cfg", BOTH: "/s/work|/s/work|work", COST: "/s/work$&" });
+	assert.deepEqual(expandSpaceEnv({ A: "{space}" }, "/s/$&/agent", "w", "/s/$&"), { A: "/s/$&" });
 });
 
 test("activeProfile loads the config at its path and picks the profile of the base home", () => {

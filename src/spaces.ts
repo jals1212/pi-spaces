@@ -1,10 +1,13 @@
-// Spaces: named Pi agent homes kept side by side in one folder.
+// Spaces: named Pi agent homes kept side by side in one folder. A space is a root folder with its agent home, `agent`,
+// inside it; an old space has no `agent` folder and its root is the agent home (see spaceHome).
 // Host-agnostic: everything here relies only on Pi's PI_CODING_AGENT_DIR contract.
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 
 export const BASE = "base";
+/** The folder inside a space's root that is its agent home. */
+export const AGENT = "agent";
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export class SpaceError extends Error {
@@ -79,10 +82,25 @@ export function listSpaces(dir: string): string[] {
 		.sort();
 }
 
-/** The space whose folder is the agent home, or undefined. */
+/**
+ * The agent home of the space whose root is `root`: `<root>/agent` when that is a real folder (a symlink or a file named
+ * agent does not count), else the root itself, an old space whose folder is the agent home. Pi's own agent home never has
+ * a folder named agent, so the folder tells the two layouts apart.
+ */
+export function spaceHome(root: string): string {
+	const home = join(root, AGENT);
+	return isRealFolder(home) ? home : root;
+}
+
+/** True when the space with this root keeps its agent home in `<root>/agent`. */
+export function isRooted(root: string): boolean {
+	return isRealFolder(join(root, AGENT));
+}
+
+/** The space whose agent home is the given one (`<root>/agent`, or the root of an old space), or undefined. */
 export function activeSpace(dir: string, agentHome: string): string | undefined {
 	for (const name of listSpaces(dir)) {
-		if (samePath(join(dir, name), agentHome)) return name;
+		if (samePath(spaceHome(join(dir, name)), agentHome)) return name;
 	}
 	return undefined;
 }
@@ -99,14 +117,18 @@ function isInside(child: string, parent: string): boolean {
 	return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
-/** Creates an empty space whose settings.json declares this package, so /space works inside it. */
+/**
+ * Creates an empty space: its root, with the agent home `agent` inside, whose settings.json declares this package, so
+ * /space works inside it. Returns the root.
+ */
 export function createSpace(dir: string, name: string, declaration: PackageDeclaration): string {
 	assertName(name);
 	const path = join(dir, name);
 	if (existsSync(path) || isSymlink(path)) throw new SpaceError(`Space "${name}" already exists.`);
 	mkdirSync(dir, { recursive: true });
 	mkdirSync(path);
-	writeFileSync(join(path, "settings.json"), `${JSON.stringify({ packages: [declaration] }, null, 2)}\n`);
+	mkdirSync(join(path, AGENT));
+	writeFileSync(join(path, AGENT, "settings.json"), `${JSON.stringify({ packages: [declaration] }, null, 2)}\n`);
 	return path;
 }
 
@@ -121,11 +143,12 @@ function isSymlink(path: string): boolean {
 const ACTIONS = {
 	remove: { gerund: "removing", past: "removed" },
 	rename: { gerund: "renaming", past: "renamed" },
+	migrate: { gerund: "migrating", past: "migrated" },
 };
 type Action = keyof typeof ACTIONS;
 
 /**
- * Throws the reason a space cannot be removed (or renamed, with action "rename"): base, invalid, missing, active, a spaces folder that is
+ * Throws the reason a space cannot be removed (or renamed, or migrated, with that action): base, invalid, missing, active, a spaces folder that is
  * not dedicated (the filesystem root, the user's home, the agent home or inside it), a space holding a
  * protected home, or anything that is not a real folder directly inside the spaces folder.
  */
@@ -177,18 +200,7 @@ export function backupSpace(
 	now: Date = new Date(),
 ): string {
 	const from = checkRemovable(dir, name, agentHome, protect, userHome);
-	const folder = join(dir, BACKUPS);
-	if ((existsSync(folder) || isSymlink(folder)) && !isRealFolder(folder)) {
-		throw new SpaceError(`The backups folder ${folder} is not a folder; move it away and try again.`);
-	}
-	try {
-		mkdirSync(folder, { recursive: true });
-	} catch (error) {
-		throw backupFailed(name, error);
-	}
-	const stamp = `${now.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
-	let to = join(folder, `${name}-${stamp}`);
-	for (let n = 2; existsSync(to) || isSymlink(to); n++) to = join(folder, `${name}-${stamp}-${n}`);
+	const to = backupSlot(dir, name, now, (error) => backupFailed(name, error));
 	// Inside the spaces folder, so the same filesystem: a rename, never a copy.
 	try {
 		renameSync(from, to);
@@ -198,9 +210,100 @@ export function backupSpace(
 	return to;
 }
 
+/**
+ * A free path <spaces folder>/.backups/<name>-<UTC time>, with the backups folder made. A second one in the same second gets a
+ * number; nothing is overwritten. `failed` turns a filesystem error into the caller's SpaceError.
+ */
+function backupSlot(dir: string, name: string, now: Date, failed: (error: unknown) => SpaceError): string {
+	const folder = join(dir, BACKUPS);
+	if ((existsSync(folder) || isSymlink(folder)) && !isRealFolder(folder)) {
+		throw new SpaceError(`The backups folder ${folder} is not a folder; move it away and try again.`);
+	}
+	try {
+		mkdirSync(folder, { recursive: true });
+	} catch (error) {
+		throw failed(error);
+	}
+	const stamp = utcStamp(now);
+	let to = join(folder, `${name}-${stamp}`);
+	for (let n = 2; existsSync(to) || isSymlink(to); n++) to = join(folder, `${name}-${stamp}-${n}`);
+	return to;
+}
+
+function utcStamp(now: Date): string {
+	return `${now.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
+}
+
 function backupFailed(name: string, error: unknown): SpaceError {
 	const reason = error instanceof Error ? error.message : String(error);
 	return new SpaceError(`Could not back up space "${name}": ${reason}. The space was not removed; fix that, or remove it without a backup with --no-backup.`);
+}
+
+export interface Migration {
+	/** The space's root: unchanged. */
+	root: string;
+	/** Its agent home now: `<root>/agent`. */
+	home: string;
+	/** The copy of the old space, in <spaces folder>/.backups. */
+	backup: string;
+}
+
+/**
+ * Moves an old space (no `agent` folder: its root is its agent home) into `<root>/agent`, after the same safety checks as
+ * a rename (not base, not the active space, not one that holds a protected home, a real folder inside the spaces folder) and
+ * a space that is already rooted is refused. Steps: copy the space to <spaces folder>/.backups/<name>-<UTC time> (the original
+ * stays); rename the root to a hidden staging name (<spaces folder>/.migrate-<name>-<UTC time>), which listSpaces does not
+ * list; make the root again; rename the staging folder to `<root>/agent`. When a rename fails the renames are undone and
+ * the backup is kept. `rename` is the move, so a test can make one fail.
+ */
+export function migrateSpace(
+	dir: string,
+	name: string,
+	agentHome: string,
+	protect: string[] = [],
+	userHome: string = osHomedir(),
+	now: Date = new Date(),
+	rename: typeof renameSync = renameSync,
+): Migration {
+	assertName(name);
+	const root = join(dir, name);
+	if (isRooted(root)) throw new SpaceError(`Space "${name}" already has its agent home in ${join(root, AGENT)}.`);
+	checkRemovable(dir, name, agentHome, protect, userHome, "migrate");
+	const home = join(root, AGENT);
+	const backup = backupSlot(dir, name, now, (error) => migrateFailed(name, error, "The space was not changed."));
+	try {
+		// Links stay links: the copy is the space as it was.
+		cpSync(root, backup, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, errorOnExist: true, force: false });
+	} catch (error) {
+		rmSync(backup, { recursive: true, force: true });
+		throw migrateFailed(name, error, "The space was not changed.");
+	}
+	let staging = join(dir, `.migrate-${name}-${utcStamp(now)}`);
+	for (let n = 2; existsSync(staging) || isSymlink(staging); n++) staging = join(dir, `.migrate-${name}-${utcStamp(now)}-${n}`);
+	let moved = false;
+	let made = false;
+	try {
+		rename(root, staging);
+		moved = true;
+		mkdirSync(root);
+		made = true;
+		rename(staging, home);
+	} catch (error) {
+		// Undo, in reverse: the new root goes (it is empty), then the content comes back.
+		try {
+			if (made) rmdirSync(root);
+			if (moved) rename(staging, root);
+		} catch (undo) {
+			throw migrateFailed(name, error, `It could not be put back (${undo instanceof Error ? undo.message : String(undo)}): its content is in ${staging}; move it back to ${root} by hand. Its backup is ${backup}.`);
+		}
+		throw migrateFailed(name, error, `The space was put back as it was; its backup is ${backup}.`);
+	}
+	return { root, home, backup };
+}
+
+function migrateFailed(name: string, error: unknown, after: string): SpaceError {
+	const reason = error instanceof Error ? error.message : String(error);
+	return new SpaceError(`Could not migrate space "${name}": ${reason}. ${after}`);
 }
 
 /** Renames a space after the same safety checks as removal. The new name must be free. */

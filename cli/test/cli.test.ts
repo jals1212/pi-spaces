@@ -21,6 +21,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
+  pi-space migrate <space|--every>             move an old space's content into its agent/ folder, after a copy in .backups (never base)
   pi-space update <space|--every>              update the packages of a space (more words go to Pi: --extensions, --all, a source)
   pi-space install <space|--every> <source>    install a package in a space (more words go to Pi)
   pi-space uninstall <space|--every> <source>  remove a package from a space (more words go to Pi)
@@ -30,12 +31,12 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
-  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup) and spaces, --every alone in every profile;
+  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup or migrate) and spaces, --every alone in every profile;
   a failure does not stop the rest, and the exit status is 1 if any failed.
 Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
   --dir <path>                                 the spaces folder instead of the profile's; the Pi it starts gets it too (for one profile)
-  --setup <cmd>                                the setup command instead of the profile's; {home} and {name} become the space's folder and name
+  --setup <cmd>                                the setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name
   --config <path>                              the config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json); the Pi it starts gets it too
 `;
 
@@ -54,6 +55,8 @@ interface Run {
 	settings: Record<string, unknown>;
 	/** The space folders left after the run. */
 	left: string[];
+	/** Every file and folder of the spaces folder after the run, relative to it, sorted. */
+	tree: string[];
 	/** The folders in <spaces>/.backups after the run. */
 	backups: string[];
 	root: string;
@@ -65,6 +68,8 @@ async function run(
 	argv: string[],
 	options: {
 		spaces?: string[];
+		/** Spaces made with their agent home inside: <spaces>/<name>/agent. */
+		rooted?: string[];
 		env?: Record<string, string>;
 		tty?: boolean;
 		input?: string;
@@ -91,6 +96,7 @@ async function run(
 		const dir = join(root, "spaces");
 		mkdirSync(dir);
 		for (const name of options.spaces ?? []) mkdirSync(join(dir, name));
+		for (const name of options.rooted ?? []) mkdirSync(join(dir, name, "agent"), { recursive: true });
 		const stdin = Object.assign(new PassThrough(), { isTTY: options.tty ?? false });
 		if (options.input !== undefined) stdin.end(options.input);
 		if (options.checkout) {
@@ -116,7 +122,7 @@ async function run(
 			return normalize(text.replaceAll("<root>", root));
 		};
 		const env = Object.fromEntries(Object.entries(options.env ?? {}).map(([key, value]) => [key, fill(value)]));
-		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], backups: [], root, read: {} };
+		const result: Run = { code: undefined, out: "", err: "", spawned: [], dir, settings: {}, left: [], tree: [], backups: [], root, read: {} };
 		const io: CliIo = {
 			stdin,
 			stdout: { write: (text: string) => void (result.out += text) },
@@ -145,9 +151,11 @@ async function run(
 		for (const name of existsSync(dir) ? readdirSync(dir).sort() : []) {
 			if (name === ".backups") continue;
 			result.left.push(name);
-			const file = join(dir, name, "settings.json");
-			if (existsSync(file)) result.settings[name] = JSON.parse(readFileSync(file, "utf8"));
+			// A rooted space keeps its settings in agent/, an old one in its root.
+			const file = [join(dir, name, "agent", "settings.json"), join(dir, name, "settings.json")].find((path) => existsSync(path));
+			if (file) result.settings[name] = JSON.parse(readFileSync(file, "utf8"));
 		}
+		if (existsSync(dir)) result.tree = readdirSync(dir, { recursive: true }).map(String).sort();
 		return result;
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -378,6 +386,7 @@ const HELP_USAGE: Record<string, string> = {
 	setup: "Usage: pi-space setup <space|--every>",
 	rename: "Usage: pi-space rename <space> <new>",
 	remove: "Usage: pi-space remove <space> [--yes|-y] [--no-backup]",
+	migrate: "Usage: pi-space migrate <space|--every>",
 	update: "Usage: pi-space update <space|--every> [pi args...]",
 	install: "Usage: pi-space install <space|--every> <source> [pi args...]",
 	uninstall: "Usage: pi-space uninstall <space|--every> <source> [pi args...]",
@@ -461,7 +470,7 @@ test("--help <unknown> names the commands on stderr and exits 2", async () => {
 		const r = await run(argv, { files: { [CONFIG]: "{nope" } });
 		assert.equal(r.code, 2, argv.join(" "));
 		assert.equal(r.out, "");
-		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, rename, remove, update, install, uninstall, init, completion.\n');
+		assert.equal(r.err, 'pi-space: No help for "ghost"; commands: list, new, setup, rename, remove, migrate, update, install, uninstall, init, completion.\n');
 		assert.equal(r.spawned.length, 0);
 	}
 });
@@ -1260,10 +1269,11 @@ test("new runs the setup command in the new space after creating it, with the sp
 		["ml", ["new", "ml/work"], { files }],
 	] as [string, string[], Record<string, unknown>][]) {
 		const r = await run(argv, { ...extra, env: { PI_CODING_AGENT_DIR: SOME_HOME, OTHER: "kept" } });
-		const home = join(r.dir, "work");
+		const root = join(r.dir, "work");
+		const home = join(root, "agent");
 		assert.equal(r.code, 0, r.err);
 		assert.equal(r.err, "");
-		assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: my-launcher --home ${home} setup\nStart Pi in it with: pi-space ${profile}/work\n`);
+		assert.equal(r.out, `Created space "work" at ${root}.\nSetting it up: my-launcher --home ${home} setup\nStart Pi in it with: pi-space ${profile}/work\n`);
 		assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
 		assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "my-launcher", args: ["--home", home, "setup"] }]);
 		assert.equal(r.spawned[0].options.stdio, "inherit");
@@ -1559,9 +1569,10 @@ const PROFILE_SETUP = {
 
 test("new runs the profile's setup with its spaceEnv in the setup's environment, on top of the space's own variables", async () => {
 	const r = await run(["new", "ml/work"], { files: PROFILE_SETUP, env: { ML_CONFIG: "base-value", PI_CODING_AGENT_DIR: SOME_HOME } });
-	const home = join(r.dir, "work");
+	const root = join(r.dir, "work");
+	const home = join(root, "agent");
 	assert.equal(r.code, 0, r.err);
-	assert.equal(r.out, `Created space "work" at ${home}.\nSetting it up: ml-setup --home ${home} --space work\nStart Pi in it with: pi-space ml/work\n`);
+	assert.equal(r.out, `Created space "work" at ${root}.\nSetting it up: ml-setup --home ${home} --space work\nStart Pi in it with: pi-space ml/work\n`);
 	assert.deepEqual(programsOf(r), [{ program: "ml-setup", args: ["--home", home, "--space", "work"] }]);
 	const env = setupEnvOf(r);
 	// The template's own "/" stays as written, on every platform.
@@ -1889,12 +1900,13 @@ const COMPLETE_FILES = {
 	"other-spaces/zed/.keep": "",
 };
 
-const FIRST_COMMANDS = ["command init", "command install", "command list", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
+const FIRST_COMMANDS = ["command init", "command install", "command list", "command migrate", "command new", "command remove", "command rename", "command setup", "command uninstall", "command update"];
 
 const COMMAND_LINES = [
 	"command\tinit\twrite a config file with the built-in pi profile in comments",
 	"command\tinstall\tinstall a package in a space",
 	"command\tlist\tlist the spaces, or the packages of one",
+	"command\tmigrate\tmove an old space into its agent folder",
 	"command\tnew\tcreate a space",
 	"command\tremove\tdelete a space, keeping a backup",
 	"command\trename\trename a space",
@@ -1906,7 +1918,7 @@ const COMMAND_LINES = [
 const OPTION_LINES = {
 	"--command": "option\t--command\tthe program to run instead of the profile's command, e.g. \"my-launcher --\"; for one profile",
 	"--dir": "option\t--dir\tthe spaces folder instead of the profile's; the Pi it starts gets it too; for one profile",
-	"--setup": "option\t--setup\tthe setup command instead of the profile's; {home} and {name} become the space's folder and name",
+	"--setup": "option\t--setup\tthe setup command instead of the profile's; {home}, {space} and {name} become the space's agent home, its root and its name",
 	"--config": "option\t--config\tthe config file instead of $PI_SPACES_CONFIG (default: ~/.config/pi-spaces/config.json, else ~/.pi-spaces/config.json)",
 	"--help": "option\t--help\tprint the help, or a command's: --help <command>",
 	"--version": "option\t--version\tprint the version",
@@ -2372,7 +2384,7 @@ test("package commands and --every start each Pi in the named profile's home, un
 test("the setup command runs with the new space's own values on top of the unwound base, not the caller space's", async () => {
 	const r = await run(["new", "launcher/c"], { files: UNWIND, env: IN_GSH_SPACE });
 	assert.equal(r.code, 0, r.err);
-	const home = join(r.root, "launcher", "spaces", "c");
+	const home = join(r.root, "launcher", "spaces", "c", "agent");
 	const env = setupEnvOf(r);
 	assert.equal(env.PI_CODING_AGENT_DIR, home);
 	assert.equal(env.PI_SPACE, "c");
@@ -2846,4 +2858,318 @@ test("init --help shows the help of init and writes nothing", async () => {
 	const other = await run(["--help", "init"], { read: [CONFIG] });
 	assert.equal(other.out, r.out);
 	assert.equal(other.read[CONFIG], undefined);
+});
+
+// --- A space is a root, with its agent home in <root>/agent; old spaces keep their root as the agent home -------------
+
+test("new creates the root with agent/settings.json inside, and says the root", async () => {
+	const r = await run(["new", "pi/work"], { read: ["spaces/work/agent/settings.json", "spaces/work/settings.json"] });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, `Created space "work" at ${join(r.dir, "work")}.\nStart Pi in it with: pi-space pi/work\n`);
+	assert.deepEqual(r.tree, ["work", "work/agent", "work/agent/settings.json"]);
+	assert.deepEqual(JSON.parse(r.read["spaces/work/agent/settings.json"] as string), { packages: ["npm:@jals1212/pi-spaces"] });
+	assert.equal(r.read["spaces/work/settings.json"], undefined);
+	assert.equal(r.spawned.length, 0);
+});
+
+test("new runs the setup with {home} the agent home and {space} the root, and the same in the setup's environment", async () => {
+	const files = { [CONFIG]: { schema: SCHEMA, profiles: { ml: { dir: "~/spaces", setup: "my-launcher --home {home} --root {space} --name {name}", spaceEnv: { ML_ROOT: "{space}/cfg", ML_HOME: "{home}" } } } } };
+	const r = await run(["new", "ml/work"], { files, env: { OTHER: "kept" } });
+	const root = join(r.dir, "work");
+	const home = join(root, "agent");
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, `Created space "work" at ${root}.\nSetting it up: my-launcher --home ${home} --root ${root} --name work\nStart Pi in it with: pi-space ml/work\n`);
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--home", home, "--root", root, "--name", "work"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.PI_SPACE_HOME, home);
+	assert.equal(env.PI_SPACE, "work");
+	assert.equal(env.ML_ROOT, `${root}/cfg`);
+	assert.equal(env.ML_HOME, home);
+	assert.equal(env.OTHER, "kept");
+});
+
+test("setup of a rooted space and of an old flat one: the agent home and the root, each as it is; --every mixes both", async () => {
+	const setup = "my-launcher --home {home} --root {space} setup";
+	const rooted = await run(["--setup", setup, "setup", "pi/work"], { rooted: ["work"] });
+	assert.equal(rooted.code, 0, rooted.err);
+	assert.deepEqual(programsOf(rooted), [{ program: "my-launcher", args: ["--home", join(rooted.dir, "work", "agent"), "--root", join(rooted.dir, "work"), "setup"] }]);
+	assert.equal(setupEnvOf(rooted).PI_CODING_AGENT_DIR, join(rooted.dir, "work", "agent"));
+	assert.equal(setupEnvOf(rooted).PI_SPACE_HOME, join(rooted.dir, "work", "agent"));
+	const flat = await run(["--setup", setup, "setup", "pi/work"], { spaces: ["work"] });
+	assert.deepEqual(programsOf(flat), [{ program: "my-launcher", args: ["--home", join(flat.dir, "work"), "--root", join(flat.dir, "work"), "setup"] }]);
+	assert.equal(setupEnvOf(flat).PI_CODING_AGENT_DIR, join(flat.dir, "work"));
+	const every = await run(["--setup", setup, "setup", "pi/--every"], { spaces: ["flat"], rooted: ["rooted"] });
+	assert.deepEqual(every.spawned.map(({ args }) => args[1]), [join(every.dir, "flat"), join(every.dir, "rooted", "agent")]);
+});
+
+const ROOT_FILES = {
+	[CONFIG]: {
+		schema: SCHEMA,
+		profiles: {
+			launcher: { home: "~/launcher-agent", command: HOME_COMMAND, dir: "~/spaces", spaceEnv: { ML_CFG: "{space}/cfg", ML_HOME: "{home}" } },
+			plain: { home: "~/plain-agent", dir: "~/plain-spaces", spaceEnv: { ML_CFG: "{space}/cfg" } },
+		},
+	},
+};
+
+const TEMPL_FILES = {
+	[CONFIG]: { schema: V2, profiles: { templ: { home: "~/templ-agent", dir: "~/templ-spaces", commands: { base: "templ --root {space}", space: "templ --home {home} --root {space}" } } } },
+};
+
+test("start: a command with {home} runs in the agent home of a rooted space, with {space} in spaceEnv the root; a flat space keeps its folder", async () => {
+	const rooted = await run(["launcher/work", "--version"], { rooted: ["work"], files: ROOT_FILES, env: { ML_CFG: "kept" } });
+	const root = join(rooted.dir, "work");
+	assert.equal(rooted.code, 0, rooted.err);
+	assert.deepEqual(programsOf(rooted), [{ program: "my-launcher", args: ["--home", join(root, "agent"), "--version"] }]);
+	const env = setupEnvOf(rooted);
+	assert.equal(env.PI_CODING_AGENT_DIR, join(root, "agent"));
+	assert.equal(env.PI_SPACE_HOME, join(root, "agent"));
+	assert.equal(env.PI_SPACE, "work");
+	assert.equal(env.ML_CFG, `${root}/cfg`);
+	assert.equal(env.ML_HOME, join(root, "agent"));
+	assert.equal(env.PI_SPACES_BASE_ENV, JSON.stringify({ ML_CFG: "kept" }));
+	assert.equal(env.PI_SPACES_BASE_HOME, join(rooted.root, "launcher-agent"));
+	const flat = await run(["launcher/work", "--version"], { spaces: ["work"], files: ROOT_FILES });
+	const home = join(flat.dir, "work");
+	assert.deepEqual(programsOf(flat), [{ program: "my-launcher", args: ["--home", home, "--version"] }]);
+	assert.equal(setupEnvOf(flat).PI_CODING_AGENT_DIR, home);
+	assert.equal(setupEnvOf(flat).ML_CFG, `${home}/cfg`);
+	assert.equal(setupEnvOf(flat).ML_HOME, home);
+});
+
+test("start: a profile without a home command runs <command> --space <name> for a rooted or a flat space alike, and the extension does the rest", async () => {
+	for (const layout of ["plain-spaces/work/agent/.keep", "plain-spaces/work/.keep"]) {
+		const r = await run(["plain/work", "-c"], { files: { ...ROOT_FILES, [layout]: "" } });
+		assert.equal(r.code, 0, r.err);
+		assert.deepEqual(programsOf(r), [{ program: "pi", args: ["--space", "work", "-c"] }]);
+		assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, join(r.root, "plain-agent"));
+		assert.equal("PI_SPACE" in setupEnvOf(r), false);
+	}
+});
+
+test("start: commands.space and commands.base get {space}: the root of a rooted space, the home of a flat one, the parent of the base home in base", async () => {
+	const rooted = await run(["templ/work"], { files: { ...TEMPL_FILES, "templ-spaces/work/agent/.keep": "" } });
+	assert.deepEqual(programsOf(rooted), [{ program: "templ", args: ["--home", join(rooted.root, "templ-spaces", "work", "agent"), "--root", join(rooted.root, "templ-spaces", "work")] }]);
+	const flat = await run(["templ/old"], { files: { ...TEMPL_FILES, "templ-spaces/old/.keep": "" } });
+	assert.deepEqual(programsOf(flat), [{ program: "templ", args: ["--home", join(flat.root, "templ-spaces", "old"), "--root", join(flat.root, "templ-spaces", "old")] }]);
+	const base = await run(["templ/base"], { files: TEMPL_FILES });
+	assert.deepEqual(programsOf(base), [{ program: "templ", args: ["--root", base.root] }]);
+});
+
+test("a command with {home} and {space}: base gets the parent of the base home as {space}; a homeless command fills {space} and drops {home}", async () => {
+	const files = {
+		[CONFIG]: {
+			schema: SCHEMA,
+			profiles: { launcher: { home: "~/launcher/agent", dir: "~/spaces", command: "my-launcher --home {home} --root {space}", homeless: ["upgrade"] } },
+		},
+		"spaces/work/agent/.keep": "",
+	};
+	const base = await run(["launcher/base"], { files });
+	assert.deepEqual(programsOf(base), [{ program: "my-launcher", args: ["--home", join(base.root, "launcher", "agent"), "--root", join(base.root, "launcher")] }]);
+	const space = await run(["launcher/work"], { files });
+	assert.deepEqual(programsOf(space), [{ program: "my-launcher", args: ["--home", join(space.root, "spaces", "work", "agent"), "--root", join(space.root, "spaces", "work")] }]);
+	const homeless = await run(["launcher/work", "upgrade"], { files });
+	assert.deepEqual(programsOf(homeless), [{ program: "my-launcher", args: ["--root", join(homeless.root, "spaces", "work"), "upgrade"] }]);
+});
+
+test("a package command in a rooted space and in an old one goes through the same command; --every lists both", async () => {
+	const files = { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { home: "~/launcher-agent", command: HOME_COMMAND, dir: "~/spaces" } } } };
+	const one = await run(["list", "launcher/work"], { rooted: ["work"], files });
+	assert.deepEqual(programsOf(one), [{ program: "my-launcher", args: ["--home", join(one.dir, "work", "agent"), "list"] }]);
+	assert.equal(setupEnvOf(one).PI_CODING_AGENT_DIR, join(one.dir, "work", "agent"));
+	const every = await run(["update", "launcher/--every"], { spaces: ["flat"], rooted: ["rooted"], files });
+	assert.deepEqual(every.spawned.map(({ args }) => args[1]), [join(every.root, "launcher-agent"), join(every.dir, "flat"), join(every.dir, "rooted", "agent")]);
+	const plain = await run(["install", "pi/work", "npm:x"], { rooted: ["work"] });
+	assert.deepEqual(programsOf(plain), [{ program: "pi", args: ["--space", "work", "install", "npm:x"] }]);
+});
+
+test("the picker marks the rooted space whose agent home this Pi runs in, and starts it", async () => {
+	const r = await run([], { rooted: ["work"], spaces: ["alpha"], tty: true, input: "\r", env: { PI_SPACE: "work", PI_SPACE_HOME: "<root>/spaces/work/agent" } });
+	assert.match(r.out, /> pi\/work \(active\)/);
+	assert.deepEqual(r.spawned.map(({ args }) => args), [["--space", "work"]]);
+});
+
+test("list shows rooted and old spaces alike", async () => {
+	const r = await run(["list"], { rooted: ["fresh"], spaces: ["old"] });
+	assert.equal(r.out, `Spaces of pi in ${r.dir}:\n  pi/base\n  pi/fresh\n  pi/old\n`);
+});
+
+test("remove and rename act on the root of a rooted space, and refuse it when its agent home is the current one", async () => {
+	const files = { "spaces/work/agent/settings.json": { packages: [] }, "spaces/work/extra.txt": "root file" };
+	const removed = await run(["remove", "pi/work", "--yes"], { files });
+	assert.equal(removed.code, 0, removed.err);
+	assert.deepEqual(removed.left, []);
+	assert.equal(removed.backups.length, 1);
+	assert.equal(removed.out, `Removed space "work"; its backup is ${join(removed.dir, ".backups", removed.backups[0])}.\n`);
+	const renamed = await run(["rename", "pi/work", "client"], { files });
+	assert.equal(renamed.code, 0, renamed.err);
+	assert.deepEqual(renamed.tree, ["client", "client/agent", "client/agent/settings.json", "client/extra.txt"]);
+	for (const verb of [["remove", "pi/work", "--yes"], ["rename", "pi/work", "client"]]) {
+		const active = await run(["--dir", "<root>/spaces", ...verb], { files, env: { PI_CODING_AGENT_DIR: "<root>/spaces/work/agent" } });
+		assert.equal(active.code, 1, verb[0]);
+		assert.equal(active.err, `pi-space: Space "work" is active; switch to another space before ${verb[0] === "remove" ? "removing" : "renaming"} it.\n`, verb[0]);
+		assert.deepEqual(active.tree, ["work", "work/agent", "work/agent/settings.json", "work/extra.txt"], verb[0]);
+	}
+});
+
+// --- migrate ------------------------------------------------------------------------------------------------------
+
+const OLD_FILES = { "spaces/work/settings.json": '{"packages":[]}', "spaces/work/sessions/a.jsonl": "one" };
+
+/** The backup path in a message, replaced by <backup>, since its name has the time. */
+const noBackup = (text: string) => text.replace(/\(backup: [^)]*\)/g, "(backup: <backup>)");
+
+test("parseCli: migrate takes one name or --every and nothing else", () => {
+	assert.deepEqual(parseCli(["migrate", "pi/work"]), { kind: "migrate", target: { name: "pi/work" } });
+	assert.deepEqual(parseCli(["migrate", "--every"]), { kind: "migrate", target: { every: true } });
+	assert.deepEqual(parseCli(["--dir", "/d", "migrate", "pi/--every"]), { kind: "migrate", target: { name: "pi/--every" }, dir: "/d" });
+	for (const argv of [["migrate"], ["migrate", "a", "b"], ["migrate", "--every", "x"]]) assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	assert.deepEqual(parseCli(["migrate", "--bogus"]), { kind: "unknown-option", option: "--bogus" });
+	assert.deepEqual(parseCli(["migrate", "pi/work", "--help"]), { kind: "command-help", command: "migrate" });
+});
+
+test("migrate moves an old space into agent/, keeps a copy in .backups, and the space still starts and lists", async () => {
+	const r = await run(["migrate", "pi/work"], { spaces: ["work"], files: { ...OLD_FILES, "spaces/other/settings.json": "{}" }, read: ["spaces/work/agent/settings.json", "spaces/work/agent/sessions/a.jsonl"] });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	const root = join(r.dir, "work");
+	assert.equal(r.backups.length, 1);
+	assert.match(r.backups[0], /^work-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/);
+	assert.equal(r.out, `Migrated space "work": its agent home is now ${join(root, "agent")} (backup: ${join(r.dir, ".backups", r.backups[0])}).\n`);
+	assert.equal(r.read["spaces/work/agent/settings.json"], '{"packages":[]}');
+	assert.equal(r.read["spaces/work/agent/sessions/a.jsonl"], "one");
+	assert.deepEqual(r.tree, [
+		".backups", `.backups/${r.backups[0]}`, `.backups/${r.backups[0]}/sessions`, `.backups/${r.backups[0]}/sessions/a.jsonl`, `.backups/${r.backups[0]}/settings.json`,
+		"other", "other/settings.json",
+		"work", "work/agent", "work/agent/sessions", "work/agent/sessions/a.jsonl", "work/agent/settings.json",
+	]);
+	assert.equal(r.spawned.length, 0);
+	// The old copy is the space as it was, and the other space is as it was.
+	assert.deepEqual(r.left, ["other", "work"]);
+});
+
+test("migrate then list, start and setup use the new agent home", async () => {
+	const files = { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { home: "~/launcher-agent", command: HOME_COMMAND, dir: "~/spaces", setup: "my-launcher --home {home} setup" } } }, "spaces/work/settings.json": "{}" };
+	const migrated = await run(["migrate", "launcher/work"], { files });
+	assert.equal(migrated.code, 0, migrated.err);
+	assert.equal(noBackup(migrated.out), `Migrated space "work": its agent home is now ${join(migrated.dir, "work", "agent")} (backup: <backup>).\n`);
+	// The same files, laid out as migrate leaves them, start and set up in the agent home.
+	const after = { ...files, "spaces/work/settings.json": undefined, "spaces/work/agent/settings.json": "{}" };
+	delete (after as Record<string, unknown>)["spaces/work/settings.json"];
+	const started = await run(["launcher/work"], { files: after });
+	assert.deepEqual(started.spawned[0].args, ["--home", join(started.dir, "work", "agent")]);
+	const setup = await run(["setup", "launcher/work"], { files: after });
+	assert.deepEqual(setup.spawned[0].args, ["--home", join(setup.dir, "work", "agent"), "setup"]);
+});
+
+test("migrate refuses an already migrated space with exit 1 and changes nothing", async () => {
+	const r = await run(["migrate", "pi/work"], { rooted: ["work"], files: { "spaces/work/agent/settings.json": "{}", "spaces/work/other.txt": "x" } });
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "");
+	assert.equal(r.err, `pi-space: Space "work" already has its agent home in ${join(r.dir, "work", "agent")}.\n`);
+	assert.deepEqual(r.tree, ["work", "work/agent", "work/agent/settings.json", "work/other.txt"]);
+	assert.deepEqual(r.backups, []);
+});
+
+test("migrate refuses base, a missing or invalid space, an unqualified name and the space the caller is in, changing nothing", async () => {
+	const base = await run(["migrate", "pi/base"], { spaces: ["work"], files: OLD_FILES });
+	assert.equal(base.code, 1);
+	assert.equal(base.err, "pi-space: migrate runs only on spaces, not on base (the home Pi starts with).\n");
+	const ghost = await run(["migrate", "pi/ghost"], { spaces: ["work"], files: OLD_FILES });
+	assert.equal(ghost.code, 1);
+	assert.equal(ghost.err, 'pi-space: Space "ghost" does not exist.\n');
+	const invalid = await run(["migrate", "pi/Bad Name"], { spaces: ["work"], files: OLD_FILES });
+	assert.equal(invalid.code, 1);
+	assert.match(invalid.err, /^pi-space: Invalid space name "Bad Name"/);
+	const active = await run(["--dir", "<root>/spaces", "migrate", "pi/work"], { spaces: ["work"], files: OLD_FILES, env: { PI_CODING_AGENT_DIR: "<root>/spaces/work" } });
+	assert.equal(active.code, 1);
+	assert.equal(active.err, 'pi-space: Space "work" is active; switch to another space before migrating it.\n');
+	const held = await run(["--dir", "<root>/spaces", "migrate", "pi/work"], { spaces: ["work"], files: OLD_FILES, env: { PI_CODING_AGENT_DIR: "<root>/spaces/other", PI_SPACES_BASE_HOME: "<root>/spaces/work/base" } });
+	assert.equal(held.code, 1);
+	assert.equal(held.err, `pi-space: Space "work" holds the base home ${join(held.dir, "work", "base")}; it cannot be migrated.\n`);
+	for (const r of [base, ghost, invalid, active, held]) {
+		assert.equal(r.out, "");
+		assert.deepEqual(r.tree, ["work", "work/sessions", "work/sessions/a.jsonl", "work/settings.json"]);
+		assert.deepEqual(r.backups, []);
+		assert.equal(r.spawned.length, 0);
+	}
+	const bare = await run(["migrate", "work"], { spaces: ["work"], files: OLD_FILES });
+	assert.equal(bare.code, 2);
+	assert.equal(bare.err, "pi-space: Name the space with its profile, as <profile>/work (profiles: pi).\n");
+	assert.deepEqual(bare.tree, ["work", "work/sessions", "work/sessions/a.jsonl", "work/settings.json"]);
+});
+
+test("migrate pi/--every migrates the old spaces and skips the migrated ones with a note; the active one fails the run at the end", async () => {
+	const files = { "spaces/a/settings.json": "{}", "spaces/c/settings.json": "{}", "spaces/d/settings.json": "{}", "spaces/b/agent/settings.json": "{}" };
+	const r = await run(["--dir", "<root>/spaces", "migrate", "pi/--every"], { spaces: ["a", "c", "d"], rooted: ["b"], files, env: { PI_CODING_AGENT_DIR: "<root>/spaces/c" } });
+	assert.equal(r.code, 1);
+	const root = (name: string) => join(r.dir, name);
+	assert.equal(
+		noBackup(r.out),
+		`== pi/a\nMigrated space "a": its agent home is now ${join(root("a"), "agent")} (backup: <backup>).\n` +
+			`== pi/b\nSpace "b" already has its agent home in ${join(root("b"), "agent")}; skipped.\n` +
+			`== pi/c\n` +
+			`== pi/d\nMigrated space "d": its agent home is now ${join(root("d"), "agent")} (backup: <backup>).\n`,
+	);
+	assert.equal(r.err, 'pi-space: Space "c" is active; switch to another space before migrating it.\npi-space: migrate failed in: pi/c\n');
+	assert.deepEqual(r.backups.map((name) => name.replace(/-\d{4}.*$/, "")), ["a", "d"]);
+	assert.equal(r.tree.includes("a/agent/settings.json"), true);
+	assert.equal(r.tree.includes("c/settings.json"), true);
+	assert.equal(r.tree.includes("d/agent/settings.json"), true);
+	const ok = await run(["migrate", "pi/--every"], { spaces: ["a"], rooted: ["b"], files });
+	assert.equal(ok.code, 0, ok.err);
+	assert.equal(ok.err, "");
+	const none = await run(["migrate", "pi/--every"]);
+	assert.equal(none.code, 0);
+	assert.equal(none.out, "No spaces yet. Create one with pi-space new pi/<name>.\n");
+	assert.deepEqual(none.backups, []);
+});
+
+test("migrate --every goes through every profile, each in its own spaces folder, and names the failed spaces", async () => {
+	const files = {
+		[CONFIG]: { schema: SCHEMA, profiles: { launcher: { dir: "~/launcher-spaces" } } },
+		"launcher-spaces/x/settings.json": "{}",
+		"spaces/a/settings.json": "{}",
+	};
+	const r = await run(["migrate", "--every"], { spaces: ["a"], files });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(noBackup(r.out), `== pi/a\nMigrated space "a": its agent home is now ${join(r.dir, "a", "agent")} (backup: <backup>).\n== launcher/x\nMigrated space "x": its agent home is now ${join(r.root, "launcher-spaces", "x", "agent")} (backup: <backup>).\n`);
+	assert.equal(r.tree.includes("a/agent/settings.json"), true);
+	const mixed = await run(["--command", "x", "migrate", "--every"]);
+	assert.equal(mixed.code, 2);
+	assert.equal(mixed.err, "pi-space: --command and --dir apply to one profile; name it: <profile>/<name> or <profile>/--every.\n");
+});
+
+test("migrate honors --dir, and with the wrong number of arguments prints the usage and exits 2", async () => {
+	const r = await run(["--dir", "<root>/elsewhere", "migrate", "pi/work"], { files: { "elsewhere/work/settings.json": "{}" }, read: ["elsewhere/work/agent/settings.json"] });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.read["elsewhere/work/agent/settings.json"], "{}");
+	const usage = await run(["migrate"]);
+	assert.equal(usage.code, 2);
+	assert.equal(usage.err, USAGE);
+});
+
+test("__complete migrate offers the qualified spaces of every profile, never base, then --every and <profile>/--every, and --help", async () => {
+	assert.deepEqual(await completeLines(["migrate"], { spaces: ["a"], files: COMPLETE_FILES }), [
+		"space\tpi/a\tspace of pi (pi)",
+		"space\tlauncher/work\tspace of launcher (launcher-cmd --)",
+		"target\t--every\tevery space of every profile",
+		"target\tpi/--every\tevery space of pi",
+		"target\tlauncher/--every\tevery space of launcher",
+		"option\t--help\tthe help of this command",
+	]);
+	assert.deepEqual(await complete(["migrate", "pi/a"], { spaces: ["a"], files: COMPLETE_FILES }), []);
+});
+
+test("the help of migrate says what it does and that base is never touched, and shows the call options that apply", async () => {
+	const help = (await run(["migrate", "--help"])).out;
+	assert.match(help, /^Usage: pi-space migrate <space\|--every>\n/);
+	assert.match(help, /agent\//);
+	assert.match(help, /\.backups/);
+	assert.match(help, /never base/);
+	assert.match(help, /--dir <path>/);
+	assert.match(help, /--config <path>/);
+	assert.doesNotMatch(help, /--command <cmd>|--setup <cmd>/);
+	assert.match(help, /\nExamples:\n {2}pi-space migrate pi\/work\n/);
 });
