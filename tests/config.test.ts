@@ -41,7 +41,8 @@ function failure(content: unknown, file = "/c/config.json"): string {
 	assert.fail(`no error for ${JSON.stringify(content)}`);
 }
 
-const v1 = (rest: Record<string, unknown> = {}) => ({ schema: SCHEMA, ...rest });
+const v1 = (rest: Record<string, unknown> = {}) => ({ schema: "pi-spaces.config/v1", ...rest });
+const v2 = (rest: Record<string, unknown> = {}) => ({ schema: SCHEMA, ...rest });
 const NAME_RULE = 'use lowercase letters, digits, "-" and "_", starting with a letter or digit (at most 64 characters)';
 
 test("configPath is PI_SPACES_CONFIG, else ~/.pi-spaces/config.json", () => {
@@ -135,10 +136,10 @@ test("loadConfig refuses a file that is not JSON or not an object", () => {
 	}
 });
 
-test("loadConfig requires schema pi-spaces.config/v1 and says when a newer pi-spaces is needed", () => {
-	assert.equal(SCHEMA, "pi-spaces.config/v1");
-	assert.equal(failure({}), '/c/config.json: "schema" is required; use "pi-spaces.config/v1".');
-	assert.equal(failure({ profiles: {} }), '/c/config.json: "schema" is required; use "pi-spaces.config/v1".');
+test("loadConfig requires schema pi-spaces.config/v1 or v2 and says when a newer pi-spaces is needed", () => {
+	assert.equal(SCHEMA, "pi-spaces.config/v2");
+	assert.equal(failure({}), '/c/config.json: "schema" is required; use "pi-spaces.config/v2".');
+	assert.equal(failure({ profiles: {} }), '/c/config.json: "schema" is required; use "pi-spaces.config/v2".');
 	for (const [schema, shown] of [
 		["pi-spaces.config/v0", '"pi-spaces.config/v0"'],
 		["pi-spaces.config/v01", '"pi-spaces.config/v01"'],
@@ -149,16 +150,86 @@ test("loadConfig requires schema pi-spaces.config/v1 and says when a newer pi-sp
 		[1, "1"],
 		[null, "null"],
 	] as const) {
-		assert.equal(failure({ schema }), `/c/config.json: invalid "schema" ${shown}; use "pi-spaces.config/v1".`, String(schema));
+		assert.equal(failure({ schema }), `/c/config.json: invalid "schema" ${shown}; use "pi-spaces.config/v2".`, String(schema));
 	}
-	for (const n of ["2", "3", "10"]) {
+	for (const n of ["3", "10"]) {
 		assert.equal(
 			failure({ schema: `pi-spaces.config/v${n}` }),
-			`/c/config.json: "schema" is "pi-spaces.config/v${n}", which needs a newer pi-spaces; this one reads "pi-spaces.config/v1".`,
+			`/c/config.json: "schema" is "pi-spaces.config/v${n}", which needs a newer pi-spaces; this one reads "pi-spaces.config/v1" and "pi-spaces.config/v2".`,
 		);
 	}
 	// A newer file may have keys this version does not know: the version is the answer, not the key.
-	assert.match(failure({ schema: "pi-spaces.config/v2", futureKey: 1 }), /needs a newer pi-spaces/);
+	assert.match(failure({ schema: "pi-spaces.config/v3", futureKey: 1 }), /needs a newer pi-spaces/);
+	// Both versions this one reads load.
+	assert.deepEqual(load(v1())?.profiles, []);
+	assert.deepEqual(load(v2())?.profiles, []);
+});
+
+test("a v2 profile has commands: base, space and setup, resolved by profileByName", () => {
+	const commands = { base: " gentle-shell ", space: "gentle-shell --home {home}", setup: "gentle-shell --home {home} setup" };
+	const config = load(v2({ profiles: { gentle: { home: "~/g", commands, spaceEnv: { A: "{home}" } } } }));
+	assert.deepEqual(config?.profiles[0].commands, { base: "gentle-shell", space: "gentle-shell --home {home}", setup: "gentle-shell --home {home} setup" });
+	const profile = profileByName(config, "gentle", {}, HOME);
+	assert.deepEqual(profile.commands, { base: "gentle-shell", space: "gentle-shell --home {home}" });
+	// The command handed on is the space's; setup is the setup command.
+	assert.equal(profile.command, "gentle-shell --home {home}");
+	assert.equal(profile.setup, "gentle-shell --home {home} setup");
+	// Without space, spaces start with <base> --space <name>: the command handed on is base.
+	const plain = profileByName(load(v2({ profiles: { work: { commands: { base: "my-launcher --" } } } })), "work", {}, HOME);
+	assert.deepEqual(plain.commands, { base: "my-launcher --" });
+	assert.equal(plain.command, "my-launcher --");
+	assert.equal(plain.setup, undefined);
+	// A v2 profile without commands is like a v1 profile without command.
+	const none = profileByName(load(v2({ profiles: { work: {} } })), "work", {}, HOME);
+	assert.equal(none.commands, undefined);
+	assert.equal(none.command, undefined);
+	// v1 profiles have no commands.
+	assert.equal(profileByName(load(v1({ profiles: { work: { command: "x" } } })), "work", {}, HOME).commands, undefined);
+});
+
+test("loadConfig checks v2 commands, and each schema refuses the other's profile keys", () => {
+	const at = (commands: unknown) => failure(v2({ profiles: { gentle: { commands } } }));
+	for (const value of ["gentle-shell", null, [], 1]) {
+		assert.equal(at(value), '/c/config.json: "commands" in profile "gentle" must be an object.', JSON.stringify(value));
+	}
+	assert.equal(at({}), '/c/config.json: "commands.base" in profile "gentle" is required.');
+	assert.equal(at({ space: "x" }), '/c/config.json: "commands.base" in profile "gentle" is required.');
+	for (const key of ["base", "space", "setup"]) {
+		for (const value of ["", " ", 1, null]) {
+			const commands = { base: "x", [key]: value };
+			assert.equal(at(commands), `/c/config.json: "commands.${key}" in profile "gentle" must be a non-empty string.`, `${key} ${JSON.stringify(value)}`);
+		}
+	}
+	assert.equal(at({ base: "x", start: "y" }), '/c/config.json: unknown key "start" in "commands" of profile "gentle"; allowed keys are "base", "space" and "setup".');
+	for (const key of ["command", "setup", "homeless"]) {
+		assert.equal(
+			failure(v2({ profiles: { gentle: { [key]: "x" } } })),
+			`/c/config.json: unknown key "${key}" in profile "gentle"; allowed keys are "home", "commands", "dir" and "spaceEnv".`,
+		);
+	}
+	assert.equal(
+		failure(v1({ profiles: { gentle: { commands: { base: "x" } } } })),
+		'/c/config.json: unknown key "commands" in profile "gentle"; allowed keys are "home", "command", "dir", "setup", "spaceEnv" and "homeless".',
+	);
+});
+
+test("loadConfig accepts // and /* */ comments outside strings", () => {
+	const text = [
+		"// pi-spaces config",
+		"/* the built-in pi profile:",
+		'   "pi": { "commands": { "base": "pi" } } */',
+		"{",
+		'  "schema": "pi-spaces.config/v2", // the version',
+		'  "profiles": { "web": { "home": "/w//x", "commands": { "base": "open http://x/*y*/ --" } } }',
+		"}",
+		"// end",
+	].join("\n");
+	const config = load(text);
+	assert.equal(config?.profiles[0].home, "/w//x");
+	assert.deepEqual(config?.profiles[0].commands, { base: "open http://x/*y*/ --" });
+	// A quote escaped inside a string does not end it.
+	assert.equal(load('{"schema": "pi-spaces.config/v2", "profiles": {"a": {"home": "/q\\"//"}}}')?.profiles[0].home, '/q"//');
+	assert.equal(failure('{"schema": "pi-spaces.config/v2"} /* open'), "/c/config.json: a /* comment is not closed.");
 });
 
 test("loadConfig refuses unknown keys at the top level and in a profile, naming the key", () => {

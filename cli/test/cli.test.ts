@@ -1393,7 +1393,7 @@ test("a config file that is not valid exits 2 with its message and starts nothin
 	const r = await run(["pi/work"], { spaces: ["work"], files });
 	assert.equal(r.code, 2);
 	assert.equal(r.out, "");
-	assert.equal(r.err, `pi-space: ${join(r.root, CONFIG)}: "schema" is "pi-spaces.config/v9", which needs a newer pi-spaces; this one reads "${SCHEMA}".\n`);
+	assert.equal(r.err, `pi-space: ${join(r.root, CONFIG)}: "schema" is "pi-spaces.config/v9", which needs a newer pi-spaces; this one reads "pi-spaces.config/v1" and "pi-spaces.config/v2".\n`);
 	assert.equal(r.spawned.length, 0);
 	const given = await run(["--config", "<root>/bad.json", "list"], { files: { "bad.json": "{nope" } });
 	assert.equal(given.code, 2);

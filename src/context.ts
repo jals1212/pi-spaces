@@ -39,8 +39,8 @@ export function spacePrompt(info: SpaceInfo): string {
 		? "This Pi runs in the base home, outside any space."
 		: `This Pi runs in the space "${info.space}" (PI_SPACE).`;
 	const home = `Agent home: ${info.home} (PI_SPACE_HOME).`;
-	// A command with {home} runs in a home, not through --space: pi-space starts a space with it.
-	const start = info.command.includes("{home}")
+	// A command with {home} or {name} is a template, not run through --space: pi-space starts a space with it.
+	const start = info.command.includes("{home}") || info.command.includes("{name}")
 		? "`pi-space <profile>/<name>` starts it in a space"
 		: `\`${info.command} --space <name>\` starts it in a space`;
 	const manage = "`/space` lists, creates, removes and switches spaces";
