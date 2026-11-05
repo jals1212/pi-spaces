@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.12.1
+
 ### Changed
 
 - The file `pi-space init` writes, the help text and the docs use a generic

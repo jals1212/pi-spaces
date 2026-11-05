@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.11.1
+
 ### Changed
 
 - The docs and the skill use a generic launcher in their examples; the README
