@@ -839,17 +839,21 @@ export function initConfigText(piHome: string, piDir: string): string {
  * A file that cannot be written (a folder that cannot be made, no permission) exits 1 with the reason.
  */
 function writeInit(file: string, io: CliIo): void {
-	if (existsSync(file)) {
+	const refuseExisting = () => {
 		io.stderr.write(`pi-space: ${file} already exists; edit it, or remove it to write a new one.\n`);
 		return io.exit(1);
-	}
+	};
+	if (existsSync(file)) return refuseExisting();
 	const pi = profileByName(undefined, "pi", io.env, io.home);
 	try {
 		mkdirSync(dirname(file), { recursive: true });
 		// wx: a file that appeared since the check above is never overwritten.
 		writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
 	} catch (error) {
-		io.stderr.write(`pi-space: cannot write ${file}: ${(error as Error).message}\n`);
+		const { code, path, message } = error as NodeJS.ErrnoException;
+		// That file gets the same answer as one that was there before; anything else names the file and the reason.
+		if (code === "EEXIST" && path === file) return refuseExisting();
+		io.stderr.write(`pi-space: cannot write ${file}: ${message}\n`);
 		return io.exit(1);
 	}
 	io.stdout.write(`Wrote ${file}.\n`);
