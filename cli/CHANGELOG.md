@@ -6,6 +6,28 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- Profiles of schema `pi-spaces.config/v2` launch from their `commands`:
+  `pi-space <profile>/base` runs `commands.base` as it is (the words after it,
+  no `--space`), a space runs `commands.space` (in its home with the space's
+  environment when it has `{home}`, filled in with the plain environment
+  when it has not, else `<base> --space <name>`), and `setup` runs
+  `commands.setup`. The package commands go through them:
+  `pi-space update gentle/base` runs `gentle-shell update`. `--command` keeps
+  its v1 meaning for one call and replaces `commands`; `--setup` replaces
+  `commands.setup`. Needs the `@jals1212/pi-spaces` that reads v2.
+- `pi-space init` writes the config file (schema v2, no profiles) with a header
+  of comments that shows the built-in `pi` profile and a profile for another
+  program. It refuses a file that already exists.
+
+### Fixed
+
+- `pi-space gentle/base` reads Gentle Shell's own settings when the profile has
+  `"commands": { "base": "gentle-shell" }`: base no longer runs
+  `gentle-shell --home ~/.gentle-shell/agent`, which made gentle-shell read the
+  shared `~/.pi/gentle-ai` instead of `~/.gentle-shell/gentle-ai`.
+
 ## 0.11.1
 
 ### Fixed

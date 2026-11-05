@@ -75,6 +75,12 @@ test("addSpaceSection does nothing without structured prompt options", () => {
 	assert.equal(addSpaceSection(undefined, work), undefined);
 });
 
+test("spacePrompt for a command with {name} also says pi-space <profile>/<name> starts a space", () => {
+	const prompt = spacePrompt({ space: undefined, home: "/h/agent", command: "my-launcher -- --space {name}" });
+	assert.match(prompt, /`pi-space <profile>\/<name>` starts it in a space/);
+	assert.doesNotMatch(prompt, /--space <name>/);
+});
+
 test("spacePrompt for a command with {home} says pi-space <profile>/<name> starts a space, not <command> --space", () => {
 	const command = "gentle-shell --home {home}";
 	assert.equal(
