@@ -82,13 +82,13 @@ test("spacePrompt for a command with {name} also says pi-space <profile>/<name> 
 });
 
 test("spacePrompt for a command with {home} says pi-space <profile>/<name> starts a space, not <command> --space", () => {
-	const command = "gentle-shell --home {home}";
+	const command = "my-launcher --home {home}";
 	assert.equal(
 		spacePrompt({ space: "work", home: "/h/spaces/work", command }),
 		[
 			'This Pi runs in the space "work" (PI_SPACE).',
 			"Agent home: /h/spaces/work (PI_SPACE_HOME).",
-			"Command that starts Pi: gentle-shell --home {home} (PI_SPACES_COMMAND); `pi-space <profile>/<name>` starts it in a space, and `/space` lists, creates, removes and switches spaces.",
+			"Command that starts Pi: my-launcher --home {home} (PI_SPACES_COMMAND); `pi-space <profile>/<name>` starts it in a space, and `/space` lists, creates, removes and switches spaces.",
 		].join("\n"),
 	);
 	assert.doesNotMatch(spacePrompt({ space: undefined, home: "/h/agent", command }), /--space <name>/);

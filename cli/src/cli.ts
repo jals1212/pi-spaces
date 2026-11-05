@@ -4,11 +4,11 @@
 // the caller's space (PI_SPACES_BASE_HOME, PI_SPACE, PI_SPACE_HOME, PI_SPACES_BASE_ENV, its spaceEnv values and the
 // paths inside its folder) is unwound back to its base, and PI_CODING_AGENT_DIR is the profile's home. The setup
 // command, which is not Pi and does no switch, gets the space's own home and variables on top of that same base.
-// A command with {home} (`gentle-shell --home {home}`) is the program itself: it runs in the space's home with no
+// A command with {home} (`my-launcher --home {home}`) is the program itself: it runs in the space's home with no
 // --space; the words after the space come after the command, so a program's own command works only where the program
-// takes it after its home option (`pi-space gentle/base setup --dry-run` does; gentle-shell's `upgrade` does not,
-// it is recognized only as the first word); see startFor. A first word of the profile's `homeless` list runs the command
-// without its home part and with no --space instead (`gentle-shell upgrade`); see homelessStart.
+// takes it after its home option (`pi-space ml/base setup --dry-run` does; a command that the program recognizes only
+// as its first word, such as `upgrade`, does not); see startFor. A first word of the profile's `homeless` list runs the command
+// without its home part and with no --space instead (`my-launcher upgrade`); see homelessStart.
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -818,14 +818,14 @@ export function initConfigText(piHome: string, piDir: string): string {
 //
 // A profile for another program that runs Pi, for example:
 //
-//   "gentle": {
-//     "home": "~/.gentle-shell/agent",
+//   "ml": {
+//     "home": "~/.my-launcher/agent",
 //     "commands": {
-//       "base": "gentle-shell",
-//       "space": "gentle-shell --home {home}",
-//       "setup": "gentle-shell --home {home} setup"
+//       "base": "my-launcher",
+//       "space": "my-launcher --home {home}",
+//       "setup": "my-launcher --home {home} setup"
 //     },
-//     "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{home}/gentle-config" }
+//     "spaceEnv": { "MY_LAUNCHER_CONFIG_HOME": "{home}/config" }
 //   }
 {
   "schema": ${JSON.stringify(SCHEMA)},
