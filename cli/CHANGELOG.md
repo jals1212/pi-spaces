@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.13.0
+
 ### Added
 
 - `pi-space migrate <profile>/<name>` (and `<profile>/--every`, `--every`) moves

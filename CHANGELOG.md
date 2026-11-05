@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.12.0
+
 ### Added
 
 - A space is a root folder with its agent home inside it, always named `agent`:
