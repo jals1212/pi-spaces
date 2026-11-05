@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.13.0
+
 ### Added
 
 - The config file can be TOML: a path ending in `.toml` is read as TOML (with
