@@ -2734,7 +2734,10 @@ test("a command with {home}: the picker starts the chosen space the same way", a
 	assert.equal(setupEnvOf(r, r.spawned.indexOf(gentle[0])).PI_SPACE, "work");
 });
 
-/** The file `pi-space init` writes, for a run whose pi home is <root>/no-agent and whose spaces folder is <root>/spaces. */
+/**
+ * The exact file `pi-space init` writes in a run: pi's home is <root>/no-agent (run sets PI_CODING_AGENT_DIR to it)
+ * and pi's spaces folder is the one next to it, <root>/spaces.
+ */
 function initText(root: string): string {
 	return `// pi-spaces config: https://github.com/jals1212/pi-spaces#profiles
 //
@@ -2808,6 +2811,18 @@ test("init refuses an existing file and leaves it as it was, even when it is not
 	assert.equal(custom.err, `pi-space: ${join(custom.root, "mine.json")} already exists; edit it, or remove it to write a new one.\n`);
 	assert.equal(custom.read["mine.json"], "keep");
 	assert.equal(custom.read[CONFIG], undefined);
+});
+
+test("init that cannot write the file exits 1 with a message naming it, and changes nothing", async () => {
+	// A file where a folder of the path should be: the folders cannot be created.
+	const r = await run(["--config", "<root>/blocker/c.json", "init"], { files: { blocker: "keep" }, read: ["blocker", CONFIG] });
+	const file = join(r.root, "blocker", "c.json");
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "");
+	assert.match(r.err, new RegExp(`^pi-space: cannot write ${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+\n$`));
+	assert.doesNotMatch(r.err, /\n.*\n/);
+	assert.equal(r.read.blocker, "keep");
+	assert.equal(r.read[CONFIG], undefined);
 });
 
 test("init with arguments is a usage error and writes nothing", async () => {

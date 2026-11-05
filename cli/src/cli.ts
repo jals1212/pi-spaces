@@ -403,33 +403,31 @@ function hasHomeCommand(env: Env): boolean {
 	return (env.PI_SPACES_COMMAND ?? "").includes("{home}");
 }
 
+type Start = { program: string; args: string[]; env: Env | undefined };
+
 /**
- * The program, arguments and environment that start the profile's command in one space of a scope with `words` after
- * it. A v2 profile (scope.commands) starts base with commands.base as it is (words after it, no --space, the
- * environment of a {home} base), and a space with commands.space when it has no {home}: filled in and run as it is, with
- * the plain environment, since the program switches itself; without commands.space it is `<base> --space <name>`.
- * Without {home} in the command it is `<command> --space <name> words` with the Pi environment (launchCommand).
- * With it, the command is run in the space's home as it is, with {home} and {name} filled in (as setup does) and no
- * --space: in base with the plain environment of the profile, in a space with the environment the extension's
- * relaunch would give it from base. Throws when the command has an unclosed quote.
+ * The program, arguments and environment that start one space (or base) of a scope with `words` after it, in this order:
+ * 1. v2 base: commands.base as it is (baseStart).
+ * 2. v2 space whose commands.space has no {home}: the template filled in, with the plain environment, since the
+ *    program switches itself (`my-launcher -- --space {name}`).
+ * 3. A command without {home} (v1, or v2 without commands.space, whose command is base): `<command> --space <name>`,
+ *    with the plain environment (launchCommand); Pi does the switch.
+ * 4. A command with {home} (v1, or a v2 commands.space with it): filled in and run in the home with no --space; base
+ *    as in 1, a space with the environment the extension's relaunch would give it from base.
+ * Throws when the command has an unclosed quote.
  */
-function startFor(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } {
+function startFor(scope: Scope, name: string, words: string[]): Start {
 	const { io, profile, commands } = scope;
-	if (commands !== undefined) {
-		if (name === BASE) {
-			const { program, args } = setupCommand(commands.base, profile.home, BASE);
-			return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
-		}
-		if (commands.space !== undefined && !commands.space.includes("{home}")) {
-			const { program, args } = setupCommand(commands.space, join(scope.dir, name), name);
-			return { program, args: [...args, ...words], env: io.childEnv };
-		}
+	if (commands !== undefined && name === BASE) return baseStart(scope, commands.base, words);
+	if (commands?.space !== undefined && !commands.space.includes("{home}")) {
+		const { program, args } = setupCommand(commands.space, join(scope.dir, name), name);
+		return { program, args: [...args, ...words], env: io.childEnv };
 	}
 	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
-	const home = name === BASE ? profile.home : join(scope.dir, name);
-	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND ?? "", home, name);
-	// PI_SPACES_BASE_HOME marks base as opened by pi-spaces, as `--space base` does: the extension shows 🪐 <profile>/base.
-	if (name === BASE) return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
+	const template = io.env.PI_SPACES_COMMAND ?? "";
+	if (name === BASE) return baseStart(scope, template, words);
+	const home = join(scope.dir, name);
+	const { program, args } = setupCommand(template, home, name);
 	const plain = io.childEnv ?? io.env;
 	const env: Env = { ...plain, ...spaceEnvFor(profile, home, name), PI_CODING_AGENT_DIR: home, PI_SPACE: name, PI_SPACE_HOME: home, PI_SPACES_BASE_HOME: profile.home };
 	// The base's own values of the spaceEnv variables, as relaunchEnv keeps them to put back on the way to base.
@@ -439,12 +437,23 @@ function startFor(scope: Scope, name: string, words: string[]): { program: strin
 }
 
 /**
+ * Base started with `template` as it is ({home} and {name} are the profile's home and base), the words after it, no
+ * --space, and the plain environment of the profile plus PI_SPACES_BASE_HOME, which marks base as opened by pi-spaces,
+ * as `--space base` does: the extension shows 🪐 <profile>/base.
+ */
+function baseStart(scope: Scope, template: string, words: string[]): Start {
+	const { io, profile } = scope;
+	const { program, args } = setupCommand(template, profile.home, BASE);
+	return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
+}
+
+/**
  * When the first word is one of the profile's `homeless` words (a program's own command that takes no home, such as
  * `upgrade`), the command without its home part, then the words as they are, with no --space and the plain environment
  * of the profile: every word with {home} is dropped, with an option right before a bare {home} (`--home {home}`), and
  * {name} is still filled in. Otherwise undefined. Throws when the command has an unclosed quote.
  */
-function homelessStart(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } | undefined {
+function homelessStart(scope: Scope, name: string, words: string[]): Start | undefined {
 	const { io, profile } = scope;
 	if (words.length === 0 || !profile.homeless?.includes(words[0])) return undefined;
 	const kept: string[] = [];
@@ -825,15 +834,24 @@ export function initConfigText(piHome: string, piDir: string): string {
 `;
 }
 
-/** `pi-space init`: writes the config file, with its folders, unless it exists (exit 1); an existing file is never read. */
+/**
+ * `pi-space init`: writes the config file, with its folders, unless it exists (exit 1); an existing file is never read.
+ * A file that cannot be written (a folder that cannot be made, no permission) exits 1 with the reason.
+ */
 function writeInit(file: string, io: CliIo): void {
 	if (existsSync(file)) {
 		io.stderr.write(`pi-space: ${file} already exists; edit it, or remove it to write a new one.\n`);
 		return io.exit(1);
 	}
 	const pi = profileByName(undefined, "pi", io.env, io.home);
-	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
+	try {
+		mkdirSync(dirname(file), { recursive: true });
+		// wx: a file that appeared since the check above is never overwritten.
+		writeFileSync(file, initConfigText(pi.home, pi.dir), { flag: "wx" });
+	} catch (error) {
+		io.stderr.write(`pi-space: cannot write ${file}: ${(error as Error).message}\n`);
+		return io.exit(1);
+	}
 	io.stdout.write(`Wrote ${file}.\n`);
 	return io.exit(0);
 }
