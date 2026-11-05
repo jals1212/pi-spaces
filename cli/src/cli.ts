@@ -389,13 +389,26 @@ function hasHomeCommand(env: Env): boolean {
 
 /**
  * The program, arguments and environment that start the profile's command in one space of a scope with `words` after
- * it. Without {home} in the command it is `<command> --space <name> words` with the Pi environment (launchCommand).
+ * it. A v2 profile (scope.commands) starts base with commands.base as it is (words after it, no --space, the
+ * environment of a {home} base), and a space with commands.space when it has no {home}: filled in and run as it is, with
+ * the plain environment, since the program switches itself; without commands.space it is `<base> --space <name>`.
+ * Without {home} in the command it is `<command> --space <name> words` with the Pi environment (launchCommand).
  * With it, the command is run in the space's home as it is, with {home} and {name} filled in (as setup does) and no
  * --space: in base with the plain environment of the profile, in a space with the environment the extension's
  * relaunch would give it from base. Throws when the command has an unclosed quote.
  */
 function startFor(scope: Scope, name: string, words: string[]): { program: string; args: string[]; env: Env | undefined } {
-	const { io, profile } = scope;
+	const { io, profile, commands } = scope;
+	if (commands !== undefined) {
+		if (name === BASE) {
+			const { program, args } = setupCommand(commands.base, profile.home, BASE);
+			return { program, args: [...args, ...words], env: { ...(io.childEnv ?? io.env), PI_SPACES_BASE_HOME: profile.home } };
+		}
+		if (commands.space !== undefined && !commands.space.includes("{home}")) {
+			const { program, args } = setupCommand(commands.space, join(scope.dir, name), name);
+			return { program, args: [...args, ...words], env: io.childEnv };
+		}
+	}
 	if (!hasHomeCommand(io.env)) return { ...launchCommand(io.env, name, words), env: io.childEnv };
 	const home = name === BASE ? profile.home : join(scope.dir, name);
 	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND ?? "", home, name);
@@ -602,6 +615,8 @@ interface Scope {
 	dir: string;
 	commandSource: string;
 	setupSource: string;
+	/** The commands of a v2 profile; undefined for a v1 profile, and when --command replaced them for this call. */
+	commands?: { base: string; space?: string };
 }
 
 /** What stands for "every space of a profile" after the slash of `<profile>/--every`. */
@@ -637,6 +652,7 @@ function scopeOf(call: Call, name: string): Scope {
 		dir,
 		commandSource: options.command !== undefined ? "--command" : `profile "${name}" command`,
 		setupSource: options.setup !== undefined ? "--setup" : `profile "${name}" setup`,
+		commands: options.command !== undefined ? undefined : profile.commands,
 	};
 }
 
@@ -943,13 +959,15 @@ interface CompletionProfile {
 	name: string;
 	/** What a space of the profile starts: its command, or pi. */
 	command: string;
+	/** What its base starts: commands.base of a v2 profile, else the same as command. */
+	base: string;
 	spaces: string[];
 }
 
 /** `<profile>/base`, if asked, and `<profile>/<name>`: pi's first, then the custom profiles', each alphabetical. */
 function spaceCandidates(profiles: CompletionProfile[], withBase: boolean): string[] {
 	const spaces = profiles.flatMap((profile) => [
-		...(withBase ? [{ builtIn: profile.name === "pi", value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.command})` }] : []),
+		...(withBase ? [{ builtIn: profile.name === "pi", value: `${profile.name}/${BASE}`, text: `base home of ${profile.name} (${profile.base})` }] : []),
 		...profile.spaces.map((name) => ({ builtIn: profile.name === "pi", value: `${profile.name}/${name}`, text: `space of ${profile.name} (${profile.command})` })),
 	]);
 	// The built-in pi first; then alphabetical by the whole name, whatever the order of the profiles in the file.
@@ -999,7 +1017,7 @@ function candidates(words: string[], io: CliIo): string[] {
 	const dirOverride = call.dir === undefined ? undefined : resolve(call.dir);
 	const profiles = orderedProfileNames(config).map((name): CompletionProfile => {
 		const profile = profileByName(config, name, io.env, io.home);
-		return { name, command: profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
+		return { name, command: profile.command ?? "pi", base: profile.commands?.base ?? profile.command ?? "pi", spaces: listSpaces(dirOverride ?? profile.dir) };
 	});
 	const rest = words.slice(index);
 	if (rest.length === 0) return [...spaceCandidates(profiles, true), ...commandCandidates(false), ...firstOptions(call, index === 0)];

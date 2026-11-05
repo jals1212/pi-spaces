@@ -1927,6 +1927,12 @@ test("__complete: the first word offers the spaces as <profile>/<name>, pi's fir
 	]);
 });
 
+test("__complete: a v2 profile shows commands.base for its base and its space command for its spaces", async () => {
+	const files = { [CONFIG]: { schema: V2, profiles: { v: { commands: { base: "gentle-shell", space: "gentle-shell --home {home}" }, dir: "~/v-spaces" }, w: { commands: { base: "w-base" }, dir: "~/w-spaces" } } }, "v-spaces/work/.keep": "", "w-spaces/one/.keep": "" };
+	const lines = (await completeLines([], { files })).filter((line) => line.startsWith("space\t") && !line.startsWith("space\tpi/"));
+	assert.deepEqual(lines, ["space\tv/base\tbase home of v (gentle-shell)", "space\tv/work\tspace of v (gentle-shell --home {home})", "space\tw/base\tbase home of w (w-base)", "space\tw/one\tspace of w (w-base)"]);
+});
+
 test("__complete: with no config the first word offers only the built-in pi, with its spaces sorted", async () => {
 	assert.deepEqual((await completeLines([], { spaces: ["work", "alpha"] })).filter((line) => line.startsWith("space\t")), [
 		"space\tpi/alpha\tspace of pi (pi)",
@@ -2550,6 +2556,125 @@ test("homeless: every word with {home} is dropped, and an option right before a 
 	// A command without {home} is run as it is, still with no --space.
 	const plain = await run(["plain/base", "upgrade", "x"], { files: HOMELESS_FILES });
 	assert.deepEqual(programsOf(plain), [{ program: "my-launcher", args: ["--", "upgrade", "x"] }]);
+});
+
+/** Schema v2 profiles: `commands` has base, and optionally space and setup. */
+const V2 = "pi-spaces.config/v2";
+const V2_FILES = {
+	[CONFIG]: {
+		schema: V2,
+		profiles: {
+			gentle: { home: "~/gentle-agent", dir: "~/spaces", commands: { base: "gentle-shell", setup: "gentle-shell setup --home {home}" }, spaceEnv: { GSH_CFG: "{home}/cfg" } },
+			homed: { home: "~/homed-agent", dir: "~/homed-spaces", commands: { base: "homed", space: "homed --home {home} --name {name}", setup: "homed-setup {home} {name}" }, spaceEnv: { GSH_CFG: "{home}/cfg" } },
+			named: { home: "~/named-agent", dir: "~/named-spaces", commands: { base: "named", space: "my-launcher -- --space {name}" } },
+		},
+	},
+};
+
+test("v2: <profile>/base runs commands.base as it is with the words after it, no --space, the plain environment marked as opened by pi-spaces", async () => {
+	const r = await run(["gentle/base", "fix", "the", "tests"], { files: V2_FILES, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const home = join(r.root, "gentle-agent");
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["fix the tests"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.PI_SPACES_BASE_HOME, home);
+	assert.equal(env.GSH_CFG, "kept");
+	assert.equal(env.OTHER, "kept");
+	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
+	// An option passes as it is.
+	const option = await run(["gentle/base", "--version"], { files: V2_FILES });
+	assert.deepEqual(programsOf(option), [{ program: "gentle-shell", args: ["--version"] }]);
+});
+
+test("v2: a space whose commands.space has {home} runs it filled, with the environment of the space", async () => {
+	const r = await run(["homed/work", "hello", "there"], { spaces: [], files: { ...V2_FILES, "homed-spaces/work/.keep": "" }, env: { GSH_CFG: "kept", OTHER: "kept" } });
+	const home = join(r.root, "homed-spaces", "work");
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "homed", args: ["--home", home, "--name", "work", "hello there"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.PI_SPACE, "work");
+	assert.equal(env.PI_SPACE_HOME, home);
+	assert.equal(env.PI_SPACES_BASE_HOME, join(r.root, "homed-agent"));
+	assert.equal(env.GSH_CFG, `${home}/cfg`);
+	assert.equal(env.PI_SPACES_BASE_ENV, JSON.stringify({ GSH_CFG: "kept" }));
+	assert.equal(env.OTHER, "kept");
+	// Its base still runs commands.base, not the space template.
+	const base = await run(["homed/base"], { files: V2_FILES });
+	assert.deepEqual(programsOf(base), [{ program: "homed", args: [] }]);
+});
+
+test("v2: without commands.space a space runs <base> --space <name> with the words, and the plain environment", async () => {
+	const r = await run(["gentle/work", "hello", "there"], { files: { ...V2_FILES, "spaces/work/.keep": "" }, env: { OTHER: "kept" } });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["--space", "work", "hello there"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.OTHER, "kept");
+	assert.equal(env.PI_SPACES_COMMAND, "gentle-shell");
+	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
+});
+
+test("v2: a commands.space with {name} and no {home} runs filled, with the plain environment and no extra --space", async () => {
+	const r = await run(["named/work", "hello", "there"], { files: { ...V2_FILES, "named-spaces/work/.keep": "" } });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--", "--space", "work", "hello there"] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_SPACES_COMMAND, "my-launcher -- --space {name}");
+	for (const key of ["PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_BASE_HOME", "PI_SPACES_BASE_ENV"]) assert.equal(key in env, false, key);
+});
+
+test("v2: package commands run commands.base in base, and the space's own command in a space", async () => {
+	const base = await run(["update", "gentle/base", "--extensions"], { files: V2_FILES });
+	assert.equal(base.code, 0, base.err);
+	assert.deepEqual(programsOf(base), [{ program: "gentle-shell", args: ["update", "--extensions"] }]);
+	assert.equal(setupEnvOf(base).PI_SPACES_BASE_HOME, join(base.root, "gentle-agent"));
+	assert.equal("PI_SPACE" in setupEnvOf(base), false);
+	const space = await run(["install", "gentle/work", "npm:x", "-l"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(space), [{ program: "gentle-shell", args: ["--space", "work", "install", "npm:x", "-l"] }]);
+	const named = await run(["list", "named/work"], { files: { ...V2_FILES, "named-spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(named), [{ program: "my-launcher", args: ["--", "--space", "work", "list"] }]);
+});
+
+test("v2: <profile>/--every runs the package command in base, then in each space", async () => {
+	const r = await run(["update", "gentle/--every"], { files: { ...V2_FILES, "spaces/b/.keep": "", "spaces/a/.keep": "" }, echo: true });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(programsOf(r), [
+		{ program: "gentle-shell", args: ["update"] },
+		{ program: "gentle-shell", args: ["--space", "a", "update"] },
+		{ program: "gentle-shell", args: ["--space", "b", "update"] },
+	]);
+	assert.equal(r.out, "== gentle/base\nran \n== gentle/a\nran a\n== gentle/b\nran b\n");
+});
+
+test("v2: setup runs commands.setup filled for the space, with the environment of the space", async () => {
+	const r = await run(["setup", "gentle/work"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	const home = join(r.dir, "work");
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "gentle-shell", args: ["setup", "--home", home] }]);
+	const env = setupEnvOf(r);
+	assert.equal(env.PI_SPACE, "work");
+	assert.equal(env.PI_SPACE_HOME, home);
+	assert.equal(env.PI_CODING_AGENT_DIR, home);
+	assert.equal(env.GSH_CFG, `${home}/cfg`);
+	assert.equal(env.PI_SPACES_SETUP, "gentle-shell setup --home {home}");
+});
+
+test("v2: --command replaces commands for the call, with its v1 meaning", async () => {
+	const base = await run(["--command", "other --", "gentle/base", "hi"], { files: V2_FILES });
+	assert.equal(base.code, 0, base.err);
+	assert.deepEqual(programsOf(base), [{ program: "other", args: ["--", "--space", "base", "hi"] }]);
+	const space = await run(["--command", "other --", "named/work", "hi"], { files: { ...V2_FILES, "named-spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(space), [{ program: "other", args: ["--", "--space", "work", "hi"] }]);
+	assert.equal("PI_SPACE" in setupEnvOf(space), false);
+	const homed = await run(["--command", "other {home}", "gentle/work", "hi"], { files: { ...V2_FILES, "spaces/work/.keep": "" } });
+	assert.deepEqual(programsOf(homed), [{ program: "other", args: [join(homed.dir, "work"), "hi"] }]);
+	assert.equal(setupEnvOf(homed).PI_SPACE, "work");
 });
 
 test("a command with {home}: package commands run <command> <verb> args in base and in a space, with the same environment", async () => {
