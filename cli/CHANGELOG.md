@@ -6,6 +6,20 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `pi-space` reads a TOML config file: `config.toml` is looked up before
+  `config.json` in each folder (`~/.config/pi-spaces`, then `~/.pi-spaces`), and
+  `--config` or `PI_SPACES_CONFIG` ending in `.toml` is read as TOML. When both
+  are in the same folder, `config.toml` is read and stderr says the
+  `config.json` is ignored. Needs `@jals1212/pi-spaces` with TOML support.
+
+### Changed
+
+- `pi-space init` writes TOML, to `~/.pi-spaces/config.toml` when there is no
+  config file yet; a `--config` path that does not end in `.toml` still gets
+  JSON.
+
 ## 0.13.0
 
 ### Added
