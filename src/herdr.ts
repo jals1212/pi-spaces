@@ -1,0 +1,134 @@
+// Herdr (https://herdr.dev): in a pane Herdr runs, the status line text (`🪐 <profile>/<name>`) is also the pane's
+// `$space` metadata token, so a `["$space"]` row in Herdr's Agents sidebar (or a herdr-app mod reading the
+// terminal's `space` label) shows the space next to the agent. Display only: it never touches the agent's state.
+// The same protocol as @jals1212/ci-local-pi's `$ci` token.
+import { execFile } from "node:child_process";
+import { createConnection } from "node:net";
+
+type Env = Record<string, string | undefined>;
+
+/** The token's name, as a sidebar row names it: `$space`. */
+export const HERDR_TOKEN = "space";
+/** Who reports the token. */
+export const HERDR_SOURCE = "pi-spaces";
+/** Herdr drops the token this long after the last report: a Pi gone leaves nothing behind. */
+export const HERDR_TTL_MS = 30_000;
+/** The token is reported again this often, well inside its TTL. */
+export const HERDR_REFRESH_MS = 10_000;
+
+export type HerdrPane = { pane: string; socket: string };
+export type HerdrSend = (value: string | null) => Promise<boolean>;
+
+/** The pane and socket of the Herdr pane this process runs in, or null outside one. */
+export function herdrPane(env: Env): HerdrPane | null {
+	const pane = env.HERDR_PANE_ID?.trim();
+	const socket = env.HERDR_SOCKET_PATH?.trim();
+	return env.HERDR_ENV === "1" && pane && socket ? { pane, socket } : null;
+}
+
+/** The socket request that sets the token (with its TTL), or clears it (null). */
+export function herdrReport(pane: string, value: string | null) {
+	const params: Record<string, unknown> = { pane_id: pane, source: HERDR_SOURCE, tokens: { [HERDR_TOKEN]: value } };
+	if (value !== null) params.ttl_ms = HERDR_TTL_MS;
+	return { method: "pane.report_metadata", params };
+}
+
+let requests = 0;
+
+/**
+ * A sender of the token to Herdr's socket (one JSON line, one reply): resolves true when Herdr accepted it,
+ * false on any error or after `timeoutMs`.
+ */
+export function herdrSend({ pane, socket }: HerdrPane, { timeoutMs = 2000 } = {}): HerdrSend {
+	return (value) =>
+		new Promise((resolve) => {
+			const id = `pi-spaces-${process.pid}-${++requests}`;
+			let reply = "";
+			let done = false;
+			const conn = createConnection(socket);
+			const finish = (ok: boolean) => {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				conn.destroy();
+				resolve(ok);
+			};
+			const timer = setTimeout(() => finish(false), timeoutMs);
+			timer.unref?.();
+			conn.on("connect", () => conn.write(`${JSON.stringify({ id, ...herdrReport(pane, value) })}\n`));
+			conn.on("data", (data) => {
+				reply += data;
+				const end = reply.indexOf("\n");
+				if (end < 0) return;
+				try {
+					const answer = JSON.parse(reply.slice(0, end));
+					finish(answer.id === id && answer.result?.type === "ok");
+				} catch {
+					finish(false);
+				}
+			});
+			conn.on("error", () => finish(false));
+			conn.on("close", () => finish(false));
+		});
+}
+
+/**
+ * Reports `value` now and again every `refreshMs`, one report at a time (a refresh due while one is on its way is
+ * skipped). `stop()` ends the refreshes, clears the token and resolves once that report is done.
+ */
+export function startHerdrToken(value: string, { send, refreshMs = HERDR_REFRESH_MS }: { send: HerdrSend; refreshMs?: number }) {
+	let inFlight: Promise<unknown> | null = null;
+	let stopped = false;
+	const report = () => {
+		if (stopped || inFlight) return;
+		inFlight = send(value)
+			.catch(() => false)
+			.finally(() => {
+				inFlight = null;
+			});
+	};
+	report();
+	const timer = setInterval(report, refreshMs);
+	timer.unref?.();
+	return {
+		async stop() {
+			if (stopped) return;
+			stopped = true;
+			clearInterval(timer);
+			await inFlight;
+			await send(null).catch(() => false);
+		},
+	};
+}
+
+// herdr-app (Herdr's window app) shows no pane metadata: its Agents sidebar reads the terminal's labels, which its
+// terminals' programs set with `hc label` (`HC_TERMINAL_ID` names the terminal). A label has no TTL, so the session
+// removes it when it ends.
+
+/** The label's name; an Agents sidebar mod reads it as `labels.space`. */
+export const HC_LABEL = "space";
+
+/** The herdr-app terminal this process runs in, or null outside one. */
+export function herdrAppTerminal(env: Env): string | null {
+	return env.HC_TERMINAL_ID?.trim() || null;
+}
+
+/** The `hc` arguments that set the label, or remove it (null). */
+export function hcLabelArgs(terminal: string, value: string | null): string[] {
+	return ["label", terminal, `${HC_LABEL}=${value ?? ""}`];
+}
+
+export type HcRun = (args: string[]) => Promise<unknown>;
+
+/** Runs `hc` (on PATH) with `args`, rejecting on failure or after `timeoutMs`. */
+export const runHc: HcRun = (args, timeoutMs = 2000) =>
+	new Promise((resolve, reject) => {
+		execFile("hc", args, { timeout: timeoutMs, windowsHide: true }, (error) => (error ? reject(error) : resolve(undefined)));
+	});
+
+/** Sets the label (null removes it). Display only: any failure (no `hc`, no core) is ignored. */
+export async function hcLabel(terminal: string, value: string | null, run: HcRun = runHc): Promise<void> {
+	try {
+		await run(hcLabelArgs(terminal, value));
+	} catch {}
+}

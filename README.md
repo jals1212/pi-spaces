@@ -71,6 +71,44 @@ A new space is a folder with an `agent/` folder inside it, empty except for `age
 
 The status line shows `🪐 <profile>/<name>` while a space is active: the name `pi-space` takes, with the [profile](#profiles) of the running Pi (`pi` when no profile matches its base home), so `🪐 launcher/work` and `🪐 pi/work` are told apart. `/space` cannot change the profile: a switch starts the same program again. In the base home it shows `🪐 <profile>/base` when pi-spaces opened it (`pi --space base`, `pi-space pi/base`, or `/space switch base`), and nothing when Pi was started plainly. 🪐 is pi-spaces' own emoji.
 
+**Herdr sidebar**: the same text also shows in [Herdr](https://herdr.dev)'s Agents sidebar, next to the agent. Display only: the agent's state in Herdr does not change.
+
+- In a Herdr pane (`HERDR_ENV=1`, `HERDR_PANE_ID`, `HERDR_SOCKET_PATH`) it is the pane's `space` metadata token, reported again every 10 seconds with a 30-second TTL, so it goes away when Pi does, and cleared when the session ends. To show it, add `$space` to a row of the Agents sidebar in Herdr's `config.toml`, then run `herdr server reload-config`:
+
+  ```toml
+  [ui.sidebar.agents]
+  rows = [
+    ["state_icon", "machine", "workspace", "tab"],
+    ["agent", "$space"],
+  ]
+  ```
+
+- In a terminal of the Herdr app (herdr-core sets `HC_TERMINAL_ID`) it is the terminal's `space` label, set with `hc label <terminal> space=<text>`. A label has no TTL: the session removes it when it ends, and a session that starts in another terminal first removes it from the one it leaves, so a Pi killed without ending can leave the label until the next session replaces it. Both sidebars are served when both environments are present. The Herdr app's shipped Agents panel does not show labels, so showing it takes a copy of that panel (mods and layouts shipped with Herdr are read-only; a clone is yours):
+
+  1. Clone the layout you use and the `agents` mod:
+
+     ```sh
+     herdr-app do layout.clone '{"name":"main","as":"my-layout"}'
+     herdr-app do mod.clone '{"name":"agents","as":"my-agents"}'
+     ```
+
+  2. In `~/.config/herdr-app/layouts/my-layout.json`, point the Agents block to the clone: `"content": { "mod": "my-agents" }`.
+  3. In `~/.config/herdr-app/mods/my-agents/main.js`, import `terminals` from `"herdr"`, read each terminal's labels by address, and add the space to the agent's row when it has a `space` label:
+
+     ```js
+     // where the rows are built: the labels of every terminal, by address
+     const labelsOf = new Map(terminals().map((x) => [x.address, x.labels ?? {}]))
+
+     // in the row of agent `a` (`t` is the mod's theme())
+     const space = labelsOf.get(a.address)?.space ?? ''
+     // ...the row...
+       .when(Boolean(space), (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(space)))
+     ```
+
+  4. Check the mod, which the app reloads on save: `herdr-app check ~/.config/herdr-app/mods/my-agents`.
+
+  To try the mod without Pi, set a label by hand in a Herdr app terminal with `hc label "$HC_TERMINAL_ID" space="🪐 pi/test"`, and remove it with `hc label "$HC_TERMINAL_ID" space=`.
+
 Choosing an argument such as `switch` from the `/space ` suggestions only fills the line; press Enter again to run it. `/space` and Enter opens the picker in one step.
 
 **Names**: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. `base` is reserved, and so are the command words `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup` and `completion`.
