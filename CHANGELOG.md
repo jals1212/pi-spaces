@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.14.0
+
 ### Added
 
 - Herdr sidebar: the status line text (`🪐 <profile>/<name>`) also shows in Herdr's
