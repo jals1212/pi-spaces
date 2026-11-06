@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.15.1
+
+### Fixed
+
+- herdr-app sidebar: an agent no longer loses its space after the Herdr app is
+  closed and opened. The `space` label was set once, and a set that failed while
+  herdr-core was starting (or a core restarted under a running Pi) left the
+  terminal without it. The session now follows `hc events` for its terminal and
+  sets the label again when it is missing or changed, following the stream again
+  with backoff when it ends. A label removed while the session lasts, by
+  anything, comes back the same way.
+
 ## 0.15.0
 
 ### Documentation

@@ -126,7 +126,7 @@ The status line shows `🪐 <profile>/<name>` while a space is active: the name 
   ]
   ```
 
-- In a terminal of the Herdr app (herdr-core sets `HC_TERMINAL_ID`) it is the terminal's `space` label, set with `hc label <terminal> space=<text>`. A label has no TTL: the session removes it when it ends, and a session that starts in another terminal first removes it from the one it leaves, so a Pi killed without ending can leave the label until the next session replaces it. Both sidebars are served when both environments are present. The Herdr app's shipped Agents panel does not show labels, so showing it takes a copy of that panel (mods and layouts shipped with Herdr are read-only; a clone is yours):
+- In a terminal of the Herdr app (herdr-core sets `HC_TERMINAL_ID`) it is the terminal's `space` label, set with `hc label <terminal> space=<text>`. While the session lasts it follows `hc events --terminal <terminal>` and sets the label again when it goes missing or changes: a set that failed while herdr-core was starting, or a core restarted when the Herdr app closed and opened. When that stream ends it follows it again (after 1, 2, 5, 10, then every 30 seconds), and its first snapshot restores the label. A label has no TTL: the session removes it when it ends, and a session that starts in another terminal first removes it from the one it leaves, so a Pi killed without ending can leave the label until the next session replaces it. Both sidebars are served when both environments are present. The Herdr app's shipped Agents panel does not show labels, so showing it takes a copy of that panel (mods and layouts shipped with Herdr are read-only; a clone is yours):
 
   1. Clone the layout you use and the `agents` mod:
 
