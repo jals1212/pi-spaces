@@ -2,7 +2,7 @@
 // in Herdr's sidebar (the pane's `space` token) and in herdr-app's (the terminal's `space` label), and that
 // session_shutdown takes both back. Herdr is a fake socket, `hc` a script on PATH that logs its arguments.
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, rmSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -51,20 +51,47 @@ function openSession() {
 	};
 }
 
-/** A fake `hc` first on PATH: `labels()` lists each call as `arg|arg|...|`. */
+/**
+ * A fake `hc` first on PATH: `labels()` lists each `hc label` call as `arg|arg|...|`. `hc events --terminal <t>`
+ * prints a snapshot of the space label it keeps, then follows the lines `emit(t, labels)` adds.
+ */
 function fakeHc() {
 	const dir = mkdtempSync(join(root, "hc-"));
 	const log = join(dir, "log");
-	writeFileSync(join(dir, "hc"), `#!/bin/sh\nprintf '%s|' "$@" >> '${log}'\necho >> '${log}'\n`);
+	writeFileSync(
+		join(dir, "hc"),
+		`#!/bin/sh
+cd '${dir}'
+if [ "$1" = events ]; then
+  printf '{"terminals":[{"address":"%s","labels":{%s}}]}\\n' "$3" "$(cat "state-$3" 2>/dev/null)"
+  touch "events-$3"; echo "$3" >> watching
+  exec tail -n +1 -f "events-$3"
+fi
+printf '%s|' "$@" >> log
+echo >> log
+v=\${3#space=}
+if [ -n "$v" ]; then printf '"space":"%s"' "$v" > "state-$2"; else rm -f "state-$2"; fi
+`,
+	);
 	chmodSync(join(dir, "hc"), 0o755);
 	process.env.PATH = `${dir}:${process.env.PATH}`;
-	return () => {
+	const read = (file: string) => {
 		try {
-			return readFileSync(log, "utf8").trim().split("\n").filter(Boolean);
+			return readFileSync(join(dir, file), "utf8").trim().split("\n").filter(Boolean);
 		} catch {
 			return [];
 		}
 	};
+	const labels = () => read("log");
+	return Object.assign(labels, {
+		watching: () => read("watching"),
+		/** Herdr's labels event for `terminal`, as a herdr-app that drops the label sends it. */
+		emit: (terminal: string, labels: Record<string, string>) => {
+			rmSync(join(dir, `state-${terminal}`), { force: true });
+			const line = JSON.stringify({ jsonrpc: "2.0", method: "event", params: { data: { labels }, terminal, type: "labels" } });
+			appendFileSync(join(dir, `events-${terminal}`), `${line}\n`);
+		},
+	});
 }
 
 /** A fake Herdr socket: records each report's params and answers ok, after `delay()` when given. */
@@ -133,6 +160,19 @@ test("the herdr-app space label is set once while the terminal and the space sta
 	assert.deepEqual(labels(), ["label|t7|space=🪐 pi/work|"]);
 	await session.shutdown();
 	assert.deepEqual(labels().slice(1), ["label|t7|space=|"]);
+});
+
+test("a space label the terminal loses while the session lasts (herdr-app closed and opened) is set again", HC, async () => {
+	const labels = fakeHc();
+	process.env.HC_TERMINAL_ID = "t7";
+	const session = openSession();
+	await session.start();
+	await until(() => labels().length === 1 && labels.watching().length === 1, () => ({ labels: labels(), watching: labels.watching() }));
+	labels.emit("t7", { where: "x" });
+	await until(() => labels().length === 2, labels);
+	assert.deepEqual(labels(), ["label|t7|space=🪐 pi/work|", "label|t7|space=🪐 pi/work|"]);
+	await session.shutdown();
+	assert.equal(labels().at(-1), "label|t7|space=|");
 });
 
 test("a session that starts in another herdr-app terminal first removes the space label of the terminal it leaves", HC, async () => {

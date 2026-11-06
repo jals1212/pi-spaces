@@ -7,7 +7,7 @@ import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent"
 import { completeSpaceArgs, runSpaceCommand, statusText } from "../src/command.ts";
 import { activeProfile } from "../src/config.ts";
 import { addSpaceSection, exportSpaceInfo, spaceInfo } from "../src/context.ts";
-import { hcLabel, herdrAppTerminal, herdrPane, herdrSend, startHerdrToken } from "../src/herdr.ts";
+import { herdrAppTerminal, keepHcLabel, herdrPane, herdrSend, startHerdrToken } from "../src/herdr.ts";
 import { planStartup, relaunchCommand, runNow, scheduleRelaunch } from "../src/relaunch.ts";
 import { findOwnDeclaration, spacesDir } from "../src/spaces.ts";
 
@@ -41,8 +41,9 @@ export default function (pi: ExtensionAPI) {
 	// `space` label (see src/herdr.ts). Both environments present: both are served. Read at each session start, so a
 	// moved pane or terminal gets its own.
 	let herdr: { key: string; token: ReturnType<typeof startHerdrToken> } | undefined;
-	// A label has no TTL: it is set once per terminal and value, and removed from a terminal the session leaves.
-	let label: { terminal: string; value: string; set: Promise<void> } | undefined;
+	// A label has no TTL: it is kept once per terminal and value (set again when `hc events` shows it gone), and
+	// removed from a terminal the session leaves.
+	let label: { terminal: string; value: string; keeper: ReturnType<typeof keepHcLabel> } | undefined;
 	const stopToken = async () => {
 		const left = herdr;
 		herdr = undefined;
@@ -51,9 +52,7 @@ export default function (pi: ExtensionAPI) {
 	const removeLabel = async () => {
 		const left = label;
 		label = undefined;
-		if (!left) return;
-		await left.set; // the removal never overtakes the set
-		await hcLabel(left.terminal, null);
+		await left?.keeper.stop(); // the removal never overtakes a set
 	};
 	const publish = async (status: string | undefined) => {
 		const pane = status === undefined ? null : herdrPane(process.env);
@@ -63,7 +62,7 @@ export default function (pi: ExtensionAPI) {
 
 		const terminal = status === undefined ? null : herdrAppTerminal(process.env);
 		if (label && (label.terminal !== terminal || label.value !== status)) await removeLabel();
-		if (terminal && status !== undefined && !label) label = { terminal, value: status, set: hcLabel(terminal, status) };
+		if (terminal && status !== undefined && !label) label = { terminal, value: status, keeper: keepHcLabel(terminal, status) };
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
