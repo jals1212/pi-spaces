@@ -127,7 +127,9 @@ test("the herdr-app space label is set once while the terminal and the space sta
 	const session = openSession();
 	await session.start();
 	await session.start(); // a new session or a reload in the same process
-	await new Promise((resolve) => setTimeout(resolve, 100));
+	await until(() => labels().length >= 1, labels);
+	// Time for a second hc call, were one made.
+	await new Promise((resolve) => setTimeout(resolve, 300));
 	assert.deepEqual(labels(), ["label|t7|space=🪐 pi/work|"]);
 	await session.shutdown();
 	assert.deepEqual(labels().slice(1), ["label|t7|space=|"]);
