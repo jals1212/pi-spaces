@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import { HERDR_TTL_MS, hcLabel, hcLabelArgs, herdrAppTerminal, herdrPane, herdrReport, herdrSend, startHerdrToken } from "../src/herdr.ts";
 
@@ -24,9 +24,14 @@ test("herdrReport sets the space token with a TTL, or clears it", () => {
 	});
 });
 
+/** A socket path in `dir`: a named pipe on Windows, where a socket cannot be a file. */
+function socketPath(dir: string) {
+	return process.platform === "win32" ? `\\\\.\\pipe\\${basename(dir)}` : join(dir, "herdr.sock");
+}
+
 // A fake Herdr socket: records each request and answers ok (or an error).
 async function fakeHerdr(answer: "ok" | "error" = "ok") {
-	const socket = join(mkdtempSync(join(tmpdir(), "pi-spaces-herdr-")), "herdr.sock");
+	const socket = socketPath(mkdtempSync(join(tmpdir(), "pi-spaces-herdr-")));
 	const requests: { id: string; method: string; params: Record<string, unknown> }[] = [];
 	const server = createServer((conn) => {
 		let data = "";
@@ -56,7 +61,7 @@ test("herdrSend resolves true when Herdr accepts the report, false otherwise", a
 	assert.equal(await herdrSend({ pane: "p1", socket: refusing.socket })("x"), false);
 	await refusing.close();
 
-	assert.equal(await herdrSend({ pane: "p1", socket: join(tmpdir(), "no-such-herdr.sock") })("x"), false);
+	assert.equal(await herdrSend({ pane: "p1", socket: socketPath(join(tmpdir(), "no-such-herdr")) })("x"), false);
 });
 
 test("startHerdrToken reports the value, again every refresh, and clears it on stop", async () => {

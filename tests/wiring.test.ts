@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFil
 import { register } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { createSpace } from "../src/spaces.ts";
 
@@ -69,8 +69,8 @@ function fakeHc() {
 
 /** A fake Herdr socket: records each report's params and answers ok, after `delay()` when given. */
 async function fakeHerdr(delay?: (params: { tokens: Record<string, unknown> }) => Promise<void>) {
-	mkdirSync(join(root, "herdr"));
-	const socket = join(root, "herdr", "h.sock");
+	// A named pipe on Windows, where a socket cannot be a file.
+	const socket = process.platform === "win32" ? `\\\\.\\pipe\\${basename(root)}` : join(root, "herdr.sock");
 	const reports: { pane_id: string; source: string; tokens: Record<string, unknown>; ttl_ms?: number }[] = [];
 	const server = createServer((conn) => {
 		conn.on("data", async (data) => {
@@ -85,6 +85,9 @@ async function fakeHerdr(delay?: (params: { tokens: Record<string, unknown> }) =
 	await new Promise<void>((resolve) => server.listen(socket, resolve));
 	return { socket, reports, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
+
+// The fake hc is a sh script, and herdr-core (hc) runs on macOS and Linux only.
+const HC = { skip: process.platform === "win32" ? "herdr-core (hc) runs on macOS and Linux only" : false };
 
 async function until(check: () => boolean, what: () => unknown) {
 	for (let i = 0; i < 200 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -107,7 +110,7 @@ test("in a Herdr pane, the status line is the pane's space token while the sessi
 	}
 });
 
-test("in a herdr-app terminal, the status line is the terminal's space label, and the session removes it", async () => {
+test("in a herdr-app terminal, the status line is the terminal's space label, and the session removes it", HC, async () => {
 	const labels = fakeHc();
 	process.env.HC_TERMINAL_ID = "t7";
 	const session = openSession();
@@ -118,7 +121,7 @@ test("in a herdr-app terminal, the status line is the terminal's space label, an
 	assert.deepEqual(labels(), ["label|t7|space=🪐 pi/work|", "label|t7|space=|"]);
 });
 
-test("the herdr-app space label is set once while the terminal and the space stay the same: a label has no TTL", async () => {
+test("the herdr-app space label is set once while the terminal and the space stay the same: a label has no TTL", HC, async () => {
 	const labels = fakeHc();
 	process.env.HC_TERMINAL_ID = "t7";
 	const session = openSession();
@@ -130,7 +133,7 @@ test("the herdr-app space label is set once while the terminal and the space sta
 	assert.deepEqual(labels().slice(1), ["label|t7|space=|"]);
 });
 
-test("a session that starts in another herdr-app terminal first removes the space label of the terminal it leaves", async () => {
+test("a session that starts in another herdr-app terminal first removes the space label of the terminal it leaves", HC, async () => {
 	const labels = fakeHc();
 	process.env.HC_TERMINAL_ID = "t7";
 	const session = openSession();
@@ -143,7 +146,7 @@ test("a session that starts in another herdr-app terminal first removes the spac
 	assert.equal(labels().at(-1), "label|t8|space=|");
 });
 
-test("session_shutdown clears the Herdr token and the herdr-app label together, not one after the other", async () => {
+test("session_shutdown clears the Herdr token and the herdr-app label together, not one after the other", HC, async () => {
 	const labels = fakeHc();
 	// The answer to the token's clear waits (up to 1 s, within herdrSend's 2 s) for the label's removal: it comes
 	// only if both were sent at once.
