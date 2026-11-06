@@ -17,6 +17,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list                                list the spaces of every profile
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
+                                               (asks whether to declare the extension in it; --extension or --no-extension answers)
   pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
@@ -202,6 +203,11 @@ test("parseCli: new takes exactly one name", () => {
 	assert.deepEqual(parseCli(["new", "work"]), { kind: "new", name: "work" });
 	assert.deepEqual(parseCli(["new"]), { kind: "usage" });
 	assert.deepEqual(parseCli(["new", "a", "b"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["new", "work", "--extension"]), { kind: "new", name: "work", extension: true });
+	assert.deepEqual(parseCli(["new", "--no-extension", "work"]), { kind: "new", name: "work", extension: false });
+	for (const argv of [["new", "work", "--extension", "--no-extension"], ["new", "work", "--yes"], ["new", "--extension"]]) {
+		assert.deepEqual(parseCli(argv), { kind: "usage" }, argv.join(" "));
+	}
 });
 
 test("parseCli: rename takes exactly two names", () => {
@@ -384,7 +390,7 @@ test("--help prints the usage and exits 0", async () => {
 
 const HELP_USAGE: Record<string, string> = {
 	list: "Usage: pi-space list [<space|--every>]",
-	new: "Usage: pi-space new <space>",
+	new: "Usage: pi-space new <space> [--extension|--no-extension]",
 	setup: "Usage: pi-space setup <space|--every>",
 	rename: "Usage: pi-space rename <space> <new>",
 	remove: "Usage: pi-space remove <space> [--yes|-y] [--no-backup]",
@@ -583,6 +589,63 @@ test("new without exactly one name prints the usage to stderr and exits 2", asyn
 		assert.equal(r.err, USAGE);
 		assert.deepEqual(r.settings, {});
 	}
+});
+
+test("new in a terminal asks whether to declare the extension; Enter or y declares it", async () => {
+	for (const input of ["\n", "y\n", ""]) {
+		const r = await run(["new", "pi/work"], { tty: true, input });
+		assert.equal(r.code, 0, r.err);
+		assert.equal(
+			r.out,
+			`Created space "work" at ${join(r.dir, "work")}.\nDeclare the Pi extension @jals1212/pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] Start Pi in it with: pi-space pi/work\n`,
+			JSON.stringify(input),
+		);
+		assert.equal(r.err, "");
+		assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+	}
+});
+
+test("new in a terminal answered no leaves agent/settings.json empty and says how to add the extension later", async () => {
+	for (const input of ["n\n", "No\n"]) {
+		const r = await run(["new", "gentle/work"], { tty: true, input, files: { "config.toml": 'schema = "pi-spaces.config/v2"\n[profiles.gentle]\nhome = "agent"\ndir = "spaces"\n' }, env: { PI_SPACES_CONFIG: "<root>/config.toml" } });
+		assert.equal(r.code, 0, r.err);
+		assert.match(r.out, /\[Y\/n\] It does not declare the extension; add it later with: pi-space install gentle\/work npm:@jals1212\/pi-spaces\nStart Pi in it with: pi-space gentle\/work\n$/);
+		assert.equal(r.err, "");
+		assert.deepEqual(r.settings, { work: {} });
+		assert.equal(r.spawned.length, 0);
+	}
+});
+
+test("new --extension and --no-extension answer without asking, in a terminal or not", async () => {
+	for (const tty of [true, false]) {
+		const yes = await run(["new", "pi/work", "--extension"], { tty, input: "n\n" });
+		assert.equal(yes.code, 0, yes.err);
+		assert.equal(yes.out, `Created space "work" at ${join(yes.dir, "work")}.\nStart Pi in it with: pi-space pi/work\n`);
+		assert.deepEqual(yes.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+		const no = await run(["new", "pi/work", "--no-extension"], { tty, input: "y\n" });
+		assert.equal(no.code, 0, no.err);
+		assert.equal(
+			no.out,
+			`Created space "work" at ${join(no.dir, "work")}.\nIt does not declare the extension; add it later with: pi-space install pi/work npm:@jals1212/pi-spaces\nStart Pi in it with: pi-space pi/work\n`,
+		);
+		assert.deepEqual(no.settings, { work: {} });
+	}
+});
+
+test("new --no-extension still runs the setup command after creating the space", async () => {
+	const r = await run(["--setup", "my-setup {home}", "new", "pi/work", "--no-extension"]);
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.settings, { work: {} });
+	assert.equal(r.spawned.length, 1);
+	assert.equal(r.spawned[0].program, "my-setup");
+});
+
+test("new with a taken name asks nothing and changes nothing", async () => {
+	const r = await run(["new", "pi/work"], { spaces: ["work"], tty: true, input: "n\n" });
+	assert.equal(r.code, 1);
+	assert.equal(r.out, "");
+	assert.equal(r.err, 'pi-space: Space "work" already exists.\n');
+	assert.deepEqual(r.settings, {});
 });
 
 test("remove --yes keeps a backup in .backups and leaves the other spaces", async () => {
@@ -2043,7 +2106,7 @@ test("__complete: remove and rename offer the qualified spaces of every profile,
 		"option\t--help\tthe help of this command",
 	]);
 	assert.deepEqual(await completeLines(["rename"], options), ["space\tpi/a\tspace of pi (pi)", "space\tlauncher/work\tspace of launcher (launcher-cmd --)", "option\t--help\tthe help of this command"]);
-	assert.deepEqual(await complete(["new"], options), ["option --help"]);
+	assert.deepEqual(await complete(["new"], options), ["option --extension", "option --no-extension", "option --help"]);
 });
 
 test("__complete: setup offers the qualified spaces, then --every (every profile with a setup command) and <profile>/--every for each profile", async () => {

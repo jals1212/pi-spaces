@@ -1,6 +1,6 @@
 # 🪐 pi-space
 
-The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, create, set up, rename, migrate and remove spaces, and install, update and list the packages of a space, from your shell. Every space is named `<profile>/<name>`: a [profile](#profiles) of a config file says which program to run and where its spaces live, so one short command is enough for each program, and [shell completion](#shell-completion) completes the commands and the spaces of every profile. It is the optional companion of the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which holds the spaces themselves.
+The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, create, set up, rename, migrate and remove spaces, and install, update and list the packages of a space, from your shell. Every space is named `<profile>/<name>`: a [profile](#profiles) of a config file says which program to run and where its spaces live, so one short command is enough for each program, and [shell completion](#shell-completion) completes the commands and the spaces of every profile. It works on its own or alongside the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which adds `/space` and the status line inside Pi: see [With or without the Pi extension](#with-or-without-the-pi-extension).
 
 ## Install
 
@@ -8,7 +8,18 @@ The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, cr
 npm install -g @jals1212/pi-spaces-cli
 ```
 
-Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)). The Pi extension `@jals1212/pi-spaces` must be installed in the home the command opens: `pi-space` only runs `pi --space <name> [command]` (unless the profile's space command has `{home}`: see [A command with `{home}`](#a-command-with-home)), and the extension does the switch. For the package commands (`list <profile>/<name>`, `update`, `install`, `uninstall`) the extension in the base home must be **0.4.0 or later**: an older one starts Pi in the space instead of running the command.
+Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)).
+
+### With or without the Pi extension
+
+The command does not need the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#two-packages-use-either-one-or-both); it depends only on its library code, and installs nothing into any Pi home. What it needs depends on how the profile starts a space:
+
+| Profile | Starting a space and the package commands | Without the extension |
+| --- | --- | --- |
+| `commands.space` with `{home}` (`gentle-shell --home {home}`) | Runs the command directly in the space's home and sets the space's variables itself ([A command with `{home}`](#a-command-with-home)) | Works |
+| The built-in `pi`, or `commands.space` without `{home}` | Runs `pi --space <name> [command]` (or the filled-in command); the extension does the switch | Needs the extension in the base home, **0.4.0 or later** for the package commands (an older one starts Pi in the space instead of running the command) |
+
+`new`, `setup`, `rename`, `remove`, `migrate`, `list` (without a space), `init` and completion only work on folders and never need the extension. Without it, Pi itself has no `/space`, no status line and no `<pi_space>` prompt section; install it as well to get them. `new` asks whether the new space declares the extension (see [Creating a space without the extension](#creating-a-space-without-the-extension)).
 
 ### Windows
 
@@ -43,7 +54,7 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 | `pi-space list` | Lists the spaces of every profile, grouped by profile, in [their order](#the-order-of-the-profiles): each profile's folder, then its `base` and spaces as `profile/space`. |
 | `pi-space list <profile>/<name>` | Lists the packages of a space (Pi's `list`). |
 | `pi-space list <profile>/--every` or `--every` | The packages of a profile's base and spaces, or of every profile's (see below). |
-| `pi-space new <profile>/<name>` | Creates an empty space in that profile's folder (a root folder with its agent home, `agent/`, inside), as `/space new <name>` does in Pi, then runs the profile's setup command in it when there is one (see [Preparing a new space](#preparing-a-new-space)). It does not start Pi. |
+| `pi-space new <profile>/<name> [--extension\|--no-extension]` | Creates an empty space in that profile's folder (a root folder with its agent home, `agent/`, inside), as `/space new <name>` does in Pi, asks whether it declares the extension (see [Creating a space without the extension](#creating-a-space-without-the-extension)), then runs the profile's setup command in it when there is one (see [Preparing a new space](#preparing-a-new-space)). It does not start Pi. |
 | `pi-space setup <profile>/<name>` | Runs the setup command in a space. Never in `base`. |
 | `pi-space setup <profile>/--every` or `--every` | Runs it in every space of the profile, or of every profile that has a setup command. |
 | `pi-space migrate <profile>/<name>` | Gives an old space (no `agent/` folder: its folder is its agent home) the new layout: it copies the whole space to `<spaces folder>/.backups/<name>-<UTC time>`, then moves its content into `<space>/agent/`. It refuses `base` (exit 1), the space you are in, a space that already has `agent/`, and a space that holds the base home. See [Moving an old space](https://github.com/jals1212/pi-spaces#moving-an-old-space). |
@@ -146,7 +157,23 @@ A v1 profile has `command` (and `setup`, `homeless`) instead of `commands`. A `c
 
 Wherever `pi-space` shows or runs more than one profile (`list` alone, the picker, `--every` alone, completion, and the profiles named in a message), `pi` comes first, then the other profiles in alphabetical order, whatever their order in the config file. Within a profile, `base` comes first, then its spaces in alphabetical order.
 
-A new space gets an `agent/settings.json` that declares the extension, so `/space` works inside it: the same declaration as in the base home's `settings.json` (the profile's `home`; for `pi` that is `PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:@jals1212/pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `@jals1212/pi-spaces`.
+A new space gets an `agent/settings.json` that declares the extension, unless you answer no (below), so `/space` works inside it: the same declaration as in the base home's `settings.json` (the profile's `home`; for `pi` that is `PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:@jals1212/pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `@jals1212/pi-spaces`.
+
+### Creating a space without the extension
+
+`agent/settings.json` only declares the extension: the command installs nothing. Pi installs every package a home declares and does not have yet the first time it runs there, so a declared extension appears in the space with the first `pi` run or `pi-space install` in it. In a terminal, `new` asks first:
+
+```text
+$ pi-space new gentle/work
+Created space "work" at ~/.gentle-shell/spaces/work.
+Declare the Pi extension @jals1212/pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] n
+It does not declare the extension; add it later with: pi-space install gentle/work npm:@jals1212/pi-spaces
+Start Pi in it with: pi-space gentle/work
+```
+
+Enter, `y` or the end of input declare it; only `n` or `no` leave `agent/settings.json` as `{}`. `--extension` and `--no-extension` answer without asking. Without a terminal (a script, a pipe) the command does not ask and declares it, as before. The setup command runs either way.
+
+Leave it out when the profile's `commands.space` has `{home}` and you do not want `/space` in that space. With the built-in `pi` profile, starting the space needs the extension in the **base** home, not in the space; without it in the space, Pi there has no `/space` to switch away, so go back with `pi-space pi/base`.
 
 `remove`, `rename` and `migrate` refuse `base`, the space you are in, a space that holds the base home, and anything that is not a real folder inside the spaces folder, before they ask. A backup is the whole space folder (the root, with `agent/` in it when it has one), moved to `.backups/<name>-<UTC time>`; move it back to restore it. See [what it leaves on your machine](https://github.com/jals1212/pi-spaces#what-it-leaves-on-your-machine).
 
@@ -314,7 +341,7 @@ It asks the command itself for the candidates each time, through the hidden `pi-
 | `list`, `update`, `install`, `uninstall` | `<profile>/base`, the spaces, `--every` and `<profile>/--every` |
 | `completion` | `zsh`, `powershell` |
 
-There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, and `--yes` and `--no-backup` after `remove`. zsh and PowerShell show them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
+There is no `--profile` to complete: the profile is the first word of the space. In first place the call options not typed yet come too, and `--help` and `--version` when nothing comes before. After a command word the options come too: `--help` for every command, `--yes` and `--no-backup` after `remove`, and `--extension` and `--no-extension` after `new`. zsh and PowerShell show them once the word starts with `-`, so `pi-space new <TAB>` never fills in a lone `--help`.
 
 Completion also works through an abbreviation or alias: they expand first, so what the alias stands for is what completes. A config file that is wrong just gives no candidates; completion never prints an error.
 

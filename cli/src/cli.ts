@@ -64,6 +64,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list                                list the spaces of every profile
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
+                                               (asks whether to declare the extension in it; --extension or --no-extension answers)
   pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
@@ -121,7 +122,7 @@ export type CliCommand = (
 	| { kind: "replaced"; option: string; instead: string }
 	| { kind: "list" }
 	| { kind: "packages"; verb: PackageVerb; target: PackageTarget; args: string[] }
-	| { kind: "new"; name: string }
+	| { kind: "new"; name: string; extension?: boolean }
 	| { kind: "setup"; target: PackageTarget }
 	| { kind: "migrate"; target: PackageTarget }
 	| { kind: "rename"; from: string; to: string }
@@ -184,12 +185,18 @@ const COMMANDS: Record<string, CommandHelp> = {
 	},
 	new: {
 		summary: "create a space",
-		usage: "new <space>",
-		about: ["The space is a folder with its agent home, agent/, inside it; agent/settings.json declares the extension. It runs the profile's setup command in it when there is one, and does not start Pi."],
+		usage: "new <space> [--extension|--no-extension]",
+		about: [
+			"The space is a folder with its agent home, agent/, inside it. It runs the profile's setup command in it when there is one, and does not start Pi.",
+			"In a terminal it asks whether agent/settings.json declares the Pi extension @jals1212/pi-spaces, which Pi then installs in the space (Enter is yes); without a terminal it declares it. pi-space works without it when the profile's space command has {home}.",
+		],
 		args: [["<space>", "<profile>/<name>: the profile and the name of the new space"]],
-		options: [],
+		options: [
+			{ flag: "--extension", text: "declare the extension without asking" },
+			{ flag: "--no-extension", text: "do not declare it: agent/settings.json is empty" },
+		],
 		calls: ["dir", "setup", "config"],
-		examples: ["pi-space new pi/work", "pi-space --setup 'my-launcher --home {home} setup' new pi/work"],
+		examples: ["pi-space new pi/work", "pi-space new gentle/work --no-extension", "pi-space --setup 'my-launcher --home {home} setup' new pi/work"],
 	},
 	setup: {
 		summary: "run the setup command in a space",
@@ -356,7 +363,12 @@ function parseCommand(args: string[]): CliCommand {
 	if (Object.hasOwn(COMMANDS, first) && rest.some(isHelpFlag)) return { kind: "command-help", command: first };
 	if (first === "list" && rest.length === 0) return { kind: "list" };
 	if (PACKAGE_VERBS.includes(first)) return parsePackages(first as PackageVerb, rest);
-	if (first === "new") return rest.length === 1 ? { kind: "new", name: rest[0] } : { kind: "usage" };
+	if (first === "new") {
+		const flags = rest.filter((arg) => arg.startsWith("-"));
+		const names = rest.filter((arg) => !arg.startsWith("-"));
+		if (names.length !== 1 || flags.length > 1 || flags.some((flag) => flag !== "--extension" && flag !== "--no-extension")) return { kind: "usage" };
+		return flags.length === 1 ? { kind: "new", name: names[0], extension: flags[0] === "--extension" } : { kind: "new", name: names[0] };
+	}
 	if (first === "setup" || first === "migrate") return parseTarget(first, rest);
 	if (first === "init") return rest.length === 0 ? { kind: "init" } : { kind: "usage" };
 	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
@@ -812,7 +824,7 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 				return await runPackages(command.verb, command.target, command.args, call);
 			case "new": {
 				const ref = qualify(command.name, call);
-				return ref && (await create(ref.name, scopeOf(call, ref.profile)));
+				return ref && (await create(ref.name, scopeOf(call, ref.profile), command.extension));
 			}
 			case "setup":
 				return await runSetup(command.target, call);
@@ -1214,7 +1226,11 @@ function setupFor(name: string, home: string, root: string, io: CliIo): { progra
 	return setupCommand(io.env.PI_SPACES_SETUP ?? "", home, name, root);
 }
 
-async function create(name: string, scope: Scope): Promise<void> {
+/**
+ * Creates a space. `extension` says whether its settings.json declares the extension; undefined asks in a terminal
+ * ([Y/n]: only a clear no leaves it out) and declares it without one.
+ */
+async function create(name: string, scope: Scope, extension?: boolean): Promise<void> {
 	const { io, dir, profile } = scope;
 	const withSetup = hasSetupCommand(io.env);
 	// A bad setup command is reported before anything is created.
@@ -1222,6 +1238,21 @@ async function create(name: string, scope: Scope): Promise<void> {
 	try {
 		const path = createSpace(dir, name, newSpaceDeclaration(io.env, io.home, profile.home));
 		io.stdout.write(`Created space "${name}" at ${path}.\n`);
+		let declare = extension ?? true;
+		if (extension === undefined && io.stdin.isTTY) {
+			const reader = lineReader(io.stdin);
+			try {
+				io.stdout.write(`Declare the Pi extension @jals1212/pi-spaces in "${name}"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] `);
+				const answer = (await reader.next())?.trim().toLowerCase();
+				declare = answer !== "n" && answer !== "no";
+			} finally {
+				reader.close();
+			}
+		}
+		if (!declare) {
+			writeFileSync(join(spaceHome(path), "settings.json"), "{}\n");
+			io.stdout.write(`It does not declare the extension; add it later with: pi-space install ${profile.name}/${name} npm:@jals1212/pi-spaces\n`);
+		}
 		if (withSetup) {
 			// A new space is rooted: the setup runs in its agent home.
 			const home = spaceHome(path);
