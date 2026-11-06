@@ -6,6 +6,14 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `pi-space new` asks whether the new space's `agent/settings.json` declares the Pi extension (Enter is yes); `--extension` and `--no-extension` answer without asking. Without a terminal it declares it, as before.
+
+### Documentation
+
+- The README says when the command works without the Pi extension (a profile whose `commands.space` has `{home}`) and when it needs it (the built-in `pi` profile).
+
 ## 0.14.0
 
 ### Added

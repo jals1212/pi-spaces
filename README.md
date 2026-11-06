@@ -14,27 +14,63 @@ A space is a complete Pi agent home: its own sign-ins, packages, settings, skill
                          Pi restarts in "work"; the status line shows space: work
 ```
 
-It relies only on Pi's own `PI_CODING_AGENT_DIR` variable, so it works with plain Pi and with any program that runs Pi.
+It relies only on Pi's own `PI_CODING_AGENT_DIR` variable, so it works with plain Pi and with any program that runs Pi (a launcher such as gentle-shell).
+
+## Two packages: use either one, or both
+
+pi-spaces ships as two independent npm packages. They read the same spaces and the same [config file](#profiles), but neither requires the other: install the one that fits how you start Pi, or both.
+
+| | The Pi extension | The `pi-space` shell command |
+| --- | --- | --- |
+| Package | `@jals1212/pi-spaces` | `@jals1212/pi-spaces-cli` |
+| Install | `pi install npm:@jals1212/pi-spaces` | `npm install -g @jals1212/pi-spaces-cli` |
+| Where you use it | Inside Pi | In your shell, before Pi starts |
+| What it gives you | `/space` (list, create, switch, rename, remove), `pi --space <name>`, the `🪐` status line, the [`<pi_space>` prompt section](#what-the-model-is-told), the [Herdr sidebar](#commands-in-pi) and the [`pi-spaces` skill](#the-pi-spaces-skill) | A picker of the spaces of every profile, `new`, `setup`, `rename`, `remove`, `migrate`, package commands across spaces (`update --every`), shell completion |
+| Works on its own | Always | With a profile whose `commands.space` has `{home}` (see below) |
+
+### Which one do I need?
+
+- **You start plain `pi` and want to switch from inside it**: the extension alone.
+- **You start Pi through a launcher that takes its home as an option** (`gentle-shell --home <dir>`, `my-launcher --home <dir>`): the command alone is enough. Give the launcher a [profile](#profiles) whose `commands.space` has `{home}`; `pi-space` then starts the launcher directly in the space's home and sets the space's variables itself, so Pi needs nothing installed. See [Example: gentle-shell](#example-gentle-shell).
+- **You want both**: pick a space from the shell, switch from inside Pi, and see the space in the status line. Install both; they share everything.
+
+### What each one cannot do alone
+
+**The command without the extension:**
+
+- With the built-in `pi` profile (or any `commands.space` without `{home}`), starting a space runs `pi --space <name>`, and the package commands run `pi --space <name> update`. Only the extension understands `--space`, so these need it in the base home. Commands that only touch folders (`new`, `setup`, `rename`, `remove`, `migrate`, `list` without a space, `init`) never need it.
+- Inside Pi there is no `/space`, no status line, and the model gets no `<pi_space>` section. The variables `PI_SPACE` and `PI_SPACE_HOME` are still set for Pi's tools.
+- `pi-space new` asks whether the new space's `agent/settings.json` declares the extension (Enter is yes), and Pi installs what that file declares the first time it runs there. Answer no, or pass `--no-extension`, to keep the space without it; `--extension` declares it without asking, and without a terminal it is declared. `/space new` always declares it, since it runs inside the extension.
+
+**The extension without the command:**
+
+- No picker or completion from the shell; use `pi --space <name>` and `/space` instead.
+- No `setup`, `migrate` or `--every` across spaces and profiles; `/space new` names the `pi-space setup` call to run, and `pi --space <name> update` updates one space at a time.
 
 ## Requirements
 
-- Pi 1.4 or later.
+- Pi 1.4 or later (the extension).
+- Node 20 or later (the command).
 
 ## Install
+
+The extension, into the Pi home you start (a launcher with its own home installs it through its own install command):
 
 ```sh
 pi install npm:@jals1212/pi-spaces
 ```
 
-That adds `/space` and the `--space` option to Pi. A program that runs Pi with its own home installs it the same way, through its own install command.
-
-The `pi-space` shell command is optional and is a separate package, so it is installed and updated on its own; `pi install` does not put commands on your `PATH`, so it comes from npm:
+The command, globally from npm (`pi install` does not put commands on your `PATH`):
 
 ```sh
 npm install -g @jals1212/pi-spaces-cli
 ```
 
+Each package is installed and updated on its own.
+
 ## Quick start
+
+With the extension, inside Pi:
 
 ```text
 /space new work          create a space
@@ -42,15 +78,22 @@ npm install -g @jals1212/pi-spaces-cli
 /space switch base       back to the home Pi started with
 ```
 
-From your shell:
+With the extension, from your shell:
 
 ```sh
 pi --space work                         # start Pi in "work"
 pi --space work "review this branch"    # with a prompt
-pi-space new pi/work                    # create a space of the profile "pi" (optional CLI)
-pi-space remove pi/work                 # delete it, after asking; keeps a backup unless told not to (optional CLI)
-pi-space update --every                 # update the packages of base and of every space of every profile (optional CLI)
-pi-space                                # pick a space of any profile: arrows, Enter, type to filter (optional CLI)
+pi --space work update                  # update the packages of "work"
+```
+
+With the command, from your shell:
+
+```sh
+pi-space                                # pick a space of any profile: arrows, Enter, type to filter
+pi-space new pi/work                    # create a space of the profile "pi"
+pi-space pi/work                        # start Pi in it
+pi-space remove pi/work                 # delete it, after asking; keeps a backup unless told not to
+pi-space update --every                 # update the packages of base and of every space of every profile
 ```
 
 A new space is a folder with an `agent/` folder inside it, empty except for `agent/settings.json`, which declares this package so `/space` works inside it. Sign in and install packages there as you would in a fresh Pi. Spaces made by an older version have no `agent/` folder and keep working as they are; see [Moving an old space](#moving-an-old-space).
@@ -115,7 +158,27 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The optional `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell. It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there. `pi-space` opens a picker of the spaces of every profile and starts Pi in the one you choose, `pi-space <profile>/<name> [pi args...]` starts Pi in a named space, `pi-space new <profile>/<name>` creates one, `pi-space rename <profile>/<old> <new>` renames one, `pi-space remove <profile>/<name>` deletes one, `pi-space migrate <profile>/<name|--every>` gives an old space the [`agent/` layout](#moving-an-old-space), and `pi-space list` lists every profile's spaces. `pi-space list|update|install|uninstall <profile>/<name|--every> ...` runs Pi's package commands in a space, in a profile's spaces, or (`--every` alone) in every profile's. The profile says which program to run, where its spaces live and how to prepare a new space; `--command`, `--dir` and `--setup` override those for one call, for one named profile. `pi-space setup <profile>/<name|--every>` runs the setup command again. `pi-space init` writes a starter config file. A profile's `commands.space` with `{home}` is run directly in the space's home instead (`pi-space launcher/work --version` runs `my-launcher --home <that home> --version`), and `pi-space <profile>/base` runs `commands.base` as it is (`my-launcher`; see [Profiles](#profiles)). The command does not read `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP` as settings: they are what it hands to the Pi it starts. Unless the profile's space command has `{home}` or `{name}`, it only runs `pi --space <name> [command]`, so this extension must be installed in the home it opens. See [`cli/README.md`](cli/README.md) for the commands, the options and the exit status.
+The `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell; it works with or without the extension (see [Two packages](#two-packages-use-either-one-or-both)). It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there.
+
+| Command | What it does |
+| --- | --- |
+| `pi-space` | Opens a picker of the spaces of every profile and starts Pi in the one you choose. |
+| `pi-space <profile>/<name> [pi args...]` | Starts Pi in a named space; `<profile>/base` runs the profile's `commands.base` as it is. |
+| `pi-space new <profile>/<name> [--extension\|--no-extension]` | Creates a space, asking whether it declares the extension, then runs the profile's setup command. |
+| `pi-space setup <profile>/<name\|--every>` | Runs the setup command again. |
+| `pi-space rename <profile>/<old> <new>` | Renames a space. |
+| `pi-space remove <profile>/<name>` | Deletes a space, after asking. |
+| `pi-space migrate <profile>/<name\|--every>` | Gives an old space the [`agent/` layout](#moving-an-old-space). |
+| `pi-space list` | Lists the spaces of every profile. |
+| `pi-space list\|update\|install\|uninstall <profile>/<name\|--every> ...` | Runs Pi's package commands in a space, in a profile's spaces, or (`--every` alone) in every profile's. |
+| `pi-space init` | Writes a starter config file. |
+
+How it starts Pi depends on the profile's `commands.space`:
+
+- **With `{home}`** (`my-launcher --home {home}`): it runs that command directly in the space's home and sets the space's variables itself, so the extension is not needed. `pi-space launcher/work --version` runs `my-launcher --home <that home> --version`.
+- **Without `{home}`**, and for the built-in `pi` profile: it runs `pi --space <name> [command]` (or the filled-in command), and the extension in the base home does the switch.
+
+The profile says which program to run, where its spaces live and how to prepare a new space; `--command`, `--dir` and `--setup` override those for one call, for one named profile. The command does not read `PI_SPACES_COMMAND`, `PI_SPACES_DIR` or `PI_SPACES_SETUP` as settings: they are what it hands to the Pi it starts. See [`cli/README.md`](cli/README.md) for every option, completion and the exit status.
 
 ## Profiles
 
