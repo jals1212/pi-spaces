@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.15.0
+
 ### Added
 
 - `pi-space new` asks whether the new space's `agent/settings.json` declares the Pi extension (Enter is yes); `--extension` and `--no-extension` answer without asking. Without a terminal it declares it, as before.

@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.15.0
+
 ### Documentation
 
 - The README explains that the extension and the `pi-space` command are independent: use either one, or both, with what each one gives and cannot do alone.
