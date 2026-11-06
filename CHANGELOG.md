@@ -6,6 +6,18 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.14.0
+
+### Added
+
+- Herdr sidebar: the status line text (`🪐 <profile>/<name>`) also shows in Herdr's
+  Agents sidebar. In a Herdr pane it is the pane's `$space` metadata token
+  (30-second TTL, refreshed every 10 seconds, cleared when the session ends),
+  shown by a `$space` row item; in a herdr-app terminal it is the terminal's
+  `space` label (`hc label`), set once, removed when the session ends or moves
+  to another terminal. Display only. The README shows how to add both to the
+  sidebar.
+
 ## 0.13.0
 
 ### Added
