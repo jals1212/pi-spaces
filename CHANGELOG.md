@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.16.0
+
 ### Changed
 
 - The package is now published as `pi-spaces`, without the `@jals1212` scope;
