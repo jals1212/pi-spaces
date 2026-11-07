@@ -13,6 +13,8 @@ commands and options and a patch version fixes.
   `npm uninstall -g @jals1212/pi-spaces-cli && npm install -g pi-spaces-cli`.
   It takes its core from `pi-spaces` (0.16.0 or later), and `new` declares
   `npm:pi-spaces` in a space when the base home does not declare the extension.
+  A base home that still declares `npm:@jals1212/pi-spaces` counts as not
+  declaring it, so move the base home's entry before creating spaces.
 
 ## 0.15.0
 
