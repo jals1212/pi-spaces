@@ -3,10 +3,10 @@
 # provenance statement that links it to this workflow run.
 #
 # Two packages live in this repository, released by tag prefix:
-#   vX.Y.Z      @jals1212/pi-spaces (the Pi extension and the shared core), at the root
-#   cli-vX.Y.Z  @jals1212/pi-spaces-cli (the `pi-space` command), in cli/
+#   vX.Y.Z      pi-spaces (the Pi extension and the shared core), at the root
+#   cli-vX.Y.Z  pi-spaces-cli (the `pi-space` command), in cli/
 # Each has its own version, CHANGELOG.md and GitHub release. The CLI depends on
-# the root package, so a CLI release needs its range of @jals1212/pi-spaces
+# the root package, so a CLI release needs its range of pi-spaces
 # already on npm: release (and approve) the root package first.
 #
 # Staged, not published: the version waits on the registry, invisible, until a
@@ -22,9 +22,10 @@
 # One-time setup on npmjs.com, for each package: Settings -> Trusted publisher
 # -> GitHub Actions, repository jals1212/pi-spaces, workflow release.yml, with
 # "Allow npm publish" and "Allow npm dist-tag" left unchecked. The first
-# publish of @jals1212/pi-spaces-cli is made by hand (`npm publish --access
-# public --provenance=false` in cli/, with 2FA): a package must exist before it
-# can name a trusted publisher.
+# publish of each package is made by hand (`npm publish --access public
+# --provenance=false` at the root for pi-spaces, then in cli/ for
+# pi-spaces-cli, with 2FA): a package must exist before it can name a trusted
+# publisher.
 name: Release
 
 on:
@@ -63,8 +64,8 @@ jobs:
       - name: The core the CLI depends on is on npm
         if: steps.which.outputs.dir == 'cli'
         run: |
-          range="$(node -p 'require("./cli/package.json").dependencies["@jals1212/pi-spaces"]')"
-          [ -n "$(npm view "@jals1212/pi-spaces@$range" version)" ] || { echo "::error::No @jals1212/pi-spaces $range on npm yet: release the extension first"; exit 1; }
+          range="$(node -p 'require("./cli/package.json").dependencies["pi-spaces"]')"
+          [ -n "$(npm view "pi-spaces@$range" version)" ] || { echo "::error::No pi-spaces $range on npm yet: release the extension first"; exit 1; }
       # One run of the checks for both packages: the CLI's tests import the
       # core from this checkout (scripts/link-self.mjs) and cross-spawn from the root node_modules.
       - run: npm install --no-package-lock --no-audit --no-fund

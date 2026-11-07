@@ -16,14 +16,16 @@ A space is a complete Pi agent home: its own sign-ins, packages, settings, skill
 
 It relies only on Pi's own `PI_CODING_AGENT_DIR` variable, so it works with plain Pi and with any program that runs Pi (a launcher such as gentle-shell).
 
+> **Moved:** these packages were `@jals1212/pi-spaces` and `@jals1212/pi-spaces-cli` up to 0.15. Replace `npm:@jals1212/pi-spaces` with `npm:pi-spaces` in your `settings.json` files (keep only one), and reinstall the command as `pi-spaces-cli`.
+
 ## Two packages: use either one, or both
 
 pi-spaces ships as two independent npm packages. They read the same spaces and the same [config file](#profiles), but neither requires the other: install the one that fits how you start Pi, or both.
 
 | | The Pi extension | The `pi-space` shell command |
 | --- | --- | --- |
-| Package | `@jals1212/pi-spaces` | `@jals1212/pi-spaces-cli` |
-| Install | `pi install npm:@jals1212/pi-spaces` | `npm install -g @jals1212/pi-spaces-cli` |
+| Package | `pi-spaces` | `pi-spaces-cli` |
+| Install | `pi install npm:pi-spaces` | `npm install -g pi-spaces-cli` |
 | Where you use it | Inside Pi | In your shell, before Pi starts |
 | What it gives you | `/space` (list, create, switch, rename, remove), `pi --space <name>`, the `🪐` status line, the [`<pi_space>` prompt section](#what-the-model-is-told), the [Herdr sidebar](#commands-in-pi) and the [`pi-spaces` skill](#the-pi-spaces-skill) | A picker of the spaces of every profile, `new`, `setup`, `rename`, `remove`, `migrate`, package commands across spaces (`update --every`), shell completion |
 | Works on its own | Always | With a profile whose `commands.space` has `{home}` (see below) |
@@ -57,13 +59,13 @@ pi-spaces ships as two independent npm packages. They read the same spaces and t
 The extension, into the Pi home you start (a launcher with its own home installs it through its own install command):
 
 ```sh
-pi install npm:@jals1212/pi-spaces
+pi install npm:pi-spaces
 ```
 
 The command, globally from npm (`pi install` does not put commands on your `PATH`):
 
 ```sh
-npm install -g @jals1212/pi-spaces-cli
+npm install -g pi-spaces-cli
 ```
 
 Each package is installed and updated on its own.
@@ -158,7 +160,7 @@ Choosing an argument such as `switch` from the `/space ` suggestions only fills 
 
 ## The `pi-space` command
 
-The `@jals1212/pi-spaces-cli` package adds a `pi-space` command to your shell; it works with or without the extension (see [Two packages](#two-packages-use-either-one-or-both)). It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there.
+The `pi-spaces-cli` package adds a `pi-space` command to your shell; it works with or without the extension (see [Two packages](#two-packages-use-either-one-or-both)). It names every space as `<profile>/<name>` (`pi/work`, `my/base`): the profile is an entry of the [config file](#profiles), and `pi` (plain Pi) is always there.
 
 | Command | What it does |
 | --- | --- |
@@ -594,14 +596,14 @@ A backup also needs `.backups` to be a real folder, not a symlink or a file.
 
 ## Development
 
-Two packages live in this repository: the Pi extension and its shared core at the root (`@jals1212/pi-spaces`), and the `pi-space` command in `cli/` (`@jals1212/pi-spaces-cli`).
+Two packages live in this repository: the Pi extension and its shared core at the root (`pi-spaces`), and the `pi-space` command in `cli/` (`pi-spaces-cli`).
 
 ```sh
 npm test                         # links cli/ to this checkout, builds both, runs both test suites (Node 22.18 or later)
 pi -e ./extensions/spaces.ts     # try the extension without installing it
 ```
 
-`src/` is TypeScript. Pi loads the extension's TypeScript itself. The command in `cli/` imports the core as `@jals1212/pi-spaces/spaces` (and the profiles code as `@jals1212/pi-spaces/config`): the plain JavaScript in `dist/` that `npm run build` makes (Node does not strip types from files under `node_modules`). `npm pack` and `npm publish` build it first. `scripts/link-self.mjs` makes `cli/node_modules/@jals1212/pi-spaces` a link to this checkout, so the command's tests use the core from the working tree instead of from npm.
+`src/` is TypeScript. Pi loads the extension's TypeScript itself. The command in `cli/` imports the core as `pi-spaces/spaces` (and the profiles code as `pi-spaces/config`): the plain JavaScript in `dist/` that `npm run build` makes (Node does not strip types from files under `node_modules`). `npm pack` and `npm publish` build it first. `scripts/link-self.mjs` makes `cli/node_modules/pi-spaces` a link to this checkout, so the command's tests use the core from the working tree instead of from npm.
 
 Branches: work goes to `develop` through pull requests; `main` receives `develop` when a release closes.
 
@@ -611,15 +613,15 @@ Each package has its own version, its own `CHANGELOG.md` and its own tag prefix:
 
 | Package | Directory | Tag | Version and notes |
 | --- | --- | --- | --- |
-| `@jals1212/pi-spaces` (the extension) | `.` | `vX.Y.Z` | `package.json`, `CHANGELOG.md` |
-| `@jals1212/pi-spaces-cli` (`pi-space`) | `cli/` | `cli-vX.Y.Z` | `cli/package.json`, `cli/CHANGELOG.md` |
+| `pi-spaces` (the extension) | `.` | `vX.Y.Z` | `package.json`, `CHANGELOG.md` |
+| `pi-spaces-cli` (`pi-space`) | `cli/` | `cli-vX.Y.Z` | `cli/package.json`, `cli/CHANGELOG.md` |
 
 1. On a `release/X.Y.Z` branch from `develop`: set `version` in the package's `package.json`, rename `## Unreleased` in its `CHANGELOG.md` to `## X.Y.Z`, and commit `release X.Y.Z: <summary>`. Merge it into `develop`, then `develop` into `main`.
 2. Tag `main` and push the tag: `vX.Y.Z` for the extension, `cli-vX.Y.Z` for the command.
 3. The [release workflow](.github/workflows/release.yml) checks the tag against that package's `package.json` and `CHANGELOG.md`, runs the tests of both packages, and stages the version on npm through trusted publishing, with provenance. Approve it with 2FA: `npm stage list`, then `npm stage approve <id>`, or on npmjs.com.
 4. The workflow then creates the GitHub release, with the version's section of that package's `CHANGELOG.md` as notes.
 
-The command takes its core from the extension package (the `@jals1212/pi-spaces` range in `cli/package.json`). A CLI release needs a version in that range already on npm, so release the extension first and approve it; the workflow refuses a `cli-v*` tag otherwise. When the command needs a newer core, raise the range in `cli/package.json` in the same release.
+The command takes its core from the extension package (the `pi-spaces` range in `cli/package.json`). A CLI release needs a version in that range already on npm, so release the extension first and approve it; the workflow refuses a `cli-v*` tag otherwise. When the command needs a newer core, raise the range in `cli/package.json` in the same release.
 
 ## License
 
