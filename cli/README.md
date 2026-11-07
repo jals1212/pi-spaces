@@ -1,18 +1,18 @@
 # 🪐 pi-space
 
-The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, create, set up, rename, migrate and remove spaces, and install, update and list the packages of a space, from your shell. Every space is named `<profile>/<name>`: a [profile](#profiles) of a config file says which program to run and where its spaces live, so one short command is enough for each program, and [shell completion](#shell-completion) completes the commands and the spaces of every profile. It works on its own or alongside the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which adds `/space` and the status line inside Pi: see [With or without the Pi extension](#with-or-without-the-pi-extension).
+The `pi-space` command: pick a [Pi](https://pi.dev) space and start Pi in it, create, set up, rename, migrate and remove spaces, and install, update and list the packages of a space, from your shell. Every space is named `<profile>/<name>`: a [profile](#profiles) of a config file says which program to run and where its spaces live, so one short command is enough for each program, and [shell completion](#shell-completion) completes the commands and the spaces of every profile. It works on its own or alongside the Pi extension [`pi-spaces`](https://github.com/jals1212/pi-spaces#readme), which adds `/space` and the status line inside Pi: see [With or without the Pi extension](#with-or-without-the-pi-extension).
 
 ## Install
 
 ```sh
-npm install -g @jals1212/pi-spaces-cli
+npm install -g pi-spaces-cli
 ```
 
 Node 20 or later, on macOS, Linux or Windows (see [Windows](#windows)).
 
 ### With or without the Pi extension
 
-The command does not need the Pi extension [`@jals1212/pi-spaces`](https://github.com/jals1212/pi-spaces#two-packages-use-either-one-or-both); it depends only on its library code, and installs nothing into any Pi home. What it needs depends on how the profile starts a space:
+The command does not need the Pi extension [`pi-spaces`](https://github.com/jals1212/pi-spaces#two-packages-use-either-one-or-both); it depends only on its library code, and installs nothing into any Pi home. What it needs depends on how the profile starts a space:
 
 | Profile | Starting a space and the package commands | Without the extension |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ The exit status is 2. There is no default profile: the file's `default` is not u
 
 ## Commands
 
-The command words are reserved: a space can never be named `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup` or `completion`, so any other first word is a space (`<profile>/<name>`; the reservation of `completion` is in `@jals1212/pi-spaces` 0.6.0).
+The command words are reserved: a space can never be named `list`, `new`, `remove`, `rename`, `switch`, `update`, `install`, `uninstall`, `setup` or `completion`, so any other first word is a space (`<profile>/<name>`; the reservation of `completion` is in `pi-spaces` 0.6.0).
 
 | Command | What it does |
 | --- | --- |
@@ -157,7 +157,7 @@ A v1 profile has `command` (and `setup`, `homeless`) instead of `commands`. A `c
 
 Wherever `pi-space` shows or runs more than one profile (`list` alone, the picker, `--every` alone, completion, and the profiles named in a message), `pi` comes first, then the other profiles in alphabetical order, whatever their order in the config file. Within a profile, `base` comes first, then its spaces in alphabetical order.
 
-A new space gets an `agent/settings.json` that declares the extension, unless you answer no (below), so `/space` works inside it: the same declaration as in the base home's `settings.json` (the profile's `home`; for `pi` that is `PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:@jals1212/pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `@jals1212/pi-spaces`.
+A new space gets an `agent/settings.json` that declares the extension, unless you answer no (below), so `/space` works inside it: the same declaration as in the base home's `settings.json` (the profile's `home`; for `pi` that is `PI_SPACES_BASE_HOME`, else `PI_CODING_AGENT_DIR`, else `~/.pi/agent`), or `npm:pi-spaces` when the base home does not declare it. A local path counts when it is a copy of the extension: a folder whose `package.json` is named `pi-spaces`.
 
 ### Creating a space without the extension
 
@@ -166,8 +166,8 @@ A new space gets an `agent/settings.json` that declares the extension, unless yo
 ```text
 $ pi-space new gentle/work
 Created space "work" at ~/.gentle-shell/spaces/work.
-Declare the Pi extension @jals1212/pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] n
-It does not declare the extension; add it later with: pi-space install gentle/work npm:@jals1212/pi-spaces
+Declare the Pi extension pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] n
+It does not declare the extension; add it later with: pi-space install gentle/work npm:pi-spaces
 Start Pi in it with: pi-space gentle/work
 ```
 

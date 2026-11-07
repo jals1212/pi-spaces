@@ -43,7 +43,7 @@ function fake(options: { mode?: "tui" | "print"; hasUI?: boolean; confirm?: bool
 		dir,
 		currentHome: () => (options.home ? options.home(dir, base) : base),
 		env: { PI_CODING_AGENT_DIR: base },
-		declaration: () => "npm:@jals1212/pi-spaces",
+		declaration: () => "npm:pi-spaces",
 		command: () => ({ command: "/n/node", args: ["/p/cli.js"] }),
 		relaunch: (command, env) => void f.relaunches.push({ command, env }),
 	};
@@ -71,7 +71,7 @@ test("new creates the space with this package's declaration", async () => {
 	const f = fake();
 	await runSpaceCommand("new work", f.deps);
 	assert.deepEqual(f.notes, [["info", `Created space "work" at ${join(f.dir, "work")}. Enter it with /space switch work.`]]);
-	assert.deepEqual(JSON.parse(readFileSync(join(f.dir, "work", "agent", "settings.json"), "utf8")), { packages: ["npm:@jals1212/pi-spaces"] });
+	assert.deepEqual(JSON.parse(readFileSync(join(f.dir, "work", "agent", "settings.json"), "utf8")), { packages: ["npm:pi-spaces"] });
 
 	f.notes.length = 0;
 	await runSpaceCommand("new work", f.deps);

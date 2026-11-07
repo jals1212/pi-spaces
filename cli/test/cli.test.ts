@@ -104,7 +104,7 @@ async function run(
 		if (options.input !== undefined) stdin.end(options.input);
 		if (options.checkout) {
 			mkdirSync(join(root, "checkout"));
-			writeFileSync(join(root, "checkout", "package.json"), JSON.stringify({ name: "@jals1212/pi-spaces" }));
+			writeFileSync(join(root, "checkout", "package.json"), JSON.stringify({ name: "pi-spaces" }));
 		}
 		for (const [path, content] of Object.entries(options.files ?? {})) {
 			mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -531,17 +531,17 @@ test("an unknown option prints it with the usage to stderr, exits 2 and spawns n
 	assert.equal(r.spawned.length, 0);
 });
 
-test("new creates the space with npm:@jals1212/pi-spaces when the base home does not declare it, and spawns nothing", async () => {
+test("new creates the space with npm:pi-spaces when the base home does not declare it, and spawns nothing", async () => {
 	const r = await run(["new", "pi/work"]);
 	assert.equal(r.code, 0);
 	assert.equal(r.out, `Created space "work" at ${join(r.dir, "work")}.\nStart Pi in it with: pi-space pi/work\n`);
 	assert.equal(r.err, "");
-	assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+	assert.deepEqual(r.settings, { work: { packages: ["npm:pi-spaces"] } });
 	assert.equal(r.spawned.length, 0);
 });
 
 test("new copies the base home's declaration of the extension, as /space new does", async () => {
-	const declaration = { source: "npm:@jals1212/pi-spaces@0.1.1", extensions: ["extensions/spaces.ts"] };
+	const declaration = { source: "npm:pi-spaces@0.1.1", extensions: ["extensions/spaces.ts"] };
 	const r = await run(["new", "pi/work"], { basePackages: ["npm:other", declaration], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
 	assert.equal(r.code, 0);
 	assert.deepEqual(r.settings.work, { packages: [declaration] });
@@ -563,7 +563,7 @@ test("new copies a local path to another copy of the extension from the base hom
 });
 
 test("new copies the local path the base home loads the extension from, when it is the folder this command resolves", async () => {
-	const packageRoot = dirname(fileURLToPath(import.meta.resolve("@jals1212/pi-spaces/package.json")));
+	const packageRoot = dirname(fileURLToPath(import.meta.resolve("pi-spaces/package.json")));
 	const r = await run(["new", "pi/work"], { basePackages: [packageRoot], env: { PI_CODING_AGENT_DIR: "<root>/agent" } });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.settings.work, { packages: [packageRoot] });
@@ -597,11 +597,11 @@ test("new in a terminal asks whether to declare the extension; Enter or y declar
 		assert.equal(r.code, 0, r.err);
 		assert.equal(
 			r.out,
-			`Created space "work" at ${join(r.dir, "work")}.\nDeclare the Pi extension @jals1212/pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] Start Pi in it with: pi-space pi/work\n`,
+			`Created space "work" at ${join(r.dir, "work")}.\nDeclare the Pi extension pi-spaces in "work"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] Start Pi in it with: pi-space pi/work\n`,
 			JSON.stringify(input),
 		);
 		assert.equal(r.err, "");
-		assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+		assert.deepEqual(r.settings, { work: { packages: ["npm:pi-spaces"] } });
 	}
 });
 
@@ -609,7 +609,7 @@ test("new in a terminal answered no leaves agent/settings.json empty and says ho
 	for (const input of ["n\n", "No\n"]) {
 		const r = await run(["new", "gentle/work"], { tty: true, input, files: { "config.toml": 'schema = "pi-spaces.config/v2"\n[profiles.gentle]\nhome = "agent"\ndir = "spaces"\n' }, env: { PI_SPACES_CONFIG: "<root>/config.toml" } });
 		assert.equal(r.code, 0, r.err);
-		assert.match(r.out, /\[Y\/n\] It does not declare the extension; add it later with: pi-space install gentle\/work npm:@jals1212\/pi-spaces\nStart Pi in it with: pi-space gentle\/work\n$/);
+		assert.match(r.out, /\[Y\/n\] It does not declare the extension; add it later with: pi-space install gentle\/work npm:pi-spaces\nStart Pi in it with: pi-space gentle\/work\n$/);
 		assert.equal(r.err, "");
 		assert.deepEqual(r.settings, { work: {} });
 		assert.equal(r.spawned.length, 0);
@@ -621,12 +621,12 @@ test("new --extension and --no-extension answer without asking, in a terminal or
 		const yes = await run(["new", "pi/work", "--extension"], { tty, input: "n\n" });
 		assert.equal(yes.code, 0, yes.err);
 		assert.equal(yes.out, `Created space "work" at ${join(yes.dir, "work")}.\nStart Pi in it with: pi-space pi/work\n`);
-		assert.deepEqual(yes.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+		assert.deepEqual(yes.settings, { work: { packages: ["npm:pi-spaces"] } });
 		const no = await run(["new", "pi/work", "--no-extension"], { tty, input: "y\n" });
 		assert.equal(no.code, 0, no.err);
 		assert.equal(
 			no.out,
-			`Created space "work" at ${join(no.dir, "work")}.\nIt does not declare the extension; add it later with: pi-space install pi/work npm:@jals1212/pi-spaces\nStart Pi in it with: pi-space pi/work\n`,
+			`Created space "work" at ${join(no.dir, "work")}.\nIt does not declare the extension; add it later with: pi-space install pi/work npm:pi-spaces\nStart Pi in it with: pi-space pi/work\n`,
 		);
 		assert.deepEqual(no.settings, { work: {} });
 	}
@@ -1339,7 +1339,7 @@ test("new runs the setup command in the new space after creating it, with the sp
 		assert.equal(r.code, 0, r.err);
 		assert.equal(r.err, "");
 		assert.equal(r.out, `Created space "work" at ${root}.\nSetting it up: my-launcher --home ${home} setup\nStart Pi in it with: pi-space ${profile}/work\n`);
-		assert.deepEqual(r.settings, { work: { packages: ["npm:@jals1212/pi-spaces"] } });
+		assert.deepEqual(r.settings, { work: { packages: ["npm:pi-spaces"] } });
 		assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [{ program: "my-launcher", args: ["--home", home, "setup"] }]);
 		assert.equal(r.spawned[0].options.stdio, "inherit");
 		const childEnv = setupEnvOf(r);
@@ -1699,13 +1699,13 @@ test("the setup: --setup, else the named profile's; PI_SPACES_SETUP is never rea
 });
 
 test("new declares the extension as the selected profile's home does, not as PI_CODING_AGENT_DIR does", async () => {
-	const declaration = { source: "npm:@jals1212/pi-spaces@0.1.1", extensions: ["extensions/spaces.ts"] };
+	const declaration = { source: "npm:pi-spaces@0.1.1", extensions: ["extensions/spaces.ts"] };
 	const files = { [CONFIG]: { schema: SCHEMA, profiles: { ml: { home: "~/agent", dir: "~/spaces" } } } };
 	const r = await run(["new", "ml/work"], { basePackages: [declaration], files });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.settings.work, { packages: [declaration] });
 	const without = await run(["new", "pi/work"], { basePackages: [declaration] });
-	assert.deepEqual(without.settings.work, { packages: ["npm:@jals1212/pi-spaces"] });
+	assert.deepEqual(without.settings.work, { packages: ["npm:pi-spaces"] });
 });
 
 test("remove protects the selected profile's home as it protects the base home", async () => {
@@ -2992,7 +2992,7 @@ test("new creates the root with agent/settings.json inside, and says the root", 
 	assert.equal(r.code, 0, r.err);
 	assert.equal(r.out, `Created space "work" at ${join(r.dir, "work")}.\nStart Pi in it with: pi-space pi/work\n`);
 	assert.deepEqual(r.tree, ["work", "work/agent", "work/agent/settings.json"]);
-	assert.deepEqual(JSON.parse(r.read["spaces/work/agent/settings.json"] as string), { packages: ["npm:@jals1212/pi-spaces"] });
+	assert.deepEqual(JSON.parse(r.read["spaces/work/agent/settings.json"] as string), { packages: ["npm:pi-spaces"] });
 	assert.equal(r.read["spaces/work/settings.json"], undefined);
 	assert.equal(r.spawned.length, 0);
 });

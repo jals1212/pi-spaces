@@ -1,7 +1,7 @@
 {
-  "name": "@jals1212/pi-spaces-cli",
+  "name": "pi-spaces-cli",
   "version": "0.15.0",
-  "description": "The pi-space command: pick a space and start Pi in it. Companion to the Pi extension @jals1212/pi-spaces.",
+  "description": "The pi-space command: pick a space and start Pi in it. Companion to the Pi extension pi-spaces.",
   "license": "MIT",
   "author": "jals1212",
   "repository": {
@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",
-    "@jals1212/pi-spaces": "^0.13.0"
+    "pi-spaces": "^0.16.0"
   },
   "publishConfig": {
     "access": "public",
