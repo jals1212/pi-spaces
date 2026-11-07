@@ -38,7 +38,7 @@ import {
 	samePath,
 	spaceHome,
 	validateName,
-} from "@jals1212/pi-spaces/spaces";
+} from "pi-spaces/spaces";
 import {
 	ConfigError,
 	type Config,
@@ -53,7 +53,7 @@ import {
 	profileNames,
 	SCHEMA,
 	spaceEnvFor,
-} from "@jals1212/pi-spaces/config";
+} from "pi-spaces/config";
 
 export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] [--config <path>] [<space> [pi args...] | <command> ...]
        pi-space --help | --version
@@ -188,7 +188,7 @@ const COMMANDS: Record<string, CommandHelp> = {
 		usage: "new <space> [--extension|--no-extension]",
 		about: [
 			"The space is a folder with its agent home, agent/, inside it. It runs the profile's setup command in it when there is one, and does not start Pi.",
-			"In a terminal it asks whether agent/settings.json declares the Pi extension @jals1212/pi-spaces, which Pi then installs in the space (Enter is yes); without a terminal it declares it. pi-space works without it when the profile's space command has {home}.",
+			"In a terminal it asks whether agent/settings.json declares the Pi extension pi-spaces, which Pi then installs in the space (Enter is yes); without a terminal it declares it. pi-space works without it when the profile's space command has {home}.",
 		],
 		args: [["<space>", "<profile>/<name>: the profile and the name of the new space"]],
 		options: [
@@ -556,12 +556,12 @@ export function splitCommand(text: string): string[] {
 	return words;
 }
 
-const EXTENSION = "@jals1212/pi-spaces";
+const EXTENSION = "pi-spaces";
 
 /**
  * The extension's declaration for a new space's settings.json: the one in the base home's settings.json
  * (the selected profile's home, else PI_SPACES_BASE_HOME, else PI_CODING_AGENT_DIR, else ~/.pi/agent),
- * else npm:@jals1212/pi-spaces.
+ * else npm:pi-spaces.
  */
 export function newSpaceDeclaration(env: Env, home: string, profileHome?: string): PackageDeclaration {
 	const baseHome = profileHome || env.PI_SPACES_BASE_HOME || agentHome(env, home);
@@ -1242,7 +1242,7 @@ async function create(name: string, scope: Scope, extension?: boolean): Promise<
 		if (extension === undefined && io.stdin.isTTY) {
 			const reader = lineReader(io.stdin);
 			try {
-				io.stdout.write(`Declare the Pi extension @jals1212/pi-spaces in "${name}"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] `);
+				io.stdout.write(`Declare the Pi extension pi-spaces in "${name}"? Pi installs it there and gets /space and the status line; pi-space does not need it. [Y/n] `);
 				const answer = (await reader.next())?.trim().toLowerCase();
 				declare = answer !== "n" && answer !== "no";
 			} finally {
@@ -1251,7 +1251,7 @@ async function create(name: string, scope: Scope, extension?: boolean): Promise<
 		}
 		if (!declare) {
 			writeFileSync(join(spaceHome(path), "settings.json"), "{}\n");
-			io.stdout.write(`It does not declare the extension; add it later with: pi-space install ${profile.name}/${name} npm:@jals1212/pi-spaces\n`);
+			io.stdout.write(`It does not declare the extension; add it later with: pi-space install ${profile.name}/${name} npm:pi-spaces\n`);
 		}
 		if (withSetup) {
 			// A new space is rooted: the setup runs in its agent home.

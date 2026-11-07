@@ -29,7 +29,7 @@ Use when a task depends on which Pi agent home this session uses (settings, sign
 | Need | Action |
 | --- | --- |
 | Which space, home, command | `<pi_space>` section, or `echo "$PI_SPACE|$PI_SPACE_HOME|$PI_SPACES_COMMAND"` |
-| List spaces from a shell | `pi-space list` (optional `@jals1212/pi-spaces-cli`): every profile, each space as `<profile>/<name>` |
+| List spaces from a shell | `pi-space list` (optional `pi-spaces-cli`): every profile, each space as `<profile>/<name>` |
 | Spaces folder | `PI_SPACES_DIR`, else the `dir` of the profile whose `home` is the base home, else `spaces` next to the base home (`PI_SPACES_BASE_HOME`, else this home) |
 | Profiles, or why a variable differs per space | The config file (`PI_SPACES_CONFIG`, else `config.toml` or `config.json` in `~/.config/pi-spaces`, then in `~/.pi-spaces`): a profile's `spaceEnv` variables are set only inside spaces (`{home}` the agent home, `{space}` the space's root folder and `{name}` filled in) and removed in base; without `spaceEnv` whatever a program keeps outside its agent home is shared with base |
 | Pick a space from a shell | bare `pi-space` on a terminal opens a picker of every profile's spaces (`<profile>/<name>`, `base` included) and starts Pi in the one chosen |

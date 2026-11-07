@@ -1,7 +1,7 @@
 // Builds dist/cli.js: src/cli.ts as plain JavaScript, for the installed
 // `pi-space` bin (Node does not strip TypeScript types under node_modules).
 // Types are erased in place (same line and column), and ".ts" imports become ".js".
-// The core is imported as '@jals1212/pi-spaces/spaces' and stays so.
+// The core is imported as 'pi-spaces/spaces' and stays so.
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join } from "node:path";

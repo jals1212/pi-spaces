@@ -11,7 +11,7 @@ function setup() {
 	const dir = join(root, "spaces");
 	const base = join(root, "agent");
 	mkdirSync(base);
-	createSpace(dir, "work", "npm:@jals1212/pi-spaces");
+	createSpace(dir, "work", "npm:pi-spaces");
 	return { dir, base, work: join(dir, "work", "agent"), root: join(dir, "work") };
 }
 

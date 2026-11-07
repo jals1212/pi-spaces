@@ -1,10 +1,18 @@
 # Changelog
 
-Each release of `@jals1212/pi-spaces-cli`. Versions follow
+Each release of `pi-spaces-cli` (published as `@jals1212/pi-spaces-cli` up to 0.15.0). Versions follow
 [semantic versioning](https://semver.org); before 1.0.0 a minor version may add
 commands and options and a patch version fixes.
 
 ## Unreleased
+
+### Changed
+
+- The package is now published as `pi-spaces-cli`, without the `@jals1212`
+  scope; `@jals1212/pi-spaces-cli` stops at 0.15.0 and is deprecated. Move with
+  `npm uninstall -g @jals1212/pi-spaces-cli && npm install -g pi-spaces-cli`.
+  It takes its core from `pi-spaces` (0.16.0 or later), and `new` declares
+  `npm:pi-spaces` in a space when the base home does not declare the extension.
 
 ## 0.15.0
 

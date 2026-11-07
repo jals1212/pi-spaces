@@ -1,10 +1,20 @@
 # Changelog
 
-Each release of `@jals1212/pi-spaces`. Versions follow
+Each release of `pi-spaces` (published as `@jals1212/pi-spaces` up to 0.15.1). Versions follow
 [semantic versioning](https://semver.org); before 1.0.0 a minor version may add
 commands and options and a patch version fixes.
 
 ## Unreleased
+
+### Changed
+
+- The package is now published as `pi-spaces`, without the `@jals1212` scope;
+  `@jals1212/pi-spaces` stops at 0.15.1 and is deprecated. To move, replace
+  `npm:@jals1212/pi-spaces` with `npm:pi-spaces` in the `packages` of every
+  `settings.json` that declares it (the base home and each space), or run
+  `pi remove npm:@jals1212/pi-spaces` and `pi install npm:pi-spaces`. Keep only
+  one of the two: both together load `/space` twice. The library exports are
+  now `pi-spaces/spaces` and `pi-spaces/config`.
 
 ## 0.15.1
 

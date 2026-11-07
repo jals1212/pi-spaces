@@ -24,7 +24,7 @@ beforeEach(() => {
 	root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-wiring-")));
 	for (const name of ["PI_SPACES_BASE_HOME", "PI_SPACES_CONFIG", "PI_SPACE", "PI_SPACE_HOME", "PI_SPACES_COMMAND"]) delete process.env[name];
 	Object.assign(process.env, { HOME: root, XDG_CONFIG_HOME: join(root, ".config"), PI_SPACES_DIR: join(root, "spaces") });
-	createSpace(join(root, "spaces"), "work", "npm:@jals1212/pi-spaces");
+	createSpace(join(root, "spaces"), "work", "npm:pi-spaces");
 	process.env.PI_CODING_AGENT_DIR = join(root, "spaces", "work", "agent");
 });
 afterEach(() => {
