@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.16.1
+
 ### Fixed
 
 - A package command (`list`, `update`, `install`, `uninstall`) in `<profile>/base`
