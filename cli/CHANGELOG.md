@@ -6,6 +6,17 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.16.1
+
+### Fixed
+
+- A package command (`list`, `update`, `install`, `uninstall`) in `<profile>/base`
+  of the built-in `pi` profile, or of any profile whose command has no `{home}`
+  and no `commands`, no longer runs `pi --space base`: it runs the command in the
+  base home with no `--space`. `--space` is the extension's own option, so a base
+  home without the extension failed with `Error: Unknown option: --space`, and
+  `pi-space install --every npm:pi-spaces` could not install it there.
+
 ## 0.16.0
 
 ### Changed

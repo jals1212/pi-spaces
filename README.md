@@ -40,7 +40,7 @@ pi-spaces ships as two independent npm packages. They read the same spaces and t
 
 **The command without the extension:**
 
-- With the built-in `pi` profile (or any `commands.space` without `{home}`), starting a space runs `pi --space <name>`, and the package commands run `pi --space <name> update`. Only the extension understands `--space`, so these need it in the base home. Commands that only touch folders (`new`, `setup`, `rename`, `remove`, `migrate`, `list` without a space, `init`) never need it.
+- With the built-in `pi` profile (or any `commands.space` without `{home}`), starting a space runs `pi --space <name>`, and the package commands run `pi --space <name> update`. Only the extension understands `--space`, so these need it in the base home. A package command in `<profile>/base` runs plain `pi update` (no `--space`), so `pi-space install pi/base npm:pi-spaces` works before the extension is there. Commands that only touch folders (`new`, `setup`, `rename`, `remove`, `migrate`, `list` without a space, `init`) never need it.
 - Inside Pi there is no `/space`, no status line, and the model gets no `<pi_space>` section. The variables `PI_SPACE` and `PI_SPACE_HOME` are still set for Pi's tools.
 - `pi-space new` asks whether the new space's `agent/settings.json` declares the extension (Enter is yes), and Pi installs what that file declares the first time it runs there. Answer no, or pass `--no-extension`, to keep the space without it; `--extension` declares it without asking, and without a terminal it is declared. `/space new` always declares it, since it runs inside the extension.
 

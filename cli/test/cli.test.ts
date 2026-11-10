@@ -134,8 +134,8 @@ async function run(
 			home: root,
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
-				// A setup command has no --space: its space is in PI_SPACE.
-				const target = args.includes("--space") ? args[args.indexOf("--space") + 1] : (spawnOptions.env?.PI_SPACE ?? "");
+				// A setup command has no --space: its space is in PI_SPACE; a start with neither is base.
+				const target = args.includes("--space") ? args[args.indexOf("--space") + 1] : (spawnOptions.env?.PI_SPACE ?? "base");
 				if (options.echo) result.out += `ran ${target}\n`;
 				const failure = options.spawnErrors?.[target] ?? options.spawnError;
 				return failure ? { status: null, error: new Error(failure) } : { status: options.statuses?.[target] ?? options.status ?? 0 };
@@ -845,7 +845,7 @@ test("update, install and uninstall run `--space <name> <command> <args>` throug
 		{ program: "/opt/my launcher/run", args: ["--", "--space", "work", "install", "npm:x@1", "-l"] },
 	]);
 	const uninstall = await run(["uninstall", "pi/base", "npm:x"]);
-	assert.deepEqual(uninstall.spawned.map(({ args }) => args), [["--space", "base", "uninstall", "npm:x"]]);
+	assert.deepEqual(uninstall.spawned.map(({ args }) => args), [["uninstall", "npm:x"]]);
 	const bare = await run(["update", "pi/work"], { spaces: ["work"] });
 	assert.deepEqual(bare.spawned.map(({ args }) => args), [["--space", "work", "update"]]);
 });
@@ -923,21 +923,34 @@ test("<profile>/--every runs base first, then every space in order, one at a tim
 	assert.equal(r.out, "== pi/base\nran base\n== pi/alpha\nran alpha\n== pi/work\nran work\n");
 	assert.equal(r.err, "");
 	assert.deepEqual(r.spawned.map(({ program, args }) => ({ program, args })), [
-		{ program: "pi", args: ["--space", "base", "update", "--extensions"] },
+		{ program: "pi", args: ["update", "--extensions"] },
 		{ program: "pi", args: ["--space", "alpha", "update", "--extensions"] },
 		{ program: "pi", args: ["--space", "work", "update", "--extensions"] },
 	]);
 	for (const spawned of r.spawned) assert.equal(spawned.options.stdio, "inherit");
 });
 
+test("a package command in base runs Pi in the base home without --space, so it works before the extension is there", async () => {
+	const r = await run(["install", "--every", "npm:pi-spaces"], { spaces: ["work"] });
+	assert.equal(r.code, 0, r.err);
+	const [base, work] = r.spawned;
+	assert.deepEqual({ program: base.program, args: base.args }, { program: "pi", args: ["install", "npm:pi-spaces"] });
+	assert.equal(base.options.env?.PI_CODING_AGENT_DIR, join(r.root, "no-agent"));
+	assert.equal(base.options.env?.PI_SPACES_BASE_HOME, undefined);
+	assert.equal(base.options.env?.PI_SPACE, undefined);
+	assert.deepEqual(work.args, ["--space", "work", "install", "npm:pi-spaces"]);
+	// Starting base itself still goes through the extension.
+	assert.deepEqual((await run(["pi/base"])).spawned.map(({ args }) => args), [["--space", "base"]]);
+});
+
 test("<profile>/--every works for list, install and uninstall, and with no spaces it runs only base", async () => {
 	const listed = await run(["list", "pi/--every"], { spaces: ["work"] });
-	assert.deepEqual(listed.spawned.map(({ args }) => args), [["--space", "base", "list"], ["--space", "work", "list"]]);
+	assert.deepEqual(listed.spawned.map(({ args }) => args), [["list"], ["--space", "work", "list"]]);
 	const installed = await run(["install", "pi/--every", "npm:x"], { spaces: ["work"] });
-	assert.deepEqual(installed.spawned.map(({ args }) => args), [["--space", "base", "install", "npm:x"], ["--space", "work", "install", "npm:x"]]);
+	assert.deepEqual(installed.spawned.map(({ args }) => args), [["install", "npm:x"], ["--space", "work", "install", "npm:x"]]);
 	const removed = await run(["uninstall", "pi/--every", "npm:x"]);
 	assert.equal(removed.out, "== pi/base\n");
-	assert.deepEqual(removed.spawned.map(({ args }) => args), [["--space", "base", "uninstall", "npm:x"]]);
+	assert.deepEqual(removed.spawned.map(({ args }) => args), [["uninstall", "npm:x"]]);
 });
 
 test("--every goes on after a failure, exits 1 and names the failed spaces on the last line of stderr", async () => {
@@ -1811,11 +1824,11 @@ test("<profile>/--every runs in that profile's base and spaces; --every alone in
 	assert.equal(all.out, "== pi/base\n== pi/a\n== launcher/base\n== launcher/work\n== zeta/base\n== zeta/z\n");
 	assert.equal(all.err, "pi-space: update failed in: launcher/work\n");
 	assert.deepEqual(programsOf(all), [
-		{ program: "pi", args: ["--space", "base", "update", "--extensions"] },
+		{ program: "pi", args: ["update", "--extensions"] },
 		{ program: "pi", args: ["--space", "a", "update", "--extensions"] },
-		{ program: "launcher-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
+		{ program: "launcher-cmd", args: ["--", "update", "--extensions"] },
 		{ program: "launcher-cmd", args: ["--", "--space", "work", "update", "--extensions"] },
-		{ program: "zeta-cmd", args: ["--", "--space", "base", "update", "--extensions"] },
+		{ program: "zeta-cmd", args: ["--", "update", "--extensions"] },
 		{ program: "zeta-cmd", args: ["--", "--space", "z", "update", "--extensions"] },
 	]);
 	assert.equal(setupEnvOf(all, 1).PI_SPACES_DIR, all.dir);
@@ -2753,7 +2766,7 @@ test("v2: <profile>/--every runs the package command in base, then in each space
 		{ program: "my-launcher", args: ["--space", "a", "update"] },
 		{ program: "my-launcher", args: ["--space", "b", "update"] },
 	]);
-	assert.equal(r.out, "== launcher/base\nran \n== launcher/a\nran a\n== launcher/b\nran b\n");
+	assert.equal(r.out, "== launcher/base\nran base\n== launcher/a\nran a\n== launcher/b\nran b\n");
 });
 
 test("v2: setup runs commands.setup filled for the space, with the environment of the space", async () => {
@@ -2799,7 +2812,7 @@ test("a command with {home}: package commands run <command> <verb> args in base 
 test("a command with {home}: <profile>/--every and --every run it in base and each space, each in its own home", async () => {
 	const r = await run(["update", "launcher/--every"], { spaces: ["work", "alpha"], files: COMMAND_FILES, echo: true, statuses: { alpha: 3 } });
 	assert.equal(r.code, 1);
-	assert.equal(r.out, "== launcher/base\nran \n== launcher/alpha\nran alpha\n== launcher/work\nran work\n");
+	assert.equal(r.out, "== launcher/base\nran base\n== launcher/alpha\nran alpha\n== launcher/work\nran work\n");
 	assert.equal(r.err, "pi-space: update failed in: launcher/alpha\n");
 	assert.deepEqual(r.spawned.map(({ args }) => args), [
 		["--home", join(r.root, "launcher-agent"), "update"],
@@ -2808,7 +2821,7 @@ test("a command with {home}: <profile>/--every and --every run it in base and ea
 	]);
 	assert.deepEqual(r.spawned.map((_, index) => setupEnvOf(r, index).PI_CODING_AGENT_DIR), [join(r.root, "launcher-agent"), join(r.dir, "alpha"), join(r.dir, "work")]);
 	const all = await run(["update", "--every"], { spaces: ["work"], files: COMMAND_FILES });
-	assert.equal(all.spawned.filter(({ program }) => program === "pi").every(({ args }) => args[0] === "--space"), true);
+	assert.deepEqual(all.spawned.filter(({ program }) => program === "pi").map(({ args }) => args), [["update"], ["--space", "work", "update"]]);
 	const own = all.spawned.filter(({ program }) => program !== "pi");
 	assert.deepEqual([...new Set(own.map(({ program }) => program))], ["bare", "my-launcher"]);
 	assert.equal(own.every(({ args }) => args[0] === "--home" && args.at(-1) === "update" && !args.includes("--space")), true);
