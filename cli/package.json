@@ -20,7 +20,7 @@
   ],
   "type": "module",
   "bin": {
-    "pi-space": "./bin/pi-space.mjs"
+    "pi-space": "bin/pi-space.mjs"
   },
   "files": [
     "bin",
