@@ -6,6 +6,14 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.16.1
+
+### Changed
+
+- The `pi-spaces` skill and the README say that `pi-space setup` runs in base too,
+  for a profile that has a setup command (pi-spaces-cli 0.17.0); the built-in `pi`
+  has none.
+
 ## 0.16.0
 
 ### Changed
