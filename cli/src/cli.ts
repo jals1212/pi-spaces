@@ -478,6 +478,20 @@ function startFor(scope: Scope, name: string, words: string[]): Start {
 	return { program, args: [...args, ...words], env };
 }
 
+/**
+ * The start of one of Pi's package commands: as startFor, except base of a profile whose command switches through
+ * --space (no commands, no {home}), which runs the command with no --space and the plain environment of the profile,
+ * whose PI_CODING_AGENT_DIR is the base home. --space
+ * is the extension's own option, and a base home that does not have it yet rejects it, so `install --every
+ * npm:pi-spaces` could never install it there. Throws when the command has an unclosed quote.
+ */
+function packageStart(scope: Scope, name: string, words: string[]): Start {
+	const { io, commands } = scope;
+	if (name !== BASE || commands !== undefined || hasHomeCommand(io.env)) return startFor(scope, name, words);
+	const { program, args } = setupCommand(io.env.PI_SPACES_COMMAND?.trim() || "pi", scope.profile.home, BASE, rootOf(scope, BASE));
+	return { program, args: [...args, ...words], env: io.childEnv };
+}
+
 /** The root of a space of this scope: <spaces folder>/<name>; for base, the folder above the profile's home. */
 function rootOf(scope: Scope, name: string): string {
 	return name === BASE ? dirname(scope.profile.home) : join(scope.dir, name);
@@ -1419,7 +1433,7 @@ async function launch(name: string, args: string[], scope: Scope): Promise<void>
 /**
  * Runs one of Pi's package commands in a space, in base and then every space of a profile (`<profile>/--every`),
  * or in every profile (`--every`), through the same Pi (`--space <name> <verb> [args...]`): the extension relaunches
- * it in that home, so the home is never set here. With --every each run gets a `== <profile>/<name>` header, one
+ * it in that home, so the home is never set here. Base runs the verb with no --space, in its home (packageStart). With --every each run gets a `== <profile>/<name>` header, one
  * failure does not stop the rest, and the status is 1 if any failed.
  */
 async function runPackages(verb: PackageVerb, target: PackageTarget, args: string[], call: Call): Promise<void> {
@@ -1435,7 +1449,7 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 			if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
 			let launched: ReturnType<typeof startFor>;
 			try {
-				launched = startFor(scope, ref.name, [verb, ...args]);
+				launched = packageStart(scope, ref.name, [verb, ...args]);
 			} catch (error) {
 				io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 				return io.exit(2);
@@ -1447,7 +1461,7 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 	// Every command is checked before the first one runs, so a bad one is reported once, before any header.
 	for (const scope of scopes) {
 		try {
-			startFor(scope, BASE, []);
+			packageStart(scope, BASE, []);
 		} catch (error) {
 			io.stderr.write(`pi-space: ${scope.commandSource}: ${(error as Error).message}.\n`);
 			return io.exit(2);
@@ -1456,7 +1470,7 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 	const failed: string[] = [];
 	for (const scope of scopes) {
 		for (const name of [BASE, ...listSpaces(scope.dir)]) {
-			const launched = startFor(scope, name, [verb, ...args]);
+			const launched = packageStart(scope, name, [verb, ...args]);
 			io.stdout.write(`== ${scope.profile.name}/${name}\n`);
 			if ((await spawnPi(launched.program, launched.args, scope.io, launched.env)) !== 0) failed.push(`${scope.profile.name}/${name}`);
 		}

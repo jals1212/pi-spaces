@@ -84,7 +84,7 @@ pi-space update my/--every                # my's base, then every space of "my"
 pi-space update --every                   # every profile: its base, then its spaces
 ```
 
-A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, through the profile's command (or `--command`), and ends with the exit status of that Pi. The extension relaunches Pi in the space's home, so the command works on that home's `settings.json` and packages; the Pi starts with the profile's home as `PI_CODING_AGENT_DIR` (see "What the started Pi is told"). `<profile>/<name>` is `<profile>/base` or an existing space of that profile; anything else exits with status 1 before Pi starts.
+A package command runs `pi --space <name> <command> [args...]` with Pi's stdio, through the profile's command (or `--command`), and ends with the exit status of that Pi. In `<profile>/base` it runs `pi <command> [args...]` with no `--space`, since base is the profile's own home: `--space` is the extension's option, so this lets `install --every npm:pi-spaces` install the extension in a base home that does not have it yet. The extension relaunches Pi in the space's home, so the command works on that home's `settings.json` and packages; the Pi starts with the profile's home as `PI_CODING_AGENT_DIR` (see "What the started Pi is told"). `<profile>/<name>` is `<profile>/base` or an existing space of that profile; anything else exits with status 1 before Pi starts.
 
 `--every` takes the place of the space, and there are two:
 
