@@ -1,6 +1,6 @@
 {
   "name": "pi-spaces-cli",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "The pi-space command: pick a space and start Pi in it. Companion to the Pi extension pi-spaces.",
   "license": "MIT",
   "author": "jals1212",
@@ -20,7 +20,7 @@
   ],
   "type": "module",
   "bin": {
-    "pi-space": "./bin/pi-space.mjs"
+    "pi-space": "bin/pi-space.mjs"
   },
   "files": [
     "bin",

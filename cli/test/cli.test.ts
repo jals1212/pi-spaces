@@ -18,7 +18,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
                                                (asks whether to declare the extension in it; --extension or --no-extension answers)
-  pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
+  pi-space setup <space|--every>               run the setup command in a space or base, or in base and every space
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
@@ -32,7 +32,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
-  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup or migrate) and spaces, --every alone in every profile;
+  --every takes the place of the space: <profile>/--every runs in that profile's base (not for migrate) and spaces, --every alone in every profile;
   a failure does not stop the rest, and the exit status is 1 if any failed.
 Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
@@ -464,7 +464,7 @@ test("the help of each command says what it takes: arguments, options, the call 
 	assert.match(await help("rename"), /--config <path>/);
 	assert.match(await help("rename"), /--dir <path>/);
 	assert.match(await help("list"), /--command <cmd>/);
-	assert.match(await help("setup"), /<profile>\/--every {2,}every space of that profile, never base/);
+	assert.match(await help("setup"), /<profile>\/--every {2,}that profile's base, then its spaces in turn/);
 	for (const command of Object.keys(HELP_USAGE)) assert.doesNotMatch(await help(command), /--profile <name>|"default"|\$PI_SPACES_(COMMAND|DIR|SETUP)/, command);
 	const completion = await help("completion");
 	assert.match(completion, /Supported shells: zsh, powershell\./);
@@ -1411,10 +1411,26 @@ test("setup <name> runs the setup command in that space and exits with its statu
 	assert.equal(setupEnvOf(r).PI_SPACE, "work");
 });
 
-test("setup refuses base, an unknown or invalid space with exit 1, and a missing setup command with exit 2, running nothing", async () => {
-	const base = await run(["--setup", SETUP, "setup", "pi/base"]);
-	assert.equal(base.code, 1);
-	assert.equal(base.err, "pi-space: setup runs only in spaces, not in base (the home Pi starts with).\n");
+test("setup <profile>/base runs the setup command in the profile's home, as base, and exits with its status", async () => {
+	const r = await run(["--setup", SETUP, "setup", "pi/base"], { status: 3 });
+	const home = join(r.root, "no-agent");
+	assert.equal(r.code, 3);
+	assert.equal(r.out, "");
+	assert.equal(r.err, "");
+	assert.deepEqual(programsOf(r), [{ program: "my-launcher", args: ["--home", home, "setup"] }]);
+	assert.equal(setupEnvOf(r).PI_CODING_AGENT_DIR, home);
+	assert.equal(setupEnvOf(r).PI_SPACE, undefined);
+	assert.equal(setupEnvOf(r).PI_SPACE_HOME, undefined);
+	const launcher = await run(["setup", "launcher/base"], { files: { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { ...QUALIFIED[CONFIG].profiles.launcher, setup: "launcher-setup {home} {name}" } } } } });
+	assert.equal(launcher.code, 0, launcher.err);
+	assert.deepEqual(programsOf(launcher), [{ program: "launcher-setup", args: [join(launcher.root, "launcher", "agent"), "base"] }]);
+	const none = await run(["setup", "pi/base"]);
+	assert.equal(none.code, 2);
+	assert.equal(none.err, 'pi-space: Profile "pi" has no setup command; give it a "setup" in the config file, or give --setup <cmd>.\n');
+	assert.equal(none.spawned.length, 0);
+});
+
+test("setup refuses an unknown or invalid space with exit 1, and a missing setup command with exit 2, running nothing", async () => {
 	const ghost = await run(["--setup", SETUP, "setup", "pi/ghost"], { spaces: ["work"] });
 	assert.equal(ghost.code, 1);
 	assert.equal(ghost.err, 'pi-space: Space "ghost" does not exist.\n');
@@ -1432,21 +1448,25 @@ test("setup refuses base, an unknown or invalid space with exit 1, and a missing
 	assert.equal(quote.code, 2);
 	assert.equal(quote.out, "");
 	assert.equal(quote.err, "pi-space: --setup: the command has an unclosed ' quote.\n");
-	for (const r of [base, ghost, invalid, quote]) assert.equal(r.spawned.length, 0);
+	for (const r of [ghost, invalid, quote]) assert.equal(r.spawned.length, 0);
 });
 
-test("setup <profile>/--every runs in every space in order, never in base, goes on after a failure and exits 1 naming the failed ones", async () => {
+test("setup <profile>/--every runs in base, then in every space in order, goes on after a failure and exits 1 naming the failed ones", async () => {
 	const r = await run(["--setup", SETUP, "setup", "pi/--every"], { spaces: ["work", "alpha", "beta"], echo: true, statuses: { beta: 2 } });
 	assert.equal(r.code, 1);
-	assert.equal(r.out, "== pi/alpha\nran alpha\n== pi/beta\nran beta\n== pi/work\nran work\n");
+	assert.equal(r.out, "== pi/base\nran base\n== pi/alpha\nran alpha\n== pi/beta\nran beta\n== pi/work\nran work\n");
 	assert.equal(r.err, "pi-space: setup failed in: pi/beta\n");
-	assert.deepEqual(r.spawned.map(({ args }) => args[1]), ["alpha", "beta", "work"].map((name) => join(r.dir, name)));
+	assert.deepEqual(r.spawned.map(({ args }) => args[1]), [join(r.root, "no-agent"), ...["alpha", "beta", "work"].map((name) => join(r.dir, name))]);
 	const ok = await run(["--setup", SETUP, "setup", "pi/--every"], { spaces: ["work"] });
 	assert.equal(ok.code, 0, ok.err);
-	const none = await run(["--setup", SETUP, "setup", "pi/--every"]);
+	const none = await run(["--setup", SETUP, "setup", "pi/--every"], { echo: true });
 	assert.equal(none.code, 0);
-	assert.equal(none.out, "No spaces yet. Create one with pi-space new pi/<name>.\n");
-	assert.equal(none.spawned.length, 0);
+	assert.equal(none.out, "== pi/base\nran base\n");
+	assert.equal(none.spawned.length, 1);
+	const failed = await run(["--setup", SETUP, "setup", "pi/--every"], { spaces: ["work"], statuses: { base: 4 } });
+	assert.equal(failed.code, 1);
+	assert.equal(failed.err, "pi-space: setup failed in: pi/base\n");
+	assert.equal(failed.spawned.length, 2);
 	const noSetup = await run(["setup", "pi/--every"], { spaces: ["work"] });
 	assert.equal(noSetup.code, 2);
 	assert.equal(noSetup.err, 'pi-space: Profile "pi" has no setup command; give it a "setup" in the config file, or give --setup <cmd>.\n');
@@ -1683,13 +1703,13 @@ test("new runs the profile's setup with its spaceEnv in the setup's environment,
 	assert.equal(env.PI_SPACE_HOME, home);
 });
 
-test("setup <name> and setup --every run the profile's setup with its spaceEnv, each space with its own folder", async () => {
+test("setup <name> and setup --every run the profile's setup with its spaceEnv, each space with its own folder; base keeps its own", async () => {
 	const one = await run(["setup", "ml/work"], { spaces: ["work"], files: PROFILE_SETUP });
 	assert.equal(one.code, 0, one.err);
 	assert.equal(setupEnvOf(one).ML_CONFIG, `${join(one.dir, "work")}/config`);
 	const every = await run(["setup", "ml/--every"], { spaces: ["a", "b"], files: PROFILE_SETUP });
-	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_NAME), ["a", "b"]);
-	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_CONFIG), [`${join(every.dir, "a")}/config`, `${join(every.dir, "b")}/config`]);
+	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_NAME), [undefined, "a", "b"]);
+	assert.deepEqual(every.spawned.map((_, index) => setupEnvOf(every, index).ML_CONFIG), [undefined, `${join(every.dir, "a")}/config`, `${join(every.dir, "b")}/config`]);
 });
 
 test("the setup: --setup, else the named profile's; PI_SPACES_SETUP is never read; the named profile's spaceEnv applies whichever it is", async () => {
@@ -1840,11 +1860,17 @@ test("setup --every alone runs in the spaces of every profile with a setup comma
 	const files = { [CONFIG]: { schema: SCHEMA, profiles: { launcher: { ...QUALIFIED[CONFIG].profiles.launcher, setup: "launcher-setup {home}" } } }, "launcher-spaces/work/.keep": "" };
 	const all = await run(["setup", "--every"], { spaces: ["a"], files });
 	assert.equal(all.code, 0, all.err);
-	assert.equal(all.out, "== launcher/work\n");
-	assert.deepEqual(programsOf(all), [{ program: "launcher-setup", args: [join(all.root, "launcher-spaces", "work")] }]);
+	assert.equal(all.out, "== launcher/base\n== launcher/work\n");
+	assert.deepEqual(programsOf(all), [
+		{ program: "launcher-setup", args: [join(all.root, "launcher", "agent")] },
+		{ program: "launcher-setup", args: [join(all.root, "launcher-spaces", "work")] },
+	]);
 	const option = await run(["--setup", "s {name}", "setup", "--every"], { spaces: ["a"], files });
-	assert.equal(option.out, "== pi/a\n== launcher/work\n");
-	assert.deepEqual(programsOf(option), [{ program: "s", args: ["a"] }, { program: "s", args: ["work"] }]);
+	assert.equal(option.out, "== pi/base\n== pi/a\n== launcher/base\n== launcher/work\n");
+	assert.deepEqual(programsOf(option), ["base", "a", "base", "work"].map((name) => ({ program: "s", args: [name] })));
+	const bases = await run(["setup", "--every"], { files: { [CONFIG]: files[CONFIG] } });
+	assert.equal(bases.code, 0, bases.err);
+	assert.equal(bases.out, "== launcher/base\n");
 	const none = await run(["setup", "pi/a"], { spaces: ["a"], files });
 	assert.equal(none.code, 2);
 	assert.equal(none.err, 'pi-space: Profile "pi" has no setup command; give it a "setup" in the config file, or give --setup <cmd>.\n');
@@ -2010,7 +2036,7 @@ const COMMAND_LINES = [
 	"command\tnew\tcreate a space",
 	"command\tremove\tdelete a space, keeping a backup",
 	"command\trename\trename a space",
-	"command\tsetup\trun the setup command in a space",
+	"command\tsetup\trun the setup command in a space or in base",
 	"command\tuninstall\tremove a package from a space",
 	"command\tupdate\tupdate the packages of a space",
 ];
@@ -3038,7 +3064,7 @@ test("setup of a rooted space and of an old flat one: the agent home and the roo
 	assert.deepEqual(programsOf(flat), [{ program: "my-launcher", args: ["--home", join(flat.dir, "work"), "--root", join(flat.dir, "work"), "setup"] }]);
 	assert.equal(setupEnvOf(flat).PI_CODING_AGENT_DIR, join(flat.dir, "work"));
 	const every = await run(["--setup", setup, "setup", "pi/--every"], { spaces: ["flat"], rooted: ["rooted"] });
-	assert.deepEqual(every.spawned.map(({ args }) => args[1]), [join(every.dir, "flat"), join(every.dir, "rooted", "agent")]);
+	assert.deepEqual(every.spawned.map(({ args }) => args[1]), [join(every.root, "no-agent"), join(every.dir, "flat"), join(every.dir, "rooted", "agent")]);
 });
 
 const ROOT_FILES = {
