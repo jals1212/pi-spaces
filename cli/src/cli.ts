@@ -65,7 +65,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space list <space|--every>                list the packages of a space
   pi-space new <space>                         create a space, then run the profile's setup command in it when there is one
                                                (asks whether to declare the extension in it; --extension or --no-extension answers)
-  pi-space setup <space|--every>               run the setup command in a space, or in every space (never in base)
+  pi-space setup <space|--every>               run the setup command in a space or base, or in base and every space
   pi-space rename <space> <new>                rename a space; the new name is bare or keeps the profile (<profile>/<new>)
   pi-space remove <space>                      delete a space and everything in it, after asking, and keep a backup in .backups unless told not to
                                                (--yes skips the questions; --no-backup deletes without a backup)
@@ -79,7 +79,7 @@ A <space> is <profile>/<name>: a profile of the config file (pi is always there)
   pi-space <command> --help                    the help of one command
   pi-space --help                              print this help
   pi-space --version                           print the version
-  --every takes the place of the space: <profile>/--every runs in that profile's base (not for setup or migrate) and spaces, --every alone in every profile;
+  --every takes the place of the space: <profile>/--every runs in that profile's base (not for migrate) and spaces, --every alone in every profile;
   a failure does not stop the rest, and the exit status is 1 if any failed.
 Options before the command, for this call only:
   --command <cmd>                              the program to run instead of the profile's command, e.g. "my-launcher --" (for one profile)
@@ -199,17 +199,17 @@ const COMMANDS: Record<string, CommandHelp> = {
 		examples: ["pi-space new pi/work", "pi-space new gentle/work --no-extension", "pi-space --setup 'my-launcher --home {home} setup' new pi/work"],
 	},
 	setup: {
-		summary: "run the setup command in a space",
+		summary: "run the setup command in a space or in base",
 		usage: "setup <space|--every>",
-		about: ["It needs a setup command: the profile's \"setup\" or --setup. It never runs in base."],
+		about: ["It needs a setup command: the profile's \"setup\" or --setup (pi has none by default). In base, {home} is the profile's home and {name} is base."],
 		args: [
-			["<space>", "<profile>/<name>: a space of a profile"],
-			["<profile>/--every", "every space of that profile, never base; a failure does not stop the rest, and the exit status is 1 if any failed"],
-			["--every", "every space of every profile that has a setup command (or of all, with --setup)"],
+			["<space>", "<profile>/<name>: a space of a profile, or <profile>/base"],
+			["<profile>/--every", "that profile's base, then its spaces in turn; a failure does not stop the rest, and the exit status is 1 if any failed"],
+			["--every", "the base and spaces of every profile that has a setup command (or of all, with --setup)"],
 		],
 		options: [],
 		calls: ["dir", "setup", "config"],
-		examples: ["pi-space setup pi/work", "pi-space setup pi/--every", "pi-space setup --every", "pi-space --setup 'my-launcher --home {home} setup' setup --every"],
+		examples: ["pi-space setup pi/work", "pi-space setup ml/base", "pi-space setup pi/--every", "pi-space setup --every", "pi-space --setup 'my-launcher --home {home} setup' setup --every"],
 	},
 	rename: {
 		summary: "rename a space",
@@ -1482,20 +1482,37 @@ async function runPackages(verb: PackageVerb, target: PackageTarget, args: strin
 	io.exit(0);
 }
 
-/** Runs the setup command of a profile in each of `names`, with a `== <profile>/<name>` header; the failures are added to `failed`. */
+/**
+ * Runs the setup command of a profile in base, then in each of `names`, with a `== <profile>/<name>` header; the
+ * failures are added to `failed`.
+ */
 async function setupEach(scope: Scope, names: string[], failed: string[]): Promise<void> {
-	for (const name of names) {
+	for (const name of [BASE, ...names]) {
 		scope.io.stdout.write(`== ${scope.profile.name}/${name}\n`);
-		const root = join(scope.dir, name);
-		const home = spaceHome(root);
-		if ((await spawnSetup(setupFor(name, home, root, scope.io), name, home, root, scope.io, scope.profile)) !== 0) failed.push(`${scope.profile.name}/${name}`);
+		if ((await setupIn(scope, name)) !== 0) failed.push(`${scope.profile.name}/${name}`);
 	}
 }
 
 /**
- * Runs the setup command in a space, in every space of a profile (`<profile>/--every`), or in every space of every
- * profile that has a setup command (`--every`); never in base. With --every each run gets a `== <profile>/<name>`
- * header, one failure does not stop the rest, and the status is 1 if any failed.
+ * Runs the setup command of a profile in one of its spaces, or in base: there {home} is the profile's home, {space}
+ * the folder above it and {name} base, with the plain environment of the profile (its PI_CODING_AGENT_DIR is that
+ * home, and there is no PI_SPACE). Returns its exit status.
+ */
+function setupIn(scope: Scope, name: string): Promise<number> {
+	const { io, profile } = scope;
+	const root = rootOf(scope, name);
+	if (name === BASE) {
+		const setup = setupFor(BASE, profile.home, root, io);
+		return spawnPi(setup.program, setup.args, io, io.childEnv ?? io.env);
+	}
+	const home = spaceHome(root);
+	return spawnSetup(setupFor(name, home, root, io), name, home, root, io, profile);
+}
+
+/**
+ * Runs the setup command in a space or in base, in base and then every space of a profile (`<profile>/--every`), or
+ * in base and the spaces of every profile that has a setup command (`--every`; pi has none by default). With --every
+ * each run gets a `== <profile>/<name>` header, one failure does not stop the rest, and the status is 1 if any failed.
  */
 async function runSetup(target: PackageTarget, call: Call): Promise<void> {
 	const { io } = call;
@@ -1508,10 +1525,6 @@ async function runSetup(target: PackageTarget, call: Call): Promise<void> {
 		}
 		// Every setup command is checked before the first one runs.
 		if (!scopes.every((scope) => checkSetup(scope.io, scope.setupSource))) return io.exit(2);
-		if (scopes.every((scope) => listSpaces(scope.dir).length === 0)) {
-			io.stdout.write("No spaces yet. Create one with pi-space new <profile>/<name>.\n");
-			return io.exit(0);
-		}
 		const failed: string[] = [];
 		for (const scope of scopes) await setupEach(scope, listSpaces(scope.dir), failed);
 		return finishSetup(failed, io);
@@ -1525,23 +1538,12 @@ async function runSetup(target: PackageTarget, call: Call): Promise<void> {
 	}
 	if (!checkSetup(scope.io, scope.setupSource)) return io.exit(2);
 	if (ref.name === EVERY) {
-		const names = listSpaces(scope.dir);
-		if (names.length === 0) {
-			io.stdout.write(`No spaces yet. Create one with pi-space new ${ref.profile}/<name>.\n`);
-			return io.exit(0);
-		}
 		const failed: string[] = [];
-		await setupEach(scope, names, failed);
+		await setupEach(scope, listSpaces(scope.dir), failed);
 		return finishSetup(failed, io);
 	}
-	if (ref.name === BASE) {
-		io.stderr.write("pi-space: setup runs only in spaces, not in base (the home Pi starts with).\n");
-		return io.exit(1);
-	}
-	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
-	const root = join(scope.dir, ref.name);
-	const home = spaceHome(root);
-	return io.exit(await spawnSetup(setupFor(ref.name, home, root, scope.io), ref.name, home, root, scope.io, scope.profile));
+	if (ref.name !== BASE && !checkSpace(ref.name, scope.dir, io)) return io.exit(1);
+	return io.exit(await setupIn(scope, ref.name));
 }
 
 function finishSetup(failed: string[], io: CliIo): void {
