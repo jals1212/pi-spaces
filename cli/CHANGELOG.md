@@ -6,6 +6,15 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- `pi-space setup` runs in base too: `setup <profile>/base` runs the profile's setup
+  command in its home (`{name}` is `base`, with the plain environment of the profile),
+  `setup <profile>/--every` runs it in base and then in every space, and `setup --every`
+  in the base and spaces of every profile that has a setup command (the built-in `pi`
+  has none). `setup <profile>/base` no longer exits 1, and `--every` no longer prints
+  "No spaces yet" when there is a base to set up.
+
 ## 0.16.1
 
 ### Fixed

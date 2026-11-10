@@ -167,7 +167,7 @@ The `pi-spaces-cli` package adds a `pi-space` command to your shell; it works wi
 | `pi-space` | Opens a picker of the spaces of every profile and starts Pi in the one you choose. |
 | `pi-space <profile>/<name> [pi args...]` | Starts Pi in a named space; `<profile>/base` runs the profile's `commands.base` as it is. |
 | `pi-space new <profile>/<name> [--extension\|--no-extension]` | Creates a space, asking whether it declares the extension, then runs the profile's setup command. |
-| `pi-space setup <profile>/<name\|--every>` | Runs the setup command again. |
+| `pi-space setup <profile>/<name\|base\|--every>` | Runs the setup command again; in `base` too for a profile that has one. |
 | `pi-space rename <profile>/<old> <new>` | Renames a space. |
 | `pi-space remove <profile>/<name>` | Deletes a space, after asking. |
 | `pi-space migrate <profile>/<name\|--every>` | Gives an old space the [`agent/` layout](#moving-an-old-space). |
