@@ -111,6 +111,8 @@ A new space is a folder with an `agent/` folder inside it, empty except for `age
 | `/space switch` | Same as `/space`. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
 | `/space remove <name> [--yes] [--no-backup]` | Deletes a space after asking, then asks whether to keep a backup in `<spaces folder>/.backups` (keeping one is first in the list; dismissing the question keeps the space). `--yes` skips the questions and keeps a backup; it is required without a dialog (print and JSON modes). `--no-backup` deletes without one. |
+| `/space pin` | Pins the space this Pi runs in (`<profile>/<name>`, or `<profile>/base` in base) to the repository of the session's folder, so a bare `pi-space` there starts it (see [`pi-space pin`](cli/README.md#pinning-a-space-to-a-folder)). Only the current space; another one is pinned from a shell with `pi-space pin`. |
+| `/space unpin` | Removes the space pinned to that repository, as `pi-space unpin` does. |
 | `pi --space <name>` | Starts Pi directly in a space, keeping the prompt and every other option. |
 | `pi --space <name> <command> [args...]` | Runs one of Pi's package commands (`install`, `remove`, `uninstall`, `update`, `list`) in a space, or in the base home with `base`: `pi --space work update --extensions`, `pi --space work install npm:<package>`. |
 

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { completeSpaceArgs, runSpaceCommand, statusText, USAGE, type SpaceCommandDeps } from "../src/command.ts";
 import { BACKUPS, createSpace, spaceHome } from "../src/spaces.ts";
@@ -17,7 +18,7 @@ interface Fake {
 	base: string;
 }
 
-function fake(options: { mode?: "tui" | "print"; hasUI?: boolean; confirm?: boolean; select?: (options: string[]) => string | undefined; home?: (dir: string, base: string) => string } = {}): Fake {
+function fake(options: { mode?: "tui" | "print"; hasUI?: boolean; confirm?: boolean; select?: (options: string[]) => string | undefined; home?: (dir: string, base: string) => string; cwd?: (root: string) => string; userHome?: (root: string) => string } = {}): Fake {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-")));
 	const dir = join(root, "spaces");
 	const base = join(root, "agent");
@@ -46,6 +47,8 @@ function fake(options: { mode?: "tui" | "print"; hasUI?: boolean; confirm?: bool
 		declaration: () => "npm:pi-spaces",
 		command: () => ({ command: "/n/node", args: ["/p/cli.js"] }),
 		relaunch: (command, env) => void f.relaunches.push({ command, env }),
+		cwd: () => (options.cwd ? options.cwd(root) : join(root, "project")),
+		userHome: options.userHome ? options.userHome(root) : join(root, "user"),
 	};
 	return f;
 }
@@ -486,7 +489,7 @@ test("unknown subcommands and missing names show the usage", async () => {
 	const f = fake();
 	for (const args of ["nope", "new", "remove", "rename", "rename a", "rename a b c", "switch a b", "new a b"]) await runSpaceCommand(args, f.deps);
 	assert.deepEqual(f.notes, Array(8).fill(["error", USAGE]));
-	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]");
+	assert.equal(USAGE, "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>] | pin | unpin]");
 });
 
 test("statusText names the active space as <profile>/<name>, and base only when pi-spaces opened it", () => {
@@ -511,7 +514,7 @@ test("completeSpaceArgs completes subcommands, then space names", () => {
 	createSpace(f.dir, "work", "x");
 	createSpace(f.dir, "web", "x");
 	const values = (prefix: string) => completeSpaceArgs(prefix, f.dir)?.map((item) => item.value) ?? null;
-	assert.deepEqual(values(""), ["list", "new", "remove", "rename", "switch"]);
+	assert.deepEqual(values(""), ["list", "new", "remove", "rename", "switch", "pin", "unpin"]);
 	assert.deepEqual(values("re"), ["remove", "rename"]);
 	assert.deepEqual(values("rename "), ["rename web", "rename work"]);
 	assert.deepEqual(values("rename w"), ["rename web", "rename work"]);
@@ -547,4 +550,75 @@ test("bare /space without the terminal UI lists the spaces", async () => {
 	assert.deepEqual(f.notes, [["info", `Spaces in ${f.dir}:\n* base\n  work`]]);
 	assert.deepEqual(f.selects, []);
 	assert.equal(f.relaunches.length, 0);
+});
+
+// /space pin and /space unpin: only this Pi's own space, pinned to the repository of the session's folder.
+
+const PIN_TEXT = "# pi-space: this folder is local to this machine; this file ignores all of it, itself included.\n*\n";
+
+/** A git repository at <root>/project with a subfolder, the session's folder. */
+function repo(root: string): string {
+	const project = join(root, "project");
+	mkdirSync(join(project, "src"), { recursive: true });
+	assert.equal(spawnSync("git", ["init", "-q", project]).status, 0);
+	return join(project, "src");
+}
+
+test("pin: /space pin in base pins <profile>/base in the repository root of the session's folder", async () => {
+	const f = fake({ cwd: repo });
+	await runSpaceCommand("pin", f.deps);
+	const file = join(dirname(f.dir), "project", ".pi", "pi-space", "space");
+	assert.deepEqual(f.notes, [["info", `Pinned pi/base in ${file}.`]]);
+	assert.equal(readFileSync(file, "utf8"), "pi/base\n");
+	assert.equal(readFileSync(join(dirname(file), ".gitignore"), "utf8"), PIN_TEXT);
+});
+
+test("pin: /space pin in a space pins that space with this Pi's profile, and names the one it replaces", async () => {
+	const f = fake({ cwd: repo, home: (dir) => join(dir, "work", "agent") });
+	createSpace(f.dir, "work", "x");
+	f.deps.profile = { name: "gentle" } as SpaceCommandDeps["profile"];
+	const file = join(dirname(f.dir), "project", ".pi", "pi-space", "space");
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, "pi/base\n");
+	await runSpaceCommand("pin", f.deps);
+	assert.deepEqual(f.notes, [["info", `Pinned gentle/work in ${file} (was pi/base).`]]);
+	assert.equal(readFileSync(file, "utf8"), "gentle/work\n");
+});
+
+test("pin: /space pin takes no name, only the current space", async () => {
+	const f = fake({ cwd: repo });
+	await runSpaceCommand("pin pi/other", f.deps);
+	assert.deepEqual(f.notes, [["error", USAGE]]);
+	assert.equal(existsSync(join(dirname(f.dir), "project", ".pi")), false);
+});
+
+test("pin: /space pin refuses the home folder and writes nothing", async () => {
+	const f = fake({ cwd: (root) => join(root, "user"), userHome: (root) => join(root, "user") });
+	mkdirSync(join(dirname(f.dir), "user"));
+	await runSpaceCommand("pin", f.deps);
+	const home = join(dirname(f.dir), "user");
+	assert.deepEqual(f.notes, [["error", `${home} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.`]]);
+	assert.equal(existsSync(join(home, ".pi")), false);
+});
+
+test("pin: /space unpin removes the marker, its .gitignore and the folders left empty; with none it says so", async () => {
+	const f = fake({ cwd: repo });
+	await runSpaceCommand("pin", f.deps);
+	f.notes.length = 0;
+	await runSpaceCommand("unpin", f.deps);
+	const folder = join(dirname(f.dir), "project", ".pi", "pi-space");
+	assert.deepEqual(f.notes, [["info", `Unpinned pi/base (removed ${folder}).`]]);
+	assert.equal(existsSync(join(dirname(f.dir), "project", ".pi")), false);
+	f.notes.length = 0;
+	await runSpaceCommand("unpin", f.deps);
+	assert.deepEqual(f.notes, [["info", `No space pinned in ${join(dirname(f.dir), "project")}.`]]);
+	await runSpaceCommand("unpin now", f.deps);
+	assert.deepEqual(f.notes.at(-1), ["error", USAGE]);
+});
+
+test("pin: completion offers pin and unpin, with nothing after them", () => {
+	const f = fake();
+	assert.deepEqual(completeSpaceArgs("p", f.dir), [{ value: "pin", label: "pin" }]);
+	assert.deepEqual(completeSpaceArgs("u", f.dir), [{ value: "unpin", label: "unpin" }]);
+	assert.equal(completeSpaceArgs("pin ", f.dir), null);
 });
