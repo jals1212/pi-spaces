@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.16.2
+
+### Changed
+
+- The skill tells how to pin a space to a repository with `pi-space pin` (pi-spaces-cli 0.18.0).
+
 ## 0.16.1
 
 ### Changed

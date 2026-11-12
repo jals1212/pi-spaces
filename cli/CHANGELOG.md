@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.18.0
+
 ### Added
 
 - `pi-space pin <profile>/<name>` pins a space to a repository, like `.nvmrc`: it writes
@@ -15,6 +17,9 @@ commands and options and a patch version fixes.
   names the file; a space named on the command line still wins. `pi-space pin` alone
   shows the pinned space, `pi-space unpin` removes it, and `pi-space pick` opens the
   picker even where a space is pinned, with the cursor on it.
+- A marker can come with a cloned repository: `pin` and `unpin` never write or remove
+  through a symbolic link, and a marker with control or bidi characters is invalid and
+  never printed.
 
 ### Changed
 
