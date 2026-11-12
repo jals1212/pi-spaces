@@ -9,6 +9,8 @@ export interface PickerItem {
 	active?: boolean;
 	/** Where the cursor starts (the space pinned to the folder), before the active one. */
 	selected?: boolean;
+	/** The space pinned to the folder, marked with a tag. */
+	pinned?: boolean;
 }
 
 export type Key =
@@ -20,6 +22,8 @@ export interface PickerState {
 	query: string;
 	/** An index into visibleItems. */
 	cursor: number;
+	/** The first line, what Enter does; HINT when not given. */
+	hint?: string;
 }
 
 /** What one key leads to: the next state, or the end with the chosen item (none when cancelled). */
@@ -94,9 +98,9 @@ export function visibleItems(state: PickerState): PickerItem[] {
 }
 
 /** No filter, the cursor on the selected item, else on the active one, else on the first. */
-export function initialState(items: PickerItem[]): PickerState {
+export function initialState(items: PickerItem[], hint?: string): PickerState {
 	const selected = items.findIndex((item) => item.selected);
-	return { items, query: "", cursor: selected >= 0 ? selected : Math.max(0, items.findIndex((item) => item.active)) };
+	return { items, query: "", cursor: selected >= 0 ? selected : Math.max(0, items.findIndex((item) => item.active)), ...(hint !== undefined ? { hint } : {}) };
 }
 
 /** A new query puts the cursor on the first match. */
@@ -127,6 +131,9 @@ export function step(state: PickerState, key: Key): Step {
 }
 
 const HINT = "🪐 Pick a space: ↑/↓ move, Enter starts Pi, Esc cancels, type to filter";
+
+/** The tag after the space pinned to the folder (pi-space pin). */
+export const PINNED_MARK = "⌂";
 
 /** The terminal columns of one character: 0 for combining marks and joiners, 2 for East Asian wide ones and emoji, else 1. */
 function charWidth(char: string): number {
@@ -181,7 +188,7 @@ export function renderPicker(state: PickerState, rows: number, columns = 80): st
 
 function frame(state: PickerState, rows: number): string[] {
 	const items = visibleItems(state);
-	const head = [HINT, `> ${state.query}`];
+	const head = [state.hint ?? HINT, `> ${state.query}`];
 	if (items.length === 0) return [...head, "  No space matches."];
 	// The body: each item's line, with its group's header before the first of the group; `at` maps the cursor.
 	const body: string[] = [];
@@ -189,7 +196,7 @@ function frame(state: PickerState, rows: number): string[] {
 	items.forEach((item, index) => {
 		if (item.group !== undefined && item.group !== items[index - 1]?.group) body.push(item.group);
 		if (index === state.cursor) at = body.length;
-		body.push(`${index === state.cursor ? "  > " : "    "}${item.name}${item.active ? " (active)" : ""}`);
+		body.push(`${index === state.cursor ? "  > " : "    "}${item.name}${item.pinned ? ` ${PINNED_MARK}` : ""}${item.active ? " (active)" : ""}`);
 	});
 	// Lines the body may use: what the terminal has left after the head, keeping one for the shell prompt (at least 3).
 	const room = Math.max(3, rows - head.length - 1);
@@ -237,9 +244,9 @@ const ESCAPE_WAIT_MS = 50;
  * A chunk ending in an incomplete escape sequence is held for `escapeWaitMs` to join the next chunk; if none
  * comes, a held lone ESC is the Esc key and any other held sequence is dropped.
  */
-export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeWaitMs = ESCAPE_WAIT_MS, host: PickerHost = process): Promise<PickerResult> {
+export function runPicker(items: PickerItem[], terminal: PickerTerminal, escapeWaitMs = ESCAPE_WAIT_MS, host: PickerHost = process, hint?: string): Promise<PickerResult> {
 	const { stdin, stdout } = terminal;
-	let state = initialState(items);
+	let state = initialState(items, hint);
 	let drawn = 0;
 	const render = () => renderPicker(state, stdout.rows ?? 24, stdout.columns ?? 80);
 	const draw = (lines: string[]) => {

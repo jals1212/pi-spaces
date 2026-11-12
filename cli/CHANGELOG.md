@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- `pi-space pin` alone, on a terminal, opens the picker with the cursor on the pinned
+  space and pins the one you choose (Esc changes nothing). `pi-space pin --show` prints
+  the pinned space, as `pin` alone still does without a terminal.
+- The picker marks the space pinned to the folder with `⌂` (in `pin` and `pick`).
+
 ## 0.18.0
 
 ### Added
