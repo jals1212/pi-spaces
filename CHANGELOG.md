@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.17.0
+
 ### Added
 
 - `/space pin` pins the space this Pi runs in (`<profile>/<name>`, `<profile>/base` in base) to the
