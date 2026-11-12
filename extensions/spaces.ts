@@ -83,7 +83,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("space", {
-		description: "Pick a Pi space to switch to, or list, create, remove and rename spaces (separate agent homes)",
+		description: "Pick a Pi space to switch to, or list, create, remove and rename spaces (separate agent homes), or pin this one to the repository",
 		getArgumentCompletions: (prefix) => completeSpaceArgs(prefix, dir),
 		handler: async (args, ctx) => {
 			// Without a UI (print and JSON modes) notifications go nowhere, so they go to stderr;
@@ -100,6 +100,8 @@ export default function (pi: ExtensionAPI) {
 				declaration: () => findOwnDeclaration(getAgentDir(), packageName, packageRoot),
 				command: () => relaunchCommand(),
 				relaunch: scheduleRelaunch,
+				cwd: () => ctx.cwd,
+				userHome: homedir(),
 			});
 		},
 	});

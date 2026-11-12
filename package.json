@@ -1,6 +1,6 @@
 {
   "name": "pi-spaces",
-  "version": "0.16.2",
+  "version": "0.17.0",
   "description": "Named spaces for Pi: keep several agent homes (sign-ins, packages, settings) and pick one by name.",
   "license": "MIT",
   "author": "jals1212",
@@ -21,6 +21,7 @@
   "exports": {
     "./spaces": "./dist/spaces.js",
     "./config": "./dist/config.js",
+    "./pin": "./dist/pin.js",
     "./package.json": "./package.json"
   },
   "pi": {
