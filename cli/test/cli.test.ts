@@ -3715,3 +3715,30 @@ test("pin: unpin removes the marker that applies here when it is inside the repo
 	assert.equal(r.out, `Unpinned pi/work (removed ${join(r.root, "repo/sub/.pi/pi-space")}).\n`);
 	assert.equal(r.exists["repo/sub/.pi"], false);
 });
+
+test("pin: the repository root keeps the spelling of the current folder, through a link to it", { skip: process.platform === "win32" }, async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pin-spell-")));
+	try {
+		const repo = join(root, "repo");
+		mkdirSync(join(repo, "src"), { recursive: true });
+		assert.equal(spawnSync("git", ["init", "-q", repo]).status, 0);
+		symlinkSync(repo, join(root, "alias"));
+		let code: number | undefined;
+		let out = "";
+		const io: CliIo = {
+			stdin: Object.assign(new PassThrough(), { isTTY: false }),
+			stdout: { write: (text: string) => void (out += text) },
+			stderr: { write: () => {} },
+			env: { PI_CODING_AGENT_DIR: join(root, "agent") },
+			home: root,
+			cwd: join(root, "alias", "src"),
+			spawn: async () => ({ status: 0 }),
+			exit: (value) => void (code = value),
+		};
+		await main(["pin", "pi/base"], io);
+		assert.equal(code, 0);
+		assert.equal(out, `Pinned pi/base in ${join(root, "alias", ".pi", "pi-space", "space")}.\n`);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
