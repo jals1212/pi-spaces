@@ -5,8 +5,10 @@
 export interface PickerItem {
 	group?: string;
 	name: string;
-	/** The space this Pi runs in; the cursor starts on it. */
+	/** The space this Pi runs in; the cursor starts on it unless another item is selected. */
 	active?: boolean;
+	/** Where the cursor starts (the space pinned to the folder), before the active one. */
+	selected?: boolean;
 }
 
 export type Key =
@@ -91,9 +93,10 @@ export function visibleItems(state: PickerState): PickerItem[] {
 	return state.items.filter((item) => item.name.toLowerCase().includes(query) || (item.group?.toLowerCase().includes(query) ?? false));
 }
 
-/** No filter, the cursor on the active item, else on the first. */
+/** No filter, the cursor on the selected item, else on the active one, else on the first. */
 export function initialState(items: PickerItem[]): PickerState {
-	return { items, query: "", cursor: Math.max(0, items.findIndex((item) => item.active)) };
+	const selected = items.findIndex((item) => item.selected);
+	return { items, query: "", cursor: selected >= 0 ? selected : Math.max(0, items.findIndex((item) => item.active)) };
 }
 
 /** A new query puts the cursor on the first match. */

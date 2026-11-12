@@ -6,6 +6,26 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.18.0
+
+### Added
+
+- `pi-space pin <profile>/<name>` pins a space to a repository, like `.nvmrc`: it writes
+  `.pi/pi-space/space` in the git root (the current folder outside one), next to a
+  `.gitignore` that ignores that folder, itself included. A bare `pi-space` in that
+  folder or below then starts the pinned space at once, after a line on stderr that
+  names the file; a space named on the command line still wins. `pi-space pin` alone
+  shows the pinned space, `pi-space unpin` removes it, and `pi-space pick` opens the
+  picker even where a space is pinned, with the cursor on it.
+- A marker can come with a cloned repository: `pin` and `unpin` never write or remove
+  through a symbolic link, and a marker with control or bidi characters is invalid and
+  never printed.
+
+### Changed
+
+- A bare `pi-space` starts the pinned space, when there is one, instead of opening the
+  picker; use `pi-space pick` for the picker there.
+
 ## 0.17.0
 
 ### Changed
