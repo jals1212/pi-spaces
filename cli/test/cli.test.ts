@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, normalize, resolve } from "node:path";
 import { PassThrough } from "node:stream";
@@ -3573,4 +3573,145 @@ test("pin: unpin also removes a .pi left empty, and nothing else around it", asy
 	const r = await run(["unpin"], { files: { [MARKER]: "pi/work\n", [MARKER_IGNORE]: IGNORE_TEXT, "repo/.keep": "" }, cwd: "repo", exists: ["repo/.pi", "repo/.keep"] });
 	assert.equal(r.code, 0, r.err);
 	assert.deepEqual(r.exists, { "repo/.pi": false, "repo/.keep": true });
+});
+
+// Robustness of the marker: what a cloned repository or a broken file can put there.
+
+test("pin: a marker saved with a byte order mark still names its space", async () => {
+	const r = await run([], { spaces: ["work"], files: { [MARKER]: "\uFEFFpi/work\n" }, cwd: "repo" });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.spawned.map(({ args }) => args), [["--space", "work"]]);
+});
+
+test("pin: a marker with control or bidi characters is invalid and never echoed to the terminal", async () => {
+	for (const text of ["pi/\x1b[31mwork\n", "pi/wo\u202erk\n", "pi/w\tork\n"]) {
+		const r = await run([], { spaces: ["work"], files: { [MARKER]: text }, cwd: "repo" });
+		assert.equal(r.code, 2, JSON.stringify(text));
+		assert.equal(r.err, `pi-space: ${marker(r)}: name one space as <profile>/<name>, e.g. pi/work.\n`);
+		assert.equal(r.spawned.length, 0);
+	}
+});
+
+test("pin: an unreadable marker exits 1 with the reason, no stack trace, for pi-space, pin and unpin", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
+	for (const argv of [[], ["pin"], ["unpin"]]) {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pin-read-")));
+		try {
+			const file = join(root, MARKER);
+			mkdirSync(dirname(file), { recursive: true });
+			writeFileSync(file, "pi/base\n");
+			chmodSync(file, 0o000);
+			let code: number | undefined;
+			let err = "";
+			let out = "";
+			const io: CliIo = {
+				stdin: Object.assign(new PassThrough(), { isTTY: false }),
+				stdout: { write: (text: string) => void (out += text) },
+				stderr: { write: (text: string) => void (err += text) },
+				env: { PI_CODING_AGENT_DIR: join(root, "agent") },
+				home: root,
+				cwd: join(root, "repo"),
+				spawn: async () => ({ status: 0 }),
+				exit: (value) => void (code = value),
+			};
+			await main(argv, io);
+			if (argv[0] === "unpin") {
+				// The file goes whether or not it can be read: unpin removes it, naming it as unreadable.
+				assert.equal(code, 0, err);
+				assert.equal(existsSync(file), false);
+			} else {
+				assert.equal(code, 1, argv.join(" "));
+				assert.match(err, new RegExp(`^pi-space: cannot read ${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `));
+				assert.equal(out, "");
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+});
+
+test("pin: a marker that is a folder is no marker", async () => {
+	const r = await run([], { spaces: ["work"], files: { [`${MARKER}/x`]: "" }, cwd: "repo" });
+	assert.equal(r.code, 2);
+	assert.match(r.err, /^Usage: pi-space/);
+	assert.equal(r.spawned.length, 0);
+});
+
+test("pin: pin never writes through a symbolic link, and leaves what it points to alone", { skip: process.platform === "win32" }, async () => {
+	for (const link of ["repo/.pi", "repo/.pi/pi-space", MARKER, MARKER_IGNORE]) {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pin-link-")));
+		try {
+			const outside = join(root, "outside");
+			mkdirSync(outside);
+			const path = join(root, link);
+			mkdirSync(dirname(path), { recursive: true });
+			const target = link.endsWith("space") || link.endsWith(".gitignore") ? join(outside, "file") : outside;
+			if (target.endsWith("file")) writeFileSync(target, "kept\n");
+			symlinkSync(target, path);
+			let code: number | undefined;
+			let err = "";
+			const io: CliIo = {
+				stdin: Object.assign(new PassThrough(), { isTTY: false }),
+				stdout: { write: () => {} },
+				stderr: { write: (text: string) => void (err += text) },
+				env: { PI_CODING_AGENT_DIR: join(root, "agent") },
+				home: root,
+				cwd: join(root, "repo"),
+				spawn: async () => ({ status: 0 }),
+				exit: (value) => void (code = value),
+			};
+			await main(["pin", "pi/base"], io);
+			assert.equal(code, 1, link);
+			assert.equal(err, `pi-space: ${path} is a symbolic link; pi-space does not write through it.\n`, link);
+			assert.deepEqual(readdirSync(outside), target.endsWith("file") ? ["file"] : [], link);
+			if (target.endsWith("file")) assert.equal(readFileSync(target, "utf8"), "kept\n", link);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+});
+
+test("pin: a write that fails leaves the marker as it was and no temporary file", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-pin-fail-")));
+	const folder = join(root, "repo/.pi/pi-space");
+	try {
+		mkdirSync(folder, { recursive: true });
+		writeFileSync(join(folder, "space"), "pi/base\n");
+		writeFileSync(join(folder, ".gitignore"), "*\n");
+		chmodSync(folder, 0o555);
+		mkdirSync(join(root, "spaces/work"), { recursive: true });
+		let code: number | undefined;
+		let err = "";
+		const io: CliIo = {
+			stdin: Object.assign(new PassThrough(), { isTTY: false }),
+			stdout: { write: () => {} },
+			stderr: { write: (text: string) => void (err += text) },
+			env: { PI_CODING_AGENT_DIR: join(root, "agent") },
+			home: root,
+			cwd: join(root, "repo"),
+			spawn: async () => ({ status: 0 }),
+			exit: (value) => void (code = value),
+		};
+		await main(["pin", "pi/work"], io);
+		assert.equal(code, 1);
+		assert.match(err, new RegExp(`^pi-space: cannot write ${join(folder, "space").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `));
+		assert.deepEqual(readdirSync(folder).sort(), [".gitignore", "space"]);
+		assert.equal(readFileSync(join(folder, "space"), "utf8"), "pi/base\n");
+	} finally {
+		chmodSync(folder, 0o755);
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("pin: a pin that cannot make its folder leaves nothing behind", async () => {
+	const r = await run(["pin", "pi/base"], { files: { "repo/.pi": "a file, not a folder" }, cwd: "repo", read: ["repo/.pi"] });
+	assert.equal(r.code, 1);
+	assert.match(r.err, /^pi-space: cannot write /);
+	assert.equal(r.read["repo/.pi"], "a file, not a folder");
+});
+
+test("pin: unpin removes the marker that applies here when it is inside the repository, even below its root", async () => {
+	const r = await run(["unpin"], { git: ["repo"], files: { "repo/sub/.pi/pi-space/space": "pi/work\n", "repo/sub/deep/.keep": "" }, cwd: "repo/sub/deep", exists: ["repo/sub/.pi"] });
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out, `Unpinned pi/work (removed ${join(r.root, "repo/sub/.pi/pi-space")}).\n`);
+	assert.equal(r.exists["repo/sub/.pi"], false);
 });

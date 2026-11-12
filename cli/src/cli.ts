@@ -13,9 +13,9 @@
 // A space is a root folder, <spaces folder>/<name>, with its agent home inside it, <root>/agent (an old space has no agent
 // folder and its root is its agent home; spaceHome tells which). {home} is the agent home, {space} the root.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
@@ -1716,7 +1716,7 @@ function pickerChoices(call: Call): PickerChoice[] {
 	const activeHome = call.io.env.PI_SPACE_HOME;
 	// The pinned space, if any and valid, is where the cursor starts.
 	const pinFile = findPin(currentFolder(call.io), call.io.home);
-	const pinned = pinFile === undefined ? undefined : readPin(pinFile);
+	const pinned = pinFile === undefined ? undefined : readPin(pinFile).name;
 	const scopes = allScopes(call);
 	return scopes.flatMap(({ profile, dir }) =>
 		[BASE, ...listSpaces(dir)].map((space): PickerChoice => {
@@ -1762,45 +1762,85 @@ function currentFolder(io: CliIo): string {
 	return resolve(io.cwd ?? process.cwd());
 }
 
+/** Whether `path` is a file, following links; false for anything that cannot be read as one. */
+function isFile(path: string): boolean {
+	try {
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+}
+
+/** Whether `path` is a symbolic link itself (not followed); false when there is nothing there. */
+function isLink(path: string): boolean {
+	try {
+		return lstatSync(path).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
 /**
- * The marker that applies in `from`: the first <folder>/.pi/pi-space/space from it upwards. The home folder is
+ * The marker that applies in `from`: the first <folder>/.pi/pi-space/space file from it upwards. The home folder is
  * skipped: its .pi is Pi's own folder, not a project.
  */
 function findPin(from: string, home: string): string | undefined {
 	for (let folder = from; ; folder = dirname(folder)) {
 		const file = join(folder, PIN_FOLDER, PIN_FILE);
-		if (!samePath(folder, home) && existsSync(file)) return file;
+		if (!samePath(folder, home) && isFile(file)) return file;
 		if (dirname(folder) === folder) return undefined;
 	}
 }
 
-/** The one `<profile>/<name>` a marker names, blank lines and # comments left out; undefined when it does not name exactly one. */
-function readPin(file: string): string | undefined {
-	const lines = readFileSync(file, "utf8")
+/** Control characters (C0, DEL, C1) and the bidi controls that could rewrite what the terminal shows. */
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+
+/**
+ * What a marker names: `name` when it holds exactly one `<profile>/<name>` (blank lines and # comments left out),
+ * neither when it does not, and `error` when it cannot be read. A marker may come with a cloned repository, so a
+ * line with control or bidi characters names nothing: it is never echoed to the terminal.
+ */
+function readPin(file: string): { name?: string; error?: string } {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch (error) {
+		return { error: (error as Error).message };
+	}
+	const lines = text
 		.split(/\r?\n/)
-		.map((text) => text.trim())
-		.filter((text) => text !== "" && !text.startsWith("#"));
-	if (lines.length !== 1) return undefined;
+		.map((line) => line.trim())
+		.filter((line) => line !== "" && !line.startsWith("#"));
+	if (lines.length !== 1 || UNSAFE.test(lines[0])) return {};
 	const slash = lines[0].indexOf("/");
-	return slash > 0 && slash < lines[0].length - 1 ? lines[0] : undefined;
+	return slash > 0 && slash < lines[0].length - 1 ? { name: lines[0] } : {};
 }
 
-/** readPin, or exit 2 naming the file and the form. */
+/** readPin's name, or exit: 1 naming the file and the reason when it cannot be read, 2 with the form when it names no space. */
 function pinnedName(file: string, io: CliIo): string | undefined {
-	const name = readPin(file);
-	if (name === undefined) {
+	const { name, error } = readPin(file);
+	if (error !== undefined) {
+		io.stderr.write(`pi-space: cannot read ${file}: ${error}\n`);
+		io.exit(1);
+	} else if (name === undefined) {
 		io.stderr.write(`pi-space: ${file}: name one space as <profile>/<name>, e.g. pi/work.\n`);
 		io.exit(2);
 	}
 	return name;
 }
 
-/** Where pin and unpin work: the root of the git repository of the current folder, else the current folder. */
+/** Where pin and unpin work: the root of the git repository of the current folder, else the current folder (also when git is missing or hangs). */
 function pinTarget(io: CliIo): string {
 	const here = currentFolder(io);
-	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8" });
+	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 });
 	const top = git.status === 0 ? git.stdout.trim() : "";
 	return top !== "" ? resolve(top) : here;
+}
+
+/** The first of .pi, .pi/pi-space and the given files in it that is a symbolic link, which pin and unpin never go through. */
+function linkIn(target: string, files: string[]): string | undefined {
+	const folder = join(target, PIN_FOLDER);
+	return [dirname(folder), folder, ...files.map((name) => join(folder, name))].find(isLink);
 }
 
 /** A bare pi-space where a space is pinned: that space, as if it were named, after a line that names the marker. */
@@ -1826,7 +1866,12 @@ function showPin(call: Call): void {
 	return io.exit(0);
 }
 
-/** `pi-space pin <profile>/<name>`: writes the marker, and its .gitignore when there is none, once the space is known to exist. */
+/**
+ * `pi-space pin <profile>/<name>`: writes the marker, and its .gitignore when there is none, once the space is known to
+ * exist. It never writes through a symbolic link (a cloned repository could point .pi/pi-space anywhere). The marker is
+ * written to a temporary file and renamed over the old one, so a failure leaves it as it was; a folder this call made
+ * is removed again when the write fails.
+ */
 function pinSpace(text: string, call: Call): void {
 	const { io } = call;
 	const ref = qualify(text, call);
@@ -1838,16 +1883,29 @@ function pinSpace(text: string, call: Call): void {
 		io.stderr.write(`pi-space: ${target} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.\n`);
 		return io.exit(2);
 	}
+	const link = linkIn(target, [PIN_FILE, PIN_IGNORE]);
+	if (link !== undefined) {
+		io.stderr.write(`pi-space: ${link} is a symbolic link; pi-space does not write through it.\n`);
+		return io.exit(1);
+	}
 	const folder = join(target, PIN_FOLDER);
 	const file = join(folder, PIN_FILE);
 	const name = `${ref.profile}/${ref.name}`;
-	const previous = existsSync(file) ? readPin(file) : undefined;
+	const previous = isFile(file) ? readPin(file).name : undefined;
+	const temporary = join(folder, `.${PIN_FILE}-${process.pid}.tmp`);
+	let made: string | undefined;
 	try {
-		mkdirSync(folder, { recursive: true });
+		made = mkdirSync(folder, { recursive: true });
 		const ignore = join(folder, PIN_IGNORE);
-		if (!existsSync(ignore)) writeFileSync(ignore, PIN_IGNORE_TEXT);
-		writeFileSync(file, `${name}\n`);
+		if (!existsSync(ignore)) writeFileSync(ignore, PIN_IGNORE_TEXT, { flag: "wx" });
+		writeFileSync(temporary, `${name}\n`, { flag: "wx" });
+		renameSync(temporary, file);
 	} catch (error) {
+		// Cleaning up must not hide the reason: a path under a file (ENOTDIR) cannot be removed either.
+		try {
+			if (made !== undefined) rmSync(made, { recursive: true, force: true });
+			else rmSync(temporary, { force: true });
+		} catch {}
 		io.stderr.write(`pi-space: cannot write ${file}: ${(error as Error).message}\n`);
 		return io.exit(1);
 	}
@@ -1855,32 +1913,49 @@ function pinSpace(text: string, call: Call): void {
 	return io.exit(0);
 }
 
-/** `pi-space unpin`: removes the marker of the repository (else the current folder), the .gitignore pin wrote, and the folder once empty. */
+/** Whether `path` is `folder` or inside it. */
+function isWithin(path: string, folder: string): boolean {
+	const rel = relative(folder, path);
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * `pi-space unpin`: removes the marker that applies here when it is inside the repository (else the current folder),
+ * the .gitignore pin wrote, and the folder once empty (and .pi, when nothing else is in it). A marker of a folder above
+ * is named and left, and nothing is removed through a symbolic link.
+ */
 function unpin(call: Call): void {
 	const { io } = call;
 	const target = pinTarget(io);
-	const folder = join(target, PIN_FOLDER);
-	const file = join(folder, PIN_FILE);
-	if (!existsSync(file)) {
-		const inherited = findPin(currentFolder(io), io.home);
-		io.stdout.write(`No space pinned in ${target}${inherited !== undefined ? `; the one here comes from ${inherited}` : ""}.\n`);
+	const here = findPin(currentFolder(io), io.home);
+	// <owner>/.pi/pi-space/space: the folder the marker belongs to.
+	const owner = here === undefined ? undefined : dirname(dirname(dirname(here)));
+	if (here === undefined || owner === undefined || !isWithin(owner, target)) {
+		io.stdout.write(`No space pinned in ${target}${here !== undefined ? `; the one here comes from ${here}` : ""}.\n`);
 		return io.exit(0);
 	}
-	const name = readPin(file) ?? "an invalid marker";
+	const link = linkIn(owner, []);
+	if (link !== undefined) {
+		io.stderr.write(`pi-space: ${link} is a symbolic link; pi-space does not remove through it.\n`);
+		return io.exit(1);
+	}
+	const folder = dirname(here);
+	const { name, error } = readPin(here);
+	const label = name ?? (error !== undefined ? "an unreadable marker" : "an invalid marker");
 	try {
-		rmSync(file);
+		rmSync(here);
 		const ignore = join(folder, PIN_IGNORE);
-		if (existsSync(ignore) && readFileSync(ignore, "utf8") === PIN_IGNORE_TEXT) rmSync(ignore);
+		if (isFile(ignore) && !isLink(ignore) && readFileSync(ignore, "utf8") === PIN_IGNORE_TEXT) rmSync(ignore);
 		if (readdirSync(folder).length === 0) {
 			rmdirSync(folder);
 			// A .pi that pin made and that holds nothing else goes too; one with anything in it is Pi's and stays.
 			if (readdirSync(dirname(folder)).length === 0) rmdirSync(dirname(folder));
-			io.stdout.write(`Unpinned ${name} (removed ${folder}).\n`);
+			io.stdout.write(`Unpinned ${label} (removed ${folder}).\n`);
 		} else {
-			io.stdout.write(`Unpinned ${name} (removed ${file}; ${folder} holds other files and stays).\n`);
+			io.stdout.write(`Unpinned ${label} (removed ${here}; ${folder} holds other files and stays).\n`);
 		}
 	} catch (error) {
-		io.stderr.write(`pi-space: cannot remove ${file}: ${(error as Error).message}\n`);
+		io.stderr.write(`pi-space: cannot remove ${here}: ${(error as Error).message}\n`);
 		return io.exit(1);
 	}
 	return io.exit(0);

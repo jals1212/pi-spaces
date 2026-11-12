@@ -95,7 +95,8 @@ pi-space: gentle/work (from /Users/me/work/erp/.pi/pi-space/space)
 - A bare `pi-space` in that folder or any folder below starts the pinned space at once, as `pi-space <profile>/<name>` does, after a line on stderr that names the file. The marker is looked for from the current folder upwards, and the nearest wins. Your home folder is skipped (its `.pi` is Pi's own folder), and `pin` refuses it.
 - A space named on the command line wins: `pi-space pi/other` starts `pi/other`. `pi-space pick` opens the picker, with the cursor on the pinned space.
 - A marker that does not name one space as `<profile>/<name>` exits 2 and names the file; one that names a missing space or profile fails as `pi-space <profile>/<name>` would. Neither falls back to the picker.
-- `pi-space pin` alone prints the space pinned here and its file. `pi-space unpin` removes the marker of the repository, the `.gitignore` that `pin` wrote, and the `pi-space` folder (and `.pi`) once empty; run from a folder below another marker, it names that one and leaves it.
+- `pi-space pin` alone prints the space pinned here and its file. `pi-space unpin` removes the marker that applies here when it is inside the repository (the current folder outside one), the `.gitignore` that `pin` wrote, and the `pi-space` folder (and `.pi`) once empty; a marker of a folder above it is named and left.
+- A marker may come with a cloned repository, so `pin` and `unpin` never write or remove through a symbolic link (`.pi`, `.pi/pi-space` or a file in it), and a marker whose line holds control or bidi characters is invalid and never printed. `pin` writes the marker to a temporary file and renames it, so a write that fails leaves the old one as it was.
 
 Only `pi-space` reads the marker: Pi itself, `pi` and `/space` do not.
 
