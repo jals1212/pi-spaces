@@ -6,10 +6,11 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.19.0
+
 ### Changed
 
 - The marker logic comes from `pi-spaces/pin`, shared with `/space pin`; it needs pi-spaces 0.17.0.
-
 - `pi-space pin` alone, on a terminal, opens the picker with the cursor on the pinned
   space and pins the one you choose (Esc changes nothing). `pi-space pin --show` prints
   the pinned space, as `pin` alone still does without a terminal.
