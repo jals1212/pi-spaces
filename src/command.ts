@@ -2,6 +2,7 @@
 import { join } from "node:path";
 import type { Profile } from "./config.ts";
 import { profileCommand } from "./launch.ts";
+import { PinError, pinnedMessage, removePin, unpinnedMessage, writePin } from "./pin.ts";
 import { type Command, parseSpaceFlag, relaunchEnv, resolveSwitch } from "./relaunch.ts";
 import {
 	activeSpace,
@@ -19,10 +20,10 @@ import {
 	SpaceError,
 } from "./spaces.ts";
 
-export const USAGE = "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>]]";
+export const USAGE = "Usage: /space [list | new <name> | remove <name> [--yes] [--no-backup] | rename <old> <new> | switch [<name>] | pin | unpin]";
 const KEEP_BACKUP = "Keep a backup";
 const NO_BACKUP = "Delete without a backup";
-const SUBCOMMANDS = ["list", "new", "remove", "rename", "switch"];
+const SUBCOMMANDS = ["list", "new", "remove", "rename", "switch", "pin", "unpin"];
 
 export interface SpaceCommandContext {
 	mode: string;
@@ -49,6 +50,10 @@ export interface SpaceCommandDeps {
 	/** The command that starts this Pi process again. */
 	command(): Command;
 	relaunch(command: Command, env: Env): void;
+	/** The session's folder: /space pin and /space unpin work in its repository. */
+	cwd(): string;
+	/** The user's home folder, whose .pi is Pi's own and is never pinned. */
+	userHome: string;
 }
 
 export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Promise<void> {
@@ -78,6 +83,8 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 			ctx.ui.notify(`Renamed space "${rest[0]}" to "${rest[1]}".`, "info");
 			return;
 		}
+		if (sub === "pin" && rest.length === 0) return pin(deps);
+		if (sub === "unpin" && rest.length === 0) return unpin(deps);
 		if (sub === "switch" && rest.length === 0) return await pickAndSwitch(deps);
 		if (sub === "switch" && rest.length === 1) return switchTo(rest[0], deps);
 		ctx.ui.notify(USAGE, "error");
@@ -137,6 +144,31 @@ async function remove({ name, yes, backup }: Removal, deps: SpaceCommandDeps): P
 	}
 	removeSpace(deps.dir, name, deps.currentHome(), protectedHomes(deps));
 	ctx.ui.notify(`Removed space "${name}".`, "info");
+}
+
+/**
+ * /space pin: pins this Pi's own space, as pi-space names it (`<profile>/<name>`, `<profile>/base` in base), to the
+ * repository of the session's folder; a bare pi-space there then starts it. Only the current space: another one is
+ * pinned from a shell with pi-space pin.
+ */
+function pin(deps: SpaceCommandDeps): void {
+	const space = activeSpace(deps.dir, deps.currentHome()) ?? BASE;
+	try {
+		deps.ctx.ui.notify(pinnedMessage(writePin(deps.cwd(), deps.userHome, `${deps.profile?.name ?? "pi"}/${space}`)), "info");
+	} catch (error) {
+		if (!(error instanceof PinError)) throw error;
+		deps.ctx.ui.notify(error.message, "error");
+	}
+}
+
+/** /space unpin: removes the marker that applies in the session's folder, as pi-space unpin does. */
+function unpin(deps: SpaceCommandDeps): void {
+	try {
+		deps.ctx.ui.notify(unpinnedMessage(removePin(deps.cwd(), deps.userHome)), "info");
+	} catch (error) {
+		if (!(error instanceof PinError)) throw error;
+		deps.ctx.ui.notify(error.message, "error");
+	}
 }
 
 function protectedHomes(deps: SpaceCommandDeps): string[] {

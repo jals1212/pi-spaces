@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Added
+
+- `/space pin` pins the space this Pi runs in (`<profile>/<name>`, `<profile>/base` in base) to the
+  repository of the session's folder, the same marker as `pi-space pin`, so a bare `pi-space` there
+  starts it; `/space unpin` removes it. Only the current space.
+- `pi-spaces/pin` exports the marker logic that `pi-space` and `/space` share.
+
 ### Changed
 
 - The skill tells that `pi-space pin` alone opens a picker and `pi-space pin --show` prints the pinned space.

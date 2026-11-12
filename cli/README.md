@@ -98,7 +98,7 @@ pi-space: gentle/work (from /Users/me/work/erp/.pi/pi-space/space)
 - `pi-space pin` alone, on a terminal, opens the picker with the cursor on the pinned space, marked `⌂`, and pins the one you choose (Esc changes nothing); `pi-space pin --show`, or `pin` without a terminal, prints the space pinned here and its file. `pi-space unpin` removes the marker that applies here when it is inside the repository (the current folder outside one), the `.gitignore` that `pin` wrote, and the `pi-space` folder (and `.pi`) once empty; a marker of a folder above it is named and left.
 - A marker may come with a cloned repository, so `pin` and `unpin` never write or remove through a symbolic link (`.pi`, `.pi/pi-space` or a file in it), and a marker whose line holds control or bidi characters is invalid and never printed. `pin` writes the marker to a temporary file and renames it, so a write that fails leaves the old one as it was.
 
-Only `pi-space` reads the marker: Pi itself, `pi` and `/space` do not.
+Only `pi-space` reads the marker: Pi itself, `pi` and `/space switch` do not. Inside Pi, `/space pin` pins the space that session runs in, and `/space unpin` removes the marker, with the same rules.
 
 ### Packages in a space, or in many
 
