@@ -12,9 +12,10 @@
 // Every space is named <profile>/<name>; the profile of the config file stands in for the command, the spaces folder and the setup.
 // A space is a root folder, <spaces folder>/<name>, with its agent home inside it, <root>/agent (an old space has no agent
 // folder and its root is its agent home; spaceHome tells which). {home} is the agent home, {space} the root.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
@@ -58,7 +59,10 @@ import {
 export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] [--config <path>] [<space> [pi args...] | <command> ...]
        pi-space --help | --version
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
-  pi-space                                     pick a space and start Pi in it
+  pi-space                                     start the space pinned to this folder (pi-space pin), else pick a space and start Pi in it
+  pi-space pick                                pick a space and start Pi in it, even where one is pinned
+  pi-space pin [<space>]                       pin a space to this repository (.pi/pi-space, ignored by git), or show the one pinned here
+  pi-space unpin                               remove the space pinned to this repository
   pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
                                                words with no option among them are one message: pi-space pi/work fix the tests
   pi-space list                                list the spaces of every profile
@@ -131,6 +135,9 @@ export type CliCommand = (
 	| { kind: "completion"; shell?: string }
 	| { kind: "complete"; words: string[] }
 	| { kind: "picker" }
+	| { kind: "pick" }
+	| { kind: "pin"; name?: string }
+	| { kind: "unpin" }
 	| { kind: "usage" }
 	| { kind: "launch"; name: string; args: string[] }
 ) &
@@ -300,6 +307,40 @@ const COMMANDS: Record<string, CommandHelp> = {
 		calls: [],
 		examples: ["pi-space completion zsh", "source <(pi-space completion zsh)", "pi-space completion powershell", "pi-space completion powershell | Out-String | Invoke-Expression"],
 	},
+	pin: {
+		summary: "pin a space to this folder, or show the one pinned here",
+		usage: "pin [<space>]",
+		about: [
+			"With a space it writes .pi/pi-space/space in the root of the git repository (else in the current folder), next to a .gitignore that ignores that folder, itself included, so nothing shows in git status; the rest of .pi is never touched.",
+			"A bare pi-space in that folder or below then starts the pinned space at once; a space named on the command line wins, and pi-space pick still opens the picker.",
+			"Alone it prints the space pinned here and the file it comes from. The marker is looked for from the current folder upwards; the home folder is skipped (~/.pi is Pi's own folder) and cannot be pinned.",
+		],
+		args: [["<space>", "<profile>/<name>: a space of a profile, or <profile>/base; it must exist"]],
+		options: [],
+		calls: ["dir", "config"],
+		examples: ["pi-space pin gentle/work", "pi-space pin pi/base", "pi-space pin"],
+	},
+	unpin: {
+		summary: "remove the space pinned to this folder",
+		usage: "unpin",
+		about: [
+			"It removes .pi/pi-space/space from the root of the git repository (else the current folder), the .gitignore pin wrote, and the folder when it is then empty (and .pi when nothing else is in it); the rest of .pi is never touched.",
+			"A marker of a folder above is named, never removed.",
+		],
+		args: [],
+		options: [],
+		calls: [],
+		examples: ["pi-space unpin"],
+	},
+	pick: {
+		summary: "pick a space even where one is pinned",
+		usage: "pick",
+		about: ["The picker of a bare pi-space, with the cursor on the pinned space when there is one."],
+		args: [],
+		options: [],
+		calls: ["setup", "config"],
+		examples: ["pi-space pick"],
+	},
 };
 
 /** --help after a command; GENERAL_OPTIONS has the --help that comes first. */
@@ -371,6 +412,12 @@ function parseCommand(args: string[]): CliCommand {
 	}
 	if (first === "setup" || first === "migrate") return parseTarget(first, rest);
 	if (first === "init") return rest.length === 0 ? { kind: "init" } : { kind: "usage" };
+	if (first === "pick" || first === "unpin") return rest.length === 0 ? { kind: first } : { kind: "usage" };
+	if (first === "pin") {
+		if (rest.length > 1) return { kind: "usage" };
+		if (rest[0]?.startsWith("-")) return { kind: "unknown-option", option: rest[0] };
+		return rest.length === 1 ? { kind: "pin", name: rest[0] } : { kind: "pin" };
+	}
 	if (first === "completion") return rest.length <= 1 ? { kind: "completion", ...(rest.length === 1 ? { shell: rest[0] } : {}) } : { kind: "usage" };
 	if (first === "__complete") return { kind: "complete", words: rest };
 	if (first === "rename") return rest.length === 2 ? { kind: "rename", from: rest[0], to: rest[1] } : { kind: "usage" };
@@ -652,6 +699,8 @@ export interface CliIo {
 	/** The environment for the started Pi; main sets it for every profile it runs (see scopeOf). */
 	childEnv?: Env;
 	home: string;
+	/** The current folder, where a pinned space is looked for; default process.cwd(). */
+	cwd?: string;
 	spawn(program: string, args: string[], options: SpawnOptions): Promise<SpawnResult>;
 	exit(code: number): void;
 }
@@ -679,6 +728,7 @@ export function processIo(proc: NodeJS.Process = process): CliIo {
 		stderr: proc.stderr,
 		env: proc.env,
 		home: homedir(),
+		cwd: proc.cwd(),
 		spawn: spawnChild,
 		exit: (code) => proc.exit(code),
 	};
@@ -773,6 +823,7 @@ function qualify(text: string, call: Call): { profile: string; name: string } | 
 function spansProfiles(command: CliCommand): boolean {
 	switch (command.kind) {
 		case "picker":
+		case "pick":
 		case "list":
 			return true;
 		case "packages":
@@ -827,7 +878,9 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			io.stderr.write(`pi-space: ${configFile}: "default" is no longer used; name each space with its profile (<profile>/<name>) and remove "default" from the file.\n`);
 		}
 		const call: Call = { options: command, config, configFile, io };
-		if (spansProfiles(command) && (command.command !== undefined || command.dir !== undefined)) {
+		// A bare pi-space where a space is pinned starts that one space, so it does not span profiles.
+		const pinned = command.kind === "picker" ? findPin(currentFolder(io), io.home) : undefined;
+		if (spansProfiles(command) && pinned === undefined && (command.command !== undefined || command.dir !== undefined)) {
 			io.stderr.write("pi-space: --command and --dir apply to one profile; name it: <profile>/<name> or <profile>/--every.\n");
 			return io.exit(2);
 		}
@@ -864,7 +917,13 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 				return ref && (await launch(ref.name, command.args, scopeOf(call, ref.profile)));
 			}
 			case "picker":
+				return pinned === undefined ? await pick(call) : await launchPinned(pinned, call);
+			case "pick":
 				return await pick(call);
+			case "pin":
+				return command.name === undefined ? showPin(call) : pinSpace(command.name, call);
+			case "unpin":
+				return unpin(call);
 		}
 	} catch (error) {
 		if (!(error instanceof ConfigError)) throw error;
@@ -1179,6 +1238,8 @@ function commandArguments(command: string, profiles: CompletionProfile[]): strin
 		case "install":
 		case "uninstall":
 			return [...spaceCandidates(profiles, true), ...everyCandidates(profiles, "every profile, base first", (name) => `base and every space of ${name}`), ...options];
+		case "pin":
+			return [...spaceCandidates(profiles, true), ...options];
 		case "completion":
 			return [...SHELLS.map((shell) => candidate("shell", shell, `the ${shell} completion script`)), ...options];
 		default:
@@ -1653,6 +1714,9 @@ interface PickerChoice extends PickerItem {
  */
 function pickerChoices(call: Call): PickerChoice[] {
 	const activeHome = call.io.env.PI_SPACE_HOME;
+	// The pinned space, if any and valid, is where the cursor starts.
+	const pinFile = findPin(currentFolder(call.io), call.io.home);
+	const pinned = pinFile === undefined ? undefined : readPin(pinFile).name;
 	const scopes = allScopes(call);
 	return scopes.flatMap(({ profile, dir }) =>
 		[BASE, ...listSpaces(dir)].map((space): PickerChoice => {
@@ -1663,6 +1727,7 @@ function pickerChoices(call: Call): PickerChoice[] {
 				profile: profile.name,
 				space,
 				...(activeHome && samePath(home, activeHome) ? { active: true } : {}),
+				...(pinned === `${profile.name}/${space}` ? { selected: true } : {}),
 			};
 		}),
 	);
@@ -1683,4 +1748,215 @@ async function pick(call: Call): Promise<void> {
 	const choice = item as PickerChoice;
 	// Its command was not checked before the picker: launch reports an unclosed quote.
 	return launch(choice.space, [], scopeOf(call, choice.profile));
+}
+
+// A space pinned to a folder: <folder>/.pi/pi-space/space holds one line, <profile>/<name>, next to a .gitignore that
+// ignores the whole pi-space folder, itself included. .pi itself is Pi's project folder and is never touched.
+
+const PIN_FOLDER = join(".pi", "pi-space");
+const PIN_FILE = "space";
+const PIN_IGNORE = ".gitignore";
+const PIN_IGNORE_TEXT = "# pi-space: this folder is local to this machine; this file ignores all of it, itself included.\n*\n";
+
+function currentFolder(io: CliIo): string {
+	return resolve(io.cwd ?? process.cwd());
+}
+
+/** Whether `path` is a file, following links; false for anything that cannot be read as one. */
+function isFile(path: string): boolean {
+	try {
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+}
+
+/** Whether `path` is a symbolic link itself (not followed); false when there is nothing there. */
+function isLink(path: string): boolean {
+	try {
+		return lstatSync(path).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The marker that applies in `from`: the first <folder>/.pi/pi-space/space file from it upwards. The home folder is
+ * skipped: its .pi is Pi's own folder, not a project.
+ */
+function findPin(from: string, home: string): string | undefined {
+	for (let folder = from; ; folder = dirname(folder)) {
+		const file = join(folder, PIN_FOLDER, PIN_FILE);
+		if (!samePath(folder, home) && isFile(file)) return file;
+		if (dirname(folder) === folder) return undefined;
+	}
+}
+
+/** Control characters (C0, DEL, C1) and the bidi controls that could rewrite what the terminal shows. */
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+
+/**
+ * What a marker names: `name` when it holds exactly one `<profile>/<name>` (blank lines and # comments left out),
+ * neither when it does not, and `error` when it cannot be read. A marker may come with a cloned repository, so a
+ * line with control or bidi characters names nothing: it is never echoed to the terminal.
+ */
+function readPin(file: string): { name?: string; error?: string } {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch (error) {
+		return { error: (error as Error).message };
+	}
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line !== "" && !line.startsWith("#"));
+	if (lines.length !== 1 || UNSAFE.test(lines[0])) return {};
+	const slash = lines[0].indexOf("/");
+	return slash > 0 && slash < lines[0].length - 1 ? { name: lines[0] } : {};
+}
+
+/** readPin's name, or exit: 1 naming the file and the reason when it cannot be read, 2 with the form when it names no space. */
+function pinnedName(file: string, io: CliIo): string | undefined {
+	const { name, error } = readPin(file);
+	if (error !== undefined) {
+		io.stderr.write(`pi-space: cannot read ${file}: ${error}\n`);
+		io.exit(1);
+	} else if (name === undefined) {
+		io.stderr.write(`pi-space: ${file}: name one space as <profile>/<name>, e.g. pi/work.\n`);
+		io.exit(2);
+	}
+	return name;
+}
+
+/** Where pin and unpin work: the root of the git repository of the current folder, else the current folder (also when git is missing or hangs). */
+function pinTarget(io: CliIo): string {
+	const here = currentFolder(io);
+	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 });
+	const top = git.status === 0 ? git.stdout.trim() : "";
+	return top !== "" ? resolve(top) : here;
+}
+
+/** The first of .pi, .pi/pi-space and the given files in it that is a symbolic link, which pin and unpin never go through. */
+function linkIn(target: string, files: string[]): string | undefined {
+	const folder = join(target, PIN_FOLDER);
+	return [dirname(folder), folder, ...files.map((name) => join(folder, name))].find(isLink);
+}
+
+/** A bare pi-space where a space is pinned: that space, as if it were named, after a line that names the marker. */
+async function launchPinned(file: string, call: Call): Promise<void> {
+	const name = pinnedName(file, call.io);
+	if (name === undefined) return;
+	call.io.stderr.write(`pi-space: ${name} (from ${file})\n`);
+	const ref = qualify(name, call);
+	return ref && (await launch(ref.name, [], scopeOf(call, ref.profile)));
+}
+
+/** `pi-space pin`: the space pinned here and its file, or that there is none. */
+function showPin(call: Call): void {
+	const { io } = call;
+	const file = findPin(currentFolder(io), io.home);
+	if (file === undefined) {
+		io.stdout.write("No space pinned here.\n");
+		return io.exit(0);
+	}
+	const name = pinnedName(file, io);
+	if (name === undefined) return;
+	io.stdout.write(`${name} (from ${file})\n`);
+	return io.exit(0);
+}
+
+/**
+ * `pi-space pin <profile>/<name>`: writes the marker, and its .gitignore when there is none, once the space is known to
+ * exist. It never writes through a symbolic link (a cloned repository could point .pi/pi-space anywhere). The marker is
+ * written to a temporary file and renamed over the old one, so a failure leaves it as it was; a folder this call made
+ * is removed again when the write fails.
+ */
+function pinSpace(text: string, call: Call): void {
+	const { io } = call;
+	const ref = qualify(text, call);
+	if (!ref) return;
+	const scope = scopeOf(call, ref.profile);
+	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
+	const target = pinTarget(io);
+	if (samePath(target, io.home)) {
+		io.stderr.write(`pi-space: ${target} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.\n`);
+		return io.exit(2);
+	}
+	const link = linkIn(target, [PIN_FILE, PIN_IGNORE]);
+	if (link !== undefined) {
+		io.stderr.write(`pi-space: ${link} is a symbolic link; pi-space does not write through it.\n`);
+		return io.exit(1);
+	}
+	const folder = join(target, PIN_FOLDER);
+	const file = join(folder, PIN_FILE);
+	const name = `${ref.profile}/${ref.name}`;
+	const previous = isFile(file) ? readPin(file).name : undefined;
+	const temporary = join(folder, `.${PIN_FILE}-${process.pid}.tmp`);
+	let made: string | undefined;
+	try {
+		made = mkdirSync(folder, { recursive: true });
+		const ignore = join(folder, PIN_IGNORE);
+		if (!existsSync(ignore)) writeFileSync(ignore, PIN_IGNORE_TEXT, { flag: "wx" });
+		writeFileSync(temporary, `${name}\n`, { flag: "wx" });
+		renameSync(temporary, file);
+	} catch (error) {
+		// Cleaning up must not hide the reason: a path under a file (ENOTDIR) cannot be removed either.
+		try {
+			if (made !== undefined) rmSync(made, { recursive: true, force: true });
+			else rmSync(temporary, { force: true });
+		} catch {}
+		io.stderr.write(`pi-space: cannot write ${file}: ${(error as Error).message}\n`);
+		return io.exit(1);
+	}
+	io.stdout.write(`Pinned ${name} in ${file}${previous !== undefined && previous !== name ? ` (was ${previous})` : ""}.\n`);
+	return io.exit(0);
+}
+
+/** Whether `path` is `folder` or inside it. */
+function isWithin(path: string, folder: string): boolean {
+	const rel = relative(folder, path);
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * `pi-space unpin`: removes the marker that applies here when it is inside the repository (else the current folder),
+ * the .gitignore pin wrote, and the folder once empty (and .pi, when nothing else is in it). A marker of a folder above
+ * is named and left, and nothing is removed through a symbolic link.
+ */
+function unpin(call: Call): void {
+	const { io } = call;
+	const target = pinTarget(io);
+	const here = findPin(currentFolder(io), io.home);
+	// <owner>/.pi/pi-space/space: the folder the marker belongs to.
+	const owner = here === undefined ? undefined : dirname(dirname(dirname(here)));
+	if (here === undefined || owner === undefined || !isWithin(owner, target)) {
+		io.stdout.write(`No space pinned in ${target}${here !== undefined ? `; the one here comes from ${here}` : ""}.\n`);
+		return io.exit(0);
+	}
+	const link = linkIn(owner, []);
+	if (link !== undefined) {
+		io.stderr.write(`pi-space: ${link} is a symbolic link; pi-space does not remove through it.\n`);
+		return io.exit(1);
+	}
+	const folder = dirname(here);
+	const { name, error } = readPin(here);
+	const label = name ?? (error !== undefined ? "an unreadable marker" : "an invalid marker");
+	try {
+		rmSync(here);
+		const ignore = join(folder, PIN_IGNORE);
+		if (isFile(ignore) && !isLink(ignore) && readFileSync(ignore, "utf8") === PIN_IGNORE_TEXT) rmSync(ignore);
+		if (readdirSync(folder).length === 0) {
+			rmdirSync(folder);
+			// A .pi that pin made and that holds nothing else goes too; one with anything in it is Pi's and stays.
+			if (readdirSync(dirname(folder)).length === 0) rmdirSync(dirname(folder));
+			io.stdout.write(`Unpinned ${label} (removed ${folder}).\n`);
+		} else {
+			io.stdout.write(`Unpinned ${label} (removed ${here}; ${folder} holds other files and stays).\n`);
+		}
+	} catch (error) {
+		io.stderr.write(`pi-space: cannot remove ${here}: ${(error as Error).message}\n`);
+		return io.exit(1);
+	}
+	return io.exit(0);
 }
