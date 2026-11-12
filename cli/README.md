@@ -49,7 +49,11 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 
 | Command | What it does |
 | --- | --- |
-| `pi-space` | Opens a picker of the spaces of every profile (its hint line starts with 🪐) and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by `profile/name`. The profiles go in [their order](#the-order-of-the-profiles); each profile's `<profile>/base` comes first in its group (with more than one profile, a header names the group), and the cursor starts on the space this Pi runs in, marked `(active)`. The space starts with the profile it was listed under. Profiles that share a folder are all listed: each one means a different command. |
+| `pi-space` | Starts the space [pinned](#pinning-a-space-to-a-folder) to this folder, if there is one. Otherwise it opens a picker of the spaces of every profile (its hint line starts with 🪐) and starts Pi in the one you choose: ↑/↓ (or Ctrl-P/Ctrl-N, Tab) move, Enter starts Pi, Esc cancels, typing filters by `profile/name`. The profiles go in [their order](#the-order-of-the-profiles); each profile's `<profile>/base` comes first in its group (with more than one profile, a header names the group), and the cursor starts on the space this Pi runs in, marked `(active)`. The space starts with the profile it was listed under. Profiles that share a folder are all listed: each one means a different command. |
+| `pi-space pick` | Opens the picker even where a space is pinned, with the cursor on the pinned space. |
+| `pi-space pin <profile>/<name>` | Pins a space to the repository you are in (see [Pinning a space to a folder](#pinning-a-space-to-a-folder)). |
+| `pi-space pin` | Prints the space pinned here and the file it comes from, or `No space pinned here.` |
+| `pi-space unpin` | Removes the space pinned to the repository you are in. |
 | `pi-space <profile>/<name> [pi args...]` | Starts Pi in that space, with that profile's command (`<profile>/base` runs `commands.base` as it is, with no `--space`); a space command with `{home}` is run in the space's home instead (see [A command with `{home}`](#a-command-with-home)). Pi takes each word as a separate message, so when no word is an option (none starts with `-`) the words become one message: `pi-space pi/work fix the tests` sends `fix the tests`, and `@file` words stay apart, before it. Pi's own commands are not joined: when the first word is `install`, `remove`, `uninstall`, `update`, `list`, `config`, `auth` or `mcp`, the words go as they are (`pi-space pi/work install npm:x`). With any option the words go as they are, so quote a prompt there: `pi-space pi/work -c "fix the tests"`. |
 | `pi-space list` | Lists the spaces of every profile, grouped by profile, in [their order](#the-order-of-the-profiles): each profile's folder, then its `base` and spaces as `profile/space`. |
 | `pi-space list <profile>/<name>` | Lists the packages of a space (Pi's `list`). |
@@ -73,6 +77,27 @@ The command words are reserved: a space can never be named `list`, `new`, `remov
 `--help` (or `-h`) anywhere after a command word shows that command's help and does nothing else: `pi-space remove pi/work --help` removes nothing, and it reads no config file. After a space every argument belongs to Pi, so `pi-space pi/work --help` starts Pi with `--help`. An unknown command (`pi-space --help ghost`) exits with status 2 and lists the commands.
 
 `--new`, `--remove` (the options of 0.3) and `--profile` (0.6 and later) were replaced; they exit with status 2 and name what to use: `pi-space: --profile was replaced by: pi-space <profile>/<name>`. The profile is now the first word of the space instead of an option before the command.
+
+### Pinning a space to a folder
+
+Like `.nvmrc` for Node, a project can name the space `pi-space` starts in it:
+
+```text
+$ cd ~/work/erp
+$ pi-space pin gentle/work
+Pinned gentle/work in /Users/me/work/erp/.pi/pi-space/space.
+$ pi-space
+pi-space: gentle/work (from /Users/me/work/erp/.pi/pi-space/space)
+```
+
+- `pin` writes `.pi/pi-space/space` in the root of the git repository (the current folder outside one), after checking that the space exists. The file holds one line, `<profile>/<name>` (`base` included); blank lines and `#` comments are ignored. Pinning again replaces it and names the previous space.
+- Next to it, `pin` writes `.pi/pi-space/.gitignore` with `*`, which ignores the whole `pi-space` folder, itself included, so nothing shows in `git status`. The rest of `.pi` (Pi's own project files) is never touched, and a `.gitignore` already there is kept as it is.
+- A bare `pi-space` in that folder or any folder below starts the pinned space at once, as `pi-space <profile>/<name>` does, after a line on stderr that names the file. The marker is looked for from the current folder upwards, and the nearest wins. Your home folder is skipped (its `.pi` is Pi's own folder), and `pin` refuses it.
+- A space named on the command line wins: `pi-space pi/other` starts `pi/other`. `pi-space pick` opens the picker, with the cursor on the pinned space.
+- A marker that does not name one space as `<profile>/<name>` exits 2 and names the file; one that names a missing space or profile fails as `pi-space <profile>/<name>` would. Neither falls back to the picker.
+- `pi-space pin` alone prints the space pinned here and its file. `pi-space unpin` removes the marker of the repository, the `.gitignore` that `pin` wrote, and the `pi-space` folder (and `.pi`) once empty; run from a folder below another marker, it names that one and leaves it.
+
+Only `pi-space` reads the marker: Pi itself, `pi` and `/space` do not.
 
 ### Packages in a space, or in many
 
