@@ -13,7 +13,7 @@ const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup <cmd>] 
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
   pi-space                                     start the space pinned to this folder (pi-space pin), else pick a space and start Pi in it
   pi-space pick                                pick a space and start Pi in it, even where one is pinned
-  pi-space pin [<space>]                       pin a space to this repository (.pi/pi-space, ignored by git), or show the one pinned here
+  pi-space pin [<space>|--show]                pin a space to this repository (.pi/pi-space, ignored by git); alone, pick it (⌂ marks the pinned one)
   pi-space unpin                               remove the space pinned to this repository
   pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
                                                words with no option among them are one message: pi-space pi/work fix the tests
@@ -2054,7 +2054,7 @@ const COMMAND_LINES = [
 	"command\tmigrate\tmove an old space into its agent folder",
 	"command\tnew\tcreate a space",
 	"command\tpick\tpick a space even where one is pinned",
-	"command\tpin\tpin a space to this folder, or show the one pinned here",
+	"command\tpin\tpin a space to this folder, or pick one to pin",
 	"command\tremove\tdelete a space, keeping a backup",
 	"command\trename\trename a space",
 	"command\tsetup\trun the setup command in a space or in base",
@@ -3559,14 +3559,14 @@ test("pin: parseCli reads pin, pin <space>, unpin and pick, and refuses extra wo
 
 test("pin: completion after pin offers base and the spaces, and nothing after unpin and pick but --help", async () => {
 	const pin = await run(["__complete", "pin"], { spaces: ["work"] });
-	assert.deepEqual(pin.out.trim().split("\n"), ["space\tpi/base\tbase home of pi (pi)", "space\tpi/work\tspace of pi (pi)", "option\t--help\tthe help of this command"]);
+	assert.deepEqual(pin.out.trim().split("\n"), ["space\tpi/base\tbase home of pi (pi)", "space\tpi/work\tspace of pi (pi)", "option\t--show\tprint the space pinned here, even on a terminal", "option\t--help\tthe help of this command"]);
 	for (const word of ["unpin", "pick"]) assert.equal((await run(["__complete", word])).out, "option\t--help\tthe help of this command\n", word);
 });
 
 test("pin: pin --help describes the marker", async () => {
 	const r = await run(["pin", "--help"]);
 	assert.equal(r.code, 0);
-	assert.match(r.out, /^Usage: pi-space pin \[<space>\]\n\nPin a space to this folder, or show the one pinned here\.\nWith a space it writes \.pi\/pi-space\/space/);
+	assert.match(r.out, /^Usage: pi-space pin \[<space>\|--show\]\n\nPin a space to this folder, or pick one to pin\.\nWith a space it writes \.pi\/pi-space\/space/);
 });
 
 test("pin: unpin also removes a .pi left empty, and nothing else around it", async () => {
@@ -3741,4 +3741,68 @@ test("pin: the repository root keeps the spelling of the current folder, through
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+// pi-space pin on a terminal: the picker chooses what to pin, and the pinned space carries a tag.
+
+const UP = "\x1b[A";
+const PIN_HINT = "⌂ Pin a space here: ↑/↓ move, Enter pins it, Esc cancels, type to filter";
+
+test("pin: on a terminal pin opens the picker on the pinned space, marked with a tag, and Enter pins the chosen one", async () => {
+	const r = await run(["pin"], { spaces: ["alpha", "work"], tty: true, input: `${UP}\r`, files: { [MARKER]: "pi/work\n" }, cwd: "repo", read: [MARKER] });
+	assert.equal(r.code, 0, r.err);
+	assert.ok(r.out.includes(PIN_HINT), r.out);
+	assert.match(r.out, /\n {4}pi\/alpha\n {2}> pi\/work ⌂/);
+	assert.ok(r.out.endsWith(`Pinned pi/alpha in ${marker(r)} (was pi/work).\n`), r.out);
+	assert.equal(r.read[MARKER], "pi/alpha\n");
+	assert.equal(r.spawned.length, 0);
+});
+
+test("pin: on a terminal with nothing pinned the cursor starts on the active space, and Enter pins it", async () => {
+	const r = await run(["pin"], { spaces: ["alpha", "work"], tty: true, input: "\r", files: { "repo/.keep": "" }, cwd: "repo", env: { PI_SPACE: "work", PI_SPACE_HOME: "<root>/spaces/work" }, read: [MARKER, MARKER_IGNORE] });
+	assert.equal(r.code, 0, r.err);
+	assert.doesNotMatch(r.out, /⌂ *\n|pi\/\w+ ⌂/);
+	assert.ok(r.out.endsWith(`Pinned pi/work in ${marker(r)}.\n`), r.out);
+	assert.equal(r.read[MARKER], "pi/work\n");
+	assert.equal(r.read[MARKER_IGNORE], IGNORE_TEXT);
+});
+
+test("pin: Esc in the pin picker leaves the marker as it was and exits 0; Ctrl-C exits 130", async () => {
+	for (const [input, code] of [["\x1b", 0], ["", 0], ["\x03", 130]] as const) {
+		const r = await run(["pin"], { spaces: ["work"], tty: true, input, files: { [MARKER]: "pi/base\n" }, cwd: "repo", read: [MARKER] });
+		assert.equal(r.code, code, JSON.stringify(input));
+		assert.doesNotMatch(r.out, /Pinned/);
+		assert.equal(r.read[MARKER], "pi/base\n");
+		assert.equal(r.spawned.length, 0);
+	}
+});
+
+test("pin: pin --show prints the pinned space even on a terminal, and nothing pinned says so", async () => {
+	const r = await run(["pin", "--show"], { tty: true, input: "\r", files: { [MARKER]: "pi/work\n" }, cwd: "repo" });
+	assert.equal(r.code, 0);
+	assert.equal(r.out, `pi/work (from ${marker(r)})\n`);
+	const none = await run(["pin", "--show"], { tty: true, input: "\r", files: { "repo/.keep": "" }, cwd: "repo" });
+	assert.equal(none.out, "No space pinned here.\n");
+});
+
+test("pin: the pin picker refuses the home folder before it opens", async () => {
+	const r = await run(["pin"], { tty: true, input: "\r", exists: [".pi"] });
+	assert.equal(r.code, 2);
+	assert.equal(r.out, "");
+	assert.equal(r.err, `pi-space: ${r.root} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.\n`);
+	assert.equal(r.exists[".pi"], false);
+});
+
+test("pin: pick marks the pinned space with a tag; with nothing pinned no space has one", async () => {
+	const r = await run(["pick"], { spaces: ["alpha", "work"], tty: true, input: "\x1b", files: { [MARKER]: "pi/work" }, cwd: "repo" });
+	assert.match(r.out, /> pi\/work ⌂/);
+	assert.ok(r.out.includes("🪐 Pick a space"), r.out);
+	const plain = await run([], { spaces: ["work"], tty: true, input: "\x1b", cwd: "repo", files: { "repo/.keep": "" } });
+	assert.doesNotMatch(plain.out, /pi\/\w+ ⌂/);
+});
+
+test("pin: parseCli reads pin --show, and refuses it with a space", () => {
+	assert.deepEqual(parseCli(["pin", "--show"]), { kind: "pin", show: true });
+	assert.deepEqual(parseCli(["pin", "--show", "pi/work"]), { kind: "usage" });
+	assert.deepEqual(parseCli(["pin", "pi/work", "--show"]), { kind: "usage" });
 });

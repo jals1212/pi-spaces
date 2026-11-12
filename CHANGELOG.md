@@ -6,6 +6,10 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- The skill tells that `pi-space pin` alone opens a picker and `pi-space pin --show` prints the pinned space.
+
 ## 0.16.2
 
 ### Changed

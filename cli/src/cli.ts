@@ -19,7 +19,7 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "no
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
-import { type PickerItem, type PickerTerminal, runPicker } from "./picker.ts";
+import { PINNED_MARK, type PickerItem, type PickerTerminal, runPicker } from "./picker.ts";
 import {
 	BACKUPS,
 	BASE,
@@ -61,7 +61,7 @@ export const USAGE = `Usage: pi-space [--command <cmd>] [--dir <path>] [--setup 
 A <space> is <profile>/<name>: a profile of the config file (pi is always there), then the space; base is a space too, as <profile>/base.
   pi-space                                     start the space pinned to this folder (pi-space pin), else pick a space and start Pi in it
   pi-space pick                                pick a space and start Pi in it, even where one is pinned
-  pi-space pin [<space>]                       pin a space to this repository (.pi/pi-space, ignored by git), or show the one pinned here
+  pi-space pin [<space>|--show]                pin a space to this repository (.pi/pi-space, ignored by git); alone, pick it (⌂ marks the pinned one)
   pi-space unpin                               remove the space pinned to this repository
   pi-space <space> [pi args...]                start Pi in a space (<profile>/base is the home that profile's Pi starts with);
                                                words with no option among them are one message: pi-space pi/work fix the tests
@@ -136,7 +136,7 @@ export type CliCommand = (
 	| { kind: "complete"; words: string[] }
 	| { kind: "picker" }
 	| { kind: "pick" }
-	| { kind: "pin"; name?: string }
+	| { kind: "pin"; name?: string; show?: boolean }
 	| { kind: "unpin" }
 	| { kind: "usage" }
 	| { kind: "launch"; name: string; args: string[] }
@@ -308,17 +308,18 @@ const COMMANDS: Record<string, CommandHelp> = {
 		examples: ["pi-space completion zsh", "source <(pi-space completion zsh)", "pi-space completion powershell", "pi-space completion powershell | Out-String | Invoke-Expression"],
 	},
 	pin: {
-		summary: "pin a space to this folder, or show the one pinned here",
-		usage: "pin [<space>]",
+		summary: "pin a space to this folder, or pick one to pin",
+		usage: "pin [<space>|--show]",
 		about: [
 			"With a space it writes .pi/pi-space/space in the root of the git repository (else in the current folder), next to a .gitignore that ignores that folder, itself included, so nothing shows in git status; the rest of .pi is never touched.",
 			"A bare pi-space in that folder or below then starts the pinned space at once; a space named on the command line wins, and pi-space pick still opens the picker.",
-			"Alone it prints the space pinned here and the file it comes from. The marker is looked for from the current folder upwards; the home folder is skipped (~/.pi is Pi's own folder) and cannot be pinned.",
+			`Alone, on a terminal, it opens the picker of every profile's spaces, the cursor on the pinned one (marked ${PINNED_MARK}), and pins the one you choose; Esc changes nothing. Without a terminal, or with --show, it prints the space pinned here and the file it comes from.`,
+			"The marker is looked for from the current folder upwards; the home folder is skipped (~/.pi is Pi's own folder) and cannot be pinned.",
 		],
 		args: [["<space>", "<profile>/<name>: a space of a profile, or <profile>/base; it must exist"]],
-		options: [],
+		options: [{ flag: "--show", text: "print the space pinned here, even on a terminal" }],
 		calls: ["dir", "config"],
-		examples: ["pi-space pin gentle/work", "pi-space pin pi/base", "pi-space pin"],
+		examples: ["pi-space pin gentle/work", "pi-space pin pi/base", "pi-space pin", "pi-space pin --show"],
 	},
 	unpin: {
 		summary: "remove the space pinned to this folder",
@@ -415,6 +416,7 @@ function parseCommand(args: string[]): CliCommand {
 	if (first === "pick" || first === "unpin") return rest.length === 0 ? { kind: first } : { kind: "usage" };
 	if (first === "pin") {
 		if (rest.length > 1) return { kind: "usage" };
+		if (rest[0] === "--show") return { kind: "pin", show: true };
 		if (rest[0]?.startsWith("-")) return { kind: "unknown-option", option: rest[0] };
 		return rest.length === 1 ? { kind: "pin", name: rest[0] } : { kind: "pin" };
 	}
@@ -830,6 +832,8 @@ function spansProfiles(command: CliCommand): boolean {
 		case "setup":
 		case "migrate":
 			return "every" in command.target;
+		case "pin":
+			return command.name === undefined;
 		default:
 			return false;
 	}
@@ -921,7 +925,8 @@ export async function main(argv: string[], io: CliIo): Promise<void> {
 			case "pick":
 				return await pick(call);
 			case "pin":
-				return command.name === undefined ? showPin(call) : pinSpace(command.name, call);
+				if (command.name !== undefined) return pinSpace(command.name, call);
+				return command.show || !io.stdin.isTTY ? showPin(call) : await pinPicker(call);
 			case "unpin":
 				return unpin(call);
 		}
@@ -1727,7 +1732,7 @@ function pickerChoices(call: Call): PickerChoice[] {
 				profile: profile.name,
 				space,
 				...(activeHome && samePath(home, activeHome) ? { active: true } : {}),
-				...(pinned === `${profile.name}/${space}` ? { selected: true } : {}),
+				...(pinned === `${profile.name}/${space}` ? { selected: true, pinned: true } : {}),
 			};
 		}),
 	);
@@ -1871,6 +1876,31 @@ async function launchPinned(file: string, call: Call): Promise<void> {
 	return ref && (await launch(ref.name, [], scopeOf(call, ref.profile)));
 }
 
+/** Exits 2 when `target` is the home folder, whose .pi is Pi's own folder; true when it did. */
+function refuseHome(target: string, io: CliIo): boolean {
+	if (!samePath(target, io.home)) return false;
+	io.stderr.write(`pi-space: ${target} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.\n`);
+	io.exit(2);
+	return true;
+}
+
+/** The first line of the picker of `pi-space pin`. */
+const PIN_HINT = `${PINNED_MARK} Pin a space here: ↑/↓ move, Enter pins it, Esc cancels, type to filter`;
+
+/**
+ * `pi-space pin` on a terminal: the picker of every profile's spaces, the cursor on the pinned one (else the active
+ * one), then pin the chosen space as `pin <profile>/<name>` does. Esc or the end of input exit 0 and change nothing;
+ * Ctrl-C exits 130. The home folder is refused before the picker opens.
+ */
+async function pinPicker(call: Call): Promise<void> {
+	const { io } = call;
+	if (refuseHome(pinTarget(io), io)) return;
+	const { item, interrupted } = await runPicker(pickerChoices(call), io, undefined, undefined, PIN_HINT);
+	if (item === undefined) return io.exit(interrupted ? 130 : 0);
+	const choice = item as PickerChoice;
+	return pinSpace(`${choice.profile}/${choice.space}`, call);
+}
+
 /** `pi-space pin`: the space pinned here and its file, or that there is none. */
 function showPin(call: Call): void {
 	const { io } = call;
@@ -1898,10 +1928,7 @@ function pinSpace(text: string, call: Call): void {
 	const scope = scopeOf(call, ref.profile);
 	if (!checkSpace(ref.name, scope.dir, io)) return io.exit(1);
 	const target = pinTarget(io);
-	if (samePath(target, io.home)) {
-		io.stderr.write(`pi-space: ${target} is your home folder, where .pi is Pi's own folder; pin a space in a project folder.\n`);
-		return io.exit(2);
-	}
+	if (refuseHome(target, io)) return;
 	const link = linkIn(target, [PIN_FILE, PIN_IGNORE]);
 	if (link !== undefined) {
 		io.stderr.write(`pi-space: ${link} is a symbolic link; pi-space does not write through it.\n`);
