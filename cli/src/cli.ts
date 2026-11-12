@@ -13,7 +13,7 @@
 // A space is a root folder, <spaces folder>/<name>, with its agent home inside it, <root>/agent (an old space has no agent
 // folder and its root is its agent home; spaceHome tells which). {home} is the agent home, {space} the root.
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
@@ -1829,12 +1829,31 @@ function pinnedName(file: string, io: CliIo): string | undefined {
 	return name;
 }
 
-/** Where pin and unpin work: the root of the git repository of the current folder, else the current folder (also when git is missing or hangs). */
+/** The real path of a folder, links and Windows short names (RUNNER~1) resolved; the path itself when it cannot be read. */
+function realFolder(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+/**
+ * Where pin and unpin work: the root of the git repository of the current folder, else the current folder (also when
+ * git is missing or hangs). The root is the current folder or the folder above it that git names, spelled as the
+ * current folder is: git gives the real path, which on Windows may be the long form of a short name, and on macOS
+ * /private/var for /var.
+ */
 function pinTarget(io: CliIo): string {
 	const here = currentFolder(io);
 	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 });
 	const top = git.status === 0 ? git.stdout.trim() : "";
-	return top !== "" ? resolve(top) : here;
+	if (top === "") return here;
+	const real = realFolder(top);
+	for (let folder = here; ; folder = dirname(folder)) {
+		if (samePath(realFolder(folder), real)) return folder;
+		if (dirname(folder) === folder) return resolve(top);
+	}
 }
 
 /** The first of .pi, .pi/pi-space and the given files in it that is a symbolic link, which pin and unpin never go through. */
