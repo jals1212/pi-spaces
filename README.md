@@ -280,14 +280,14 @@ Keep the `spaceEnv` of the program's own config home: without it, a space's `--h
 
 ### Example: gentle-shell
 
-For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-shell` as it is, and each space gets its own config folder, `gentle-ai`, next to its `agent/` folder through `spaceEnv` (gentle-shell 4.8 adds `gentle-ai` to `GENTLE_PI_CONFIG_HOME`, so it names the space's root; an older gentle-shell took `{space}/gentle-ai`):
+For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-shell` as it is, and each space gets its own config folder, `gentle-ai`, next to its `agent/` folder through `spaceEnv` (gentle-shell takes `GENTLE_PI_CONFIG_HOME` as the config folder itself, and drops a `GENTLE_SHELL_CONFIG_HOME` for a `--home` other than its own):
 
 ```toml
 schema = "pi-spaces.config/v2"
 
 [profiles.gentle]
 home = "~/.gentle-shell/agent"
-spaceEnv = { GENTLE_PI_CONFIG_HOME = "{space}" }
+spaceEnv = { GENTLE_PI_CONFIG_HOME = "{space}/gentle-ai" }
 
 [profiles.gentle.commands]
 base = "gentle-shell"
@@ -308,7 +308,7 @@ setup = "gentle-shell --home {home} setup"
         "space": "gentle-shell --home {home}",
         "setup": "gentle-shell --home {home} setup"
       },
-      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{space}" }
+      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{space}/gentle-ai" }
     }
   }
 }

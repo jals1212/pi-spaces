@@ -6,6 +6,12 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Fixed
+
+- The README's gentle-shell profile sets `GENTLE_PI_CONFIG_HOME` to `{space}/gentle-ai` again: 0.18.0's `{space}` put
+  `agent-status/` and `scratch/` in the space's root, since gentle-shell takes that variable as the config folder
+  itself. Only the gentle-ai installer that `setup` runs adds `gentle-ai` to it, for its own few files.
+
 ## 0.18.0
 
 ### Changed
