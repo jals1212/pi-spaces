@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.18.0
+
 ### Changed
 
 - `/space new` with a setup command creates only the space's folder, waiting for its setup (a `.pi-space-new` file holds
