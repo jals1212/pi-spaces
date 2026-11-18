@@ -8,6 +8,11 @@ import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 export const BASE = "base";
 /** The folder inside a space's root that is its agent home. */
 export const AGENT = "agent";
+/**
+ * The file in a new space's root that waits for its setup command: the space is rooted, but its agent home is left to
+ * the setup, and the declaration it holds joins the settings.json the setup wrote once the setup succeeds.
+ */
+export const PENDING = ".pi-space-new";
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export class SpaceError extends Error {
@@ -84,17 +89,21 @@ export function listSpaces(dir: string): string[] {
 
 /**
  * The agent home of the space whose root is `root`: `<root>/agent` when that is a real folder (a symlink or a file named
- * agent does not count), else the root itself, an old space whose folder is the agent home. Pi's own agent home never has
- * a folder named agent, so the folder tells the two layouts apart.
+ * agent does not count) or when the space still waits for its setup (PENDING), else the root itself, an old space whose
+ * folder is the agent home. Pi's own agent home never has a folder named agent, so the folder tells the two layouts apart.
  */
 export function spaceHome(root: string): string {
-	const home = join(root, AGENT);
-	return isRealFolder(home) ? home : root;
+	return isRooted(root) ? join(root, AGENT) : root;
 }
 
-/** True when the space with this root keeps its agent home in `<root>/agent`. */
+/** True when the space with this root keeps its agent home in `<root>/agent`, or will once its setup makes it. */
 export function isRooted(root: string): boolean {
-	return isRealFolder(join(root, AGENT));
+	return isRealFolder(join(root, AGENT)) || isPending(root);
+}
+
+/** True when the space with this root waits for its setup command (its root holds PENDING). */
+export function isPending(root: string): boolean {
+	return existsSync(join(root, PENDING));
 }
 
 /** The space whose agent home is the given one (`<root>/agent`, or the root of an old space), or undefined. */
@@ -122,14 +131,84 @@ function isInside(child: string, parent: string): boolean {
  * /space works inside it. Returns the root.
  */
 export function createSpace(dir: string, name: string, declaration: PackageDeclaration): string {
+	const path = createSpaceRoot(dir, name);
+	declareInHome(join(path, AGENT), declaration);
+	return path;
+}
+
+/**
+ * Creates a space's root alone, without its agent home, so a setup command can make that home itself (a launcher such as
+ * gentle-shell only provisions a home it made). Returns the root.
+ */
+export function createSpaceRoot(dir: string, name: string): string {
 	assertName(name);
 	const path = join(dir, name);
 	if (existsSync(path) || isSymlink(path)) throw new SpaceError(`Space "${name}" already exists.`);
 	mkdirSync(dir, { recursive: true });
 	mkdirSync(path);
-	mkdirSync(join(path, AGENT));
-	writeFileSync(join(path, AGENT, "settings.json"), `${JSON.stringify({ packages: [declaration] }, null, 2)}\n`);
 	return path;
+}
+
+/**
+ * Marks a new space's root as waiting for its setup command, with the declaration to add once it succeeds (none for a
+ * space that does not declare this package).
+ */
+export function markPending(root: string, declaration?: PackageDeclaration): void {
+	writeFileSync(join(root, PENDING), `${JSON.stringify(declaration === undefined ? {} : { declaration }, null, 2)}\n`);
+}
+
+/**
+ * Finishes a space whose setup succeeded: adds the declaration its PENDING file holds to the settings.json of its agent
+ * home (making both when the setup did not) and removes the file. False when the space was not waiting for a setup.
+ */
+export function finishPending(root: string): boolean {
+	const file = join(root, PENDING);
+	if (!existsSync(file)) return false;
+	let pending: { declaration?: PackageDeclaration };
+	try {
+		pending = JSON.parse(readFileSync(file, "utf8"));
+	} catch {
+		throw new SpaceError(`${file} is not valid JSON; fix or delete it and run pi-space setup again.`);
+	}
+	declareInHome(join(root, AGENT), pending.declaration);
+	rmSync(file);
+	return true;
+}
+
+function sourceOf(entry: unknown): string | undefined {
+	const source = typeof entry === "string" ? entry : (entry as { source?: unknown } | null)?.source;
+	return typeof source === "string" ? source : undefined;
+}
+
+/** Two package sources name the same package: npm sources by package name, whatever their version; others as written. */
+function sameSource(a: string | undefined, b: string | undefined): boolean {
+	if (a === undefined || b === undefined) return false;
+	if (a.startsWith("npm:") && b.startsWith("npm:")) return npmName(a) === npmName(b);
+	return a === b;
+}
+
+/**
+ * Makes the agent home when it is missing and adds the declaration to its settings.json, keeping everything already
+ * there; a package with the same source is not declared twice. Without a declaration it only makes sure the file exists.
+ */
+export function declareInHome(home: string, declaration?: PackageDeclaration): void {
+	mkdirSync(home, { recursive: true });
+	const file = join(home, "settings.json");
+	let settings: Record<string, unknown> = {};
+	if (existsSync(file)) {
+		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new SpaceError(`${file} is not a JSON object.`);
+		settings = parsed as Record<string, unknown>;
+		if (!declaration) return;
+	}
+	if (declaration) {
+		if (settings.packages !== undefined && !Array.isArray(settings.packages)) throw new SpaceError(`${file} has "packages" that is not a list.`);
+		const packages = (settings.packages as unknown[] | undefined) ?? [];
+		const wanted = sourceOf(declaration);
+		if (packages.some((entry) => sameSource(sourceOf(entry), wanted))) return;
+		settings.packages = [...packages, declaration];
+	}
+	writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 function isSymlink(path: string): boolean {
@@ -267,6 +346,7 @@ export function migrateSpace(
 ): Migration {
 	assertName(name);
 	const root = join(dir, name);
+	if (isPending(root)) throw new SpaceError(`Space "${name}" is waiting for its setup command, which makes its agent home; run pi-space setup.`);
 	if (isRooted(root)) throw new SpaceError(`Space "${name}" already has its agent home in ${join(root, AGENT)}.`);
 	checkRemovable(dir, name, agentHome, protect, userHome, "migrate");
 	const home = join(root, AGENT);

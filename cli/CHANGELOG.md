@@ -6,6 +6,13 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+### Changed
+
+- `pi-space new` with a setup command no longer makes `agent/` before the setup runs: the setup makes it, then the
+  extension's declaration joins the `settings.json` it wrote. gentle-shell 4.8 sets up only a `--home` it made, so a
+  space made before this was left unprovisioned. A setup command must not count on `{home}` existing. A failed setup
+  leaves the space waiting, and `pi-space setup` finishes it.
+
 ## 0.19.0
 
 ### Changed
