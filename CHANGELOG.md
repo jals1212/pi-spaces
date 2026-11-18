@@ -6,6 +6,22 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.18.0
+
+### Changed
+
+- `/space new` with a setup command creates only the space's folder, waiting for its setup (a `.pi-space-new` file holds
+  the declaration), so the setup command makes `agent/` itself: gentle-shell 4.8 leaves alone a `--home` that already
+  has content. `pi-space setup` adds the declaration once the setup succeeds.
+
+- The README's gentle-shell profile sets `GENTLE_PI_CONFIG_HOME` to `{space}`: gentle-shell 4.8 adds `gentle-ai` to it,
+  so `{space}/gentle-ai` gave `<space>/gentle-ai/gentle-ai`.
+
+### Added
+
+- `pi-spaces/spaces` exports `createSpaceRoot`, `markPending`, `finishPending` and `declareInHome`; `spaceHome` and
+  `isRooted` count a space waiting for its setup as rooted.
+
 ## 0.17.0
 
 ### Added
