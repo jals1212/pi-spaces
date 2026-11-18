@@ -6,6 +6,8 @@ commands and options and a patch version fixes.
 
 ## Unreleased
 
+## 0.18.1
+
 ### Fixed
 
 - The README's gentle-shell profile sets `GENTLE_PI_CONFIG_HOME` to `{space}/gentle-ai` again: 0.18.0's `{space}` put
