@@ -11,9 +11,11 @@ import {
 	backupSpace,
 	checkRemovable,
 	createSpace,
+	createSpaceRoot,
 	type Env,
 	hasSetupCommand,
 	listSpaces,
+	markPending,
 	type PackageDeclaration,
 	removeSpace,
 	renameSpace,
@@ -65,11 +67,20 @@ export async function runSpaceCommand(args: string, deps: SpaceCommandDeps): Pro
 		if (sub === "list" && rest.length === 0) return list(deps);
 		if (sub === "new" && rest.length === 1) {
 			const [name] = rest;
-			const path = createSpace(deps.dir, name, deps.declaration());
+			const withSetup = hasSetupCommand(deps.env) || Boolean(deps.profile?.setup);
+			// With a setup command the agent home is left to pi-space setup: a launcher such as gentle-shell only provisions
+			// a home it made, and the declaration joins its settings once the setup succeeds.
+			let path: string;
+			if (withSetup) {
+				path = createSpaceRoot(deps.dir, name);
+				markPending(path, deps.declaration());
+			} else {
+				path = createSpace(deps.dir, name, deps.declaration());
+			}
 			// pi-space names a space with its profile; without a matching profile this Pi is plain pi.
 			const qualified = `${deps.profile?.name ?? "pi"}/${name}`;
 			ctx.ui.notify(
-				hasSetupCommand(deps.env) || Boolean(deps.profile?.setup)
+				withSetup
 					? `Created space "${name}" at ${path}. Prepare it from a shell with: pi-space setup ${qualified}. Then enter it with /space switch ${name}.`
 					: `Created space "${name}" at ${path}. Enter it with /space switch ${name}.`,
 				"info",

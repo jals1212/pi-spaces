@@ -98,7 +98,7 @@ pi-space remove pi/work                 # delete it, after asking; keeps a backu
 pi-space update --every                 # update the packages of base and of every space of every profile
 ```
 
-A new space is a folder with an `agent/` folder inside it, empty except for `agent/settings.json`, which declares this package so `/space` works inside it. Sign in and install packages there as you would in a fresh Pi. Spaces made by an older version have no `agent/` folder and keep working as they are; see [Moving an old space](#moving-an-old-space).
+A new space is a folder with an `agent/` folder inside it, empty except for `agent/settings.json`, which declares this package so `/space` works inside it. When the profile has a setup command, `agent/` is left to that command, which makes it (a launcher such as gentle-shell only sets up a home it made itself), and the declaration joins the `settings.json` it wrote. Sign in and install packages there as you would in a fresh Pi. Spaces made by an older version have no `agent/` folder and keep working as they are; see [Moving an old space](#moving-an-old-space).
 
 ## Commands in Pi
 
@@ -106,7 +106,7 @@ A new space is a folder with an `agent/` folder inside it, empty except for `age
 | --- | --- |
 | `/space` | Opens a list of the other spaces and restarts Pi in the one you pick. Without the interactive terminal it lists them instead. |
 | `/space list` | Lists `base` and every space, with `*` on the active one. |
-| `/space new <name>` | Creates an empty space (its folder, with `agent/` inside). When a setup command is set (the profile's `commands.setup`, or `PI_SPACES_SETUP`), it names `pi-space setup <profile>/<name>` to run from a shell, with this Pi's profile (`pi` when none matches). |
+| `/space new <name>` | Creates an empty space (its folder, with `agent/` inside). When a setup command is set (the profile's `commands.setup`, or `PI_SPACES_SETUP`), it creates only the folder, waiting for its setup, and names `pi-space setup <profile>/<name>` to run from a shell, with this Pi's profile (`pi` when none matches): the setup makes `agent/`, then the declaration joins its `settings.json`. |
 | `/space switch <name>` | Restarts Pi in that space. `base` is the home Pi started with. |
 | `/space switch` | Same as `/space`. |
 | `/space rename <old> <new>` | Renames a space. The active space cannot be renamed. |
@@ -280,14 +280,14 @@ Keep the `spaceEnv` of the program's own config home: without it, a space's `--h
 
 ### Example: gentle-shell
 
-For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-shell` as it is, and each space gets its own config folder, `gentle-ai`, next to its `agent/` folder through `spaceEnv`:
+For whoever uses gentle-shell, this is a profile for it. The base runs `gentle-shell` as it is, and each space gets its own config folder, `gentle-ai`, next to its `agent/` folder through `spaceEnv` (gentle-shell 4.8 adds `gentle-ai` to `GENTLE_PI_CONFIG_HOME`, so it names the space's root; an older gentle-shell took `{space}/gentle-ai`):
 
 ```toml
 schema = "pi-spaces.config/v2"
 
 [profiles.gentle]
 home = "~/.gentle-shell/agent"
-spaceEnv = { GENTLE_PI_CONFIG_HOME = "{space}/gentle-ai" }
+spaceEnv = { GENTLE_PI_CONFIG_HOME = "{space}" }
 
 [profiles.gentle.commands]
 base = "gentle-shell"
@@ -308,7 +308,7 @@ setup = "gentle-shell --home {home} setup"
         "space": "gentle-shell --home {home}",
         "setup": "gentle-shell --home {home} setup"
       },
-      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{space}/gentle-ai" }
+      "spaceEnv": { "GENTLE_PI_CONFIG_HOME": "{space}" }
     }
   }
 }

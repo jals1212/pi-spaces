@@ -105,6 +105,8 @@ async function run(
 		git?: string[];
 		/** The current folder of the run, under <root>; default <root>, the home folder. */
 		cwd?: string;
+		/** Called at each spawn with the child's PI_CODING_AGENT_DIR, as a setup command would see its agent home. */
+		atSpawn?: (home: string | undefined) => void;
 	} = {},
 ): Promise<Run> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-spaces-cli-")));
@@ -152,6 +154,7 @@ async function run(
 			cwd: join(root, options.cwd ?? ""),
 			spawn: async (program, args, spawnOptions) => {
 				result.spawned.push({ program, args, options: spawnOptions });
+				options.atSpawn?.(spawnOptions.env?.PI_CODING_AGENT_DIR);
 				// A setup command has no --space: its space is in PI_SPACE; a start with neither is base.
 				const target = args.includes("--space") ? args[args.indexOf("--space") + 1] : (spawnOptions.env?.PI_SPACE ?? "base");
 				if (options.echo) result.out += `ran ${target}\n`;
@@ -1382,6 +1385,81 @@ test("new runs the setup command in the new space after creating it, with the sp
 		assert.equal(childEnv.PI_SPACES_SETUP, SETUP);
 		assert.equal(childEnv.OTHER, "kept");
 	}
+});
+
+test("new leaves the agent home to the setup command, which makes it, then adds the declaration to the settings it wrote", async () => {
+	// A launcher such as gentle-shell only takes a home it makes itself, so the agent home must not exist yet.
+	const seen: { existed: boolean }[] = [];
+	const setup = (home: string | undefined) => {
+		assert.ok(home);
+		seen.push({ existed: existsSync(home) });
+		mkdirSync(home, { recursive: true });
+		writeFileSync(join(home, "settings.json"), JSON.stringify({ tuiMode: "full", packages: ["npm:other", "npm:pi-spaces"] }));
+		writeFileSync(join(home, ".launcher-home"), "mine\n");
+	};
+	const r = await run(["--setup", SETUP, "new", "pi/work"], { atSpawn: setup });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(seen, [{ existed: false }]);
+	// The declaration is there once, and what the setup wrote is kept.
+	assert.deepEqual(r.settings, { work: { tuiMode: "full", packages: ["npm:other", "npm:pi-spaces"] } });
+	assert.ok(r.tree.includes("work/agent/.launcher-home"));
+	const added = await run(["--setup", SETUP, "new", "pi/work"], {
+		atSpawn: (home) => {
+			mkdirSync(home!, { recursive: true });
+			writeFileSync(join(home!, "settings.json"), JSON.stringify({ tuiMode: "full", packages: ["npm:other"] }));
+		},
+	});
+	assert.equal(added.code, 0, added.err);
+	assert.deepEqual(added.settings, { work: { tuiMode: "full", packages: ["npm:other", "npm:pi-spaces"] } });
+});
+
+test("new with --no-extension and a setup command keeps the settings the setup wrote, and makes them when it wrote none", async () => {
+	const written = await run(["--setup", SETUP, "new", "pi/work", "--no-extension"], {
+		atSpawn: (home) => {
+			mkdirSync(home!, { recursive: true });
+			writeFileSync(join(home!, "settings.json"), JSON.stringify({ tuiMode: "full" }));
+		},
+	});
+	assert.equal(written.code, 0, written.err);
+	assert.deepEqual(written.settings, { work: { tuiMode: "full" } });
+	const none = await run(["--setup", SETUP, "new", "pi/work", "--no-extension"]);
+	assert.equal(none.code, 0, none.err);
+	assert.deepEqual(none.settings, { work: {} });
+	assert.deepEqual(none.tree, ["work", "work/agent", "work/agent/settings.json"]);
+});
+
+test("new leaves a space whose setup failed waiting for pi-space setup, which makes its agent home and declares the extension", async () => {
+	const failed = await run(["--setup", SETUP, "new", "pi/work"], { status: 5 });
+	assert.equal(failed.code, 5);
+	// Nothing in the agent home, so the setup can still take it as its own.
+	assert.deepEqual(failed.tree, ["work", "work/.pi-space-new"]);
+	assert.deepEqual(failed.settings, {});
+});
+
+test("setup of a space waiting for its setup runs in <root>/agent, which it makes, then adds the declaration once it succeeds", async () => {
+	const files = { "spaces/work/.pi-space-new": { declaration: "npm:pi-spaces" } };
+	const homes: { home: string | undefined; existed: boolean }[] = [];
+	const atSpawn = (home: string | undefined) => {
+		homes.push({ home, existed: existsSync(home!) });
+		mkdirSync(home!, { recursive: true });
+		writeFileSync(join(home!, "settings.json"), JSON.stringify({ tuiMode: "full" }));
+	};
+	const r = await run(["--setup", SETUP, "setup", "pi/work"], { files, atSpawn });
+	assert.equal(r.code, 0, r.err);
+	const home = join(r.dir, "work", "agent");
+	assert.deepEqual(r.spawned.map(({ args }) => args), [["--home", home, "setup"]]);
+	assert.deepEqual(homes, [{ home, existed: false }]);
+	assert.deepEqual(r.settings, { work: { tuiMode: "full", packages: ["npm:pi-spaces"] } });
+	assert.deepEqual(r.tree, ["work", "work/agent", "work/agent/settings.json"]);
+	// A failed setup leaves it waiting, with no declaration in it yet.
+	const failed = await run(["--setup", SETUP, "setup", "pi/work"], { files, atSpawn, status: 3 });
+	assert.equal(failed.code, 3);
+	assert.deepEqual(failed.settings, { work: { tuiMode: "full" } });
+	assert.ok(failed.tree.includes("work/.pi-space-new"));
+	// Without a declaration it only makes sure the settings are there.
+	const bare = await run(["--setup", SETUP, "setup", "pi/work"], { files: { "spaces/work/.pi-space-new": {} } });
+	assert.equal(bare.code, 0, bare.err);
+	assert.deepEqual(bare.settings, { work: {} });
 });
 
 test("new without a setup command runs nothing, whatever PI_SPACES_SETUP says", async () => {
@@ -3256,6 +3334,26 @@ test("migrate refuses an already migrated space with exit 1 and changes nothing"
 	assert.equal(r.err, `pi-space: Space "work" already has its agent home in ${join(r.dir, "work", "agent")}.\n`);
 	assert.deepEqual(r.tree, ["work", "work/agent", "work/agent/settings.json", "work/other.txt"]);
 	assert.deepEqual(r.backups, []);
+});
+
+test("migrate skips a space waiting for its setup, naming pi-space setup, and changes nothing", async () => {
+	const files = { "spaces/work/.pi-space-new": { declaration: "npm:pi-spaces" } };
+	const one = await run(["migrate", "pi/work"], { files });
+	assert.equal(one.code, 1);
+	assert.equal(one.err, 'pi-space: Space "work" is waiting for its setup command, which makes its agent home; run pi-space setup.\n');
+	assert.deepEqual(one.tree, ["work", "work/.pi-space-new"]);
+	const every = await run(["migrate", "pi/--every"], { files });
+	assert.equal(every.code, 0, every.err);
+	assert.equal(every.out, "== pi/work\nSpace \"work\" is waiting for its setup command; skipped. Run: pi-space setup pi/work\n");
+	assert.deepEqual(every.tree, ["work", "work/.pi-space-new"]);
+});
+
+test("setup of an old space, whose root is its agent home, runs there and adds nothing", async () => {
+	const r = await run(["--setup", SETUP, "setup", "pi/work"], { files: { "spaces/work/settings.json": "{}" } });
+	assert.equal(r.code, 0, r.err);
+	assert.deepEqual(r.spawned.map(({ args }) => args), [["--home", join(r.dir, "work"), "setup"]]);
+	assert.deepEqual(r.tree, ["work", "work/settings.json"]);
+	assert.deepEqual(r.settings, { work: {} });
 });
 
 test("migrate refuses base, a missing or invalid space, an unqualified name and the space the caller is in, changing nothing", async () => {

@@ -128,6 +128,10 @@ test("new names pi-space setup when PI_SPACES_SETUP is set, and runs nothing", a
 		["info", `Created space "work" at ${join(f.dir, "work")}. Prepare it from a shell with: pi-space setup pi/work. Then enter it with /space switch work.`],
 	]);
 	assert.equal(f.relaunches.length, 0);
+	// The agent home is left to the setup, and the space waits for it with this package's declaration.
+	assert.deepEqual(readdirSync(join(f.dir, "work")), [".pi-space-new"]);
+	assert.deepEqual(JSON.parse(readFileSync(join(f.dir, "work", ".pi-space-new"), "utf8")), { declaration: f.deps.declaration() });
+	assert.equal(spaceHome(join(f.dir, "work")), join(f.dir, "work", "agent"));
 
 	const blank = fake();
 	blank.deps.env.PI_SPACES_SETUP = "  ";
@@ -150,6 +154,7 @@ test("new names pi-space setup when the matched profile has a setup, and not oth
 	without.deps.profile = { name: "launcher", home: without.base, dir: without.dir, spaceEnv: { K: "{home}" } };
 	await runSpaceCommand("new work", without.deps);
 	assert.deepEqual(without.notes, [["info", plain("work", without.dir)]]);
+	assert.deepEqual(readdirSync(join(without.dir, "work")), ["agent"]);
 
 	// PI_SPACES_SETUP still counts, with or without a profile.
 	const viaEnv = fake();

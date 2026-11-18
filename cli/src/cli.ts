@@ -20,14 +20,19 @@ import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
 import { PINNED_MARK, type PickerItem, type PickerTerminal, runPicker } from "./picker.ts";
 import {
+	AGENT,
 	BACKUPS,
 	BASE,
 	backupSpace,
 	checkRemovable,
 	createSpace,
+	createSpaceRoot,
+	finishPending,
+	markPending,
 	type Env,
 	findOwnDeclaration,
 	hasSetupCommand,
+	isPending,
 	isRooted,
 	listSpaces,
 	migrateSpace,
@@ -195,6 +200,7 @@ const COMMANDS: Record<string, CommandHelp> = {
 		usage: "new <space> [--extension|--no-extension]",
 		about: [
 			"The space is a folder with its agent home, agent/, inside it. It runs the profile's setup command in it when there is one, and does not start Pi.",
+			"With a setup command, agent/ is left to that command, which makes it (a launcher such as gentle-shell only sets up a home it made); the declaration then joins the settings.json it wrote. A failed setup leaves the space waiting for pi-space setup, which finishes it.",
 			"In a terminal it asks whether agent/settings.json declares the Pi extension pi-spaces, which Pi then installs in the space (Enter is yes); without a terminal it declares it. pi-space works without it when the profile's space command has {home}.",
 		],
 		args: [["<space>", "<profile>/<name>: the profile and the name of the new space"]],
@@ -208,7 +214,10 @@ const COMMANDS: Record<string, CommandHelp> = {
 	setup: {
 		summary: "run the setup command in a space or in base",
 		usage: "setup <space|--every>",
-		about: ["It needs a setup command: the profile's \"setup\" or --setup (pi has none by default). In base, {home} is the profile's home and {name} is base."],
+		about: [
+			"It needs a setup command: the profile's \"setup\" or --setup (pi has none by default). In base, {home} is the profile's home and {name} is base.",
+			"In a space made with its setup still to run (by /space new, or a failed pi-space new), the setup makes agent/, and once it succeeds the extension's declaration joins agent/settings.json.",
+		],
 		args: [
 			["<space>", "<profile>/<name>: a space of a profile, or <profile>/base"],
 			["<profile>/--every", "that profile's base, then its spaces in turn; a failure does not stop the rest, and the exit status is 1 if any failed"],
@@ -1316,7 +1325,12 @@ async function create(name: string, scope: Scope, extension?: boolean): Promise<
 	// A bad setup command is reported before anything is created.
 	if (withSetup && !checkSetup(io, scope.setupSource)) return io.exit(2);
 	try {
-		const path = createSpace(dir, name, newSpaceDeclaration(io.env, io.home, profile.home));
+		const declaration = newSpaceDeclaration(io.env, io.home, profile.home);
+		// With a setup command the agent home is left to it: a launcher such as gentle-shell only provisions a home it made.
+		const path = withSetup ? createSpaceRoot(dir, name) : createSpace(dir, name, declaration);
+		// A space with a setup waits for it from the start, so it never looks like an old space whose root is its home.
+		if (withSetup) markPending(path, declaration);
+		const home = join(path, AGENT);
 		io.stdout.write(`Created space "${name}" at ${path}.\n`);
 		let declare = extension ?? true;
 		if (extension === undefined && io.stdin.isTTY) {
@@ -1330,15 +1344,17 @@ async function create(name: string, scope: Scope, extension?: boolean): Promise<
 			}
 		}
 		if (!declare) {
-			writeFileSync(join(spaceHome(path), "settings.json"), "{}\n");
+			if (!withSetup) writeFileSync(join(home, "settings.json"), "{}\n");
 			io.stdout.write(`It does not declare the extension; add it later with: pi-space install ${profile.name}/${name} npm:pi-spaces\n`);
 		}
 		if (withSetup) {
-			// A new space is rooted: the setup runs in its agent home.
-			const home = spaceHome(path);
+			// A new space is rooted: the setup runs in its agent home, which it makes, then the declaration joins the settings
+			// it wrote. A failed setup leaves the space waiting, so pi-space setup finishes it.
+			if (!declare) markPending(path);
 			const setup = setupFor(name, home, path, io);
 			io.stdout.write(`Setting it up: ${[setup.program, ...setup.args].join(" ")}\n`);
 			const status = await spawnSetup(setup, name, home, path, io, profile);
+			if (status === 0) finishPending(path);
 			if (status !== 0) {
 				io.stderr.write(`pi-space: Setup failed in space "${name}" (exit status ${status}); the space is kept. Run it again with: pi-space setup ${profile.name}/${name}\n`);
 				return io.exit(status);
@@ -1564,7 +1580,7 @@ async function setupEach(scope: Scope, names: string[], failed: string[]): Promi
  * the folder above it and {name} base, with the plain environment of the profile (its PI_CODING_AGENT_DIR is that
  * home, and there is no PI_SPACE). Returns its exit status.
  */
-function setupIn(scope: Scope, name: string): Promise<number> {
+async function setupIn(scope: Scope, name: string): Promise<number> {
 	const { io, profile } = scope;
 	const root = rootOf(scope, name);
 	if (name === BASE) {
@@ -1572,7 +1588,10 @@ function setupIn(scope: Scope, name: string): Promise<number> {
 		return spawnPi(setup.program, setup.args, io, io.childEnv ?? io.env);
 	}
 	const home = spaceHome(root);
-	return spawnSetup(setupFor(name, home, root, io), name, home, root, io, profile);
+	const status = await spawnSetup(setupFor(name, home, root, io), name, home, root, io, profile);
+	// A space made with its setup still to run gets its declaration once the setup succeeds.
+	if (status === 0) finishPending(root);
+	return status;
 }
 
 /**
@@ -1641,6 +1660,10 @@ function migrateEach(scope: Scope, names: string[], failed: string[]): void {
 	for (const name of names) {
 		io.stdout.write(`== ${scope.profile.name}/${name}\n`);
 		const root = join(scope.dir, name);
+		if (isPending(root)) {
+			io.stdout.write(`Space "${name}" is waiting for its setup command; skipped. Run: pi-space setup ${scope.profile.name}/${name}\n`);
+			continue;
+		}
 		if (isRooted(root)) {
 			io.stdout.write(`Space "${name}" already has its agent home in ${spaceHome(root)}; skipped.\n`);
 			continue;

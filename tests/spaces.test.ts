@@ -8,6 +8,12 @@ import {
 	BACKUPS,
 	backupSpace,
 	createSpace,
+	createSpaceRoot,
+	declareInHome,
+	finishPending,
+	isPending,
+	isRooted,
+	markPending,
 	findOwnDeclaration,
 	listSpaces,
 	migrateSpace,
@@ -547,4 +553,78 @@ test("migrateSpace puts the space back when a move fails, keeps the backup and s
 	assert.deepEqual(readdirSync(dir).sort(), [BACKUPS, "work"]);
 	assert.deepEqual(readdirSync(join(dir, BACKUPS)), [`work-${STAMP}`]);
 	assert.equal(spaceHome(root), root);
+});
+
+test("a space waiting for its setup is rooted: its agent home is <root>/agent before the setup makes it", () => {
+	const dir = join(scratch(), "spaces");
+	const root = createSpaceRoot(dir, "work");
+	assert.deepEqual(readdirSync(root), []);
+	assert.equal(isRooted(root), false);
+	assert.equal(spaceHome(root), root);
+	markPending(root, "npm:pi-spaces");
+	assert.equal(isPending(root), true);
+	assert.equal(isRooted(root), true);
+	assert.equal(spaceHome(root), join(root, "agent"));
+	assert.equal(activeSpace(dir, join(root, "agent")), "work");
+	assert.throws(() => createSpaceRoot(dir, "work"), new SpaceError('Space "work" already exists.'));
+	assert.throws(() => createSpaceRoot(dir, "Bad"), new SpaceError(validateName("Bad") as string));
+});
+
+test("finishPending adds the declaration to the settings the setup wrote and removes the marker; false without one", () => {
+	const dir = join(scratch(), "spaces");
+	const root = createSpaceRoot(dir, "work");
+	assert.equal(finishPending(root), false);
+	assert.deepEqual(readdirSync(root), []);
+	markPending(root, "npm:pi-spaces");
+	mkdirSync(join(root, "agent"));
+	writeFileSync(join(root, "agent", "settings.json"), JSON.stringify({ tuiMode: "full", packages: ["npm:other"] }));
+	assert.equal(finishPending(root), true);
+	assert.deepEqual(readdirSync(root), ["agent"]);
+	assert.deepEqual(JSON.parse(readFileSync(join(root, "agent", "settings.json"), "utf8")), { tuiMode: "full", packages: ["npm:other", "npm:pi-spaces"] });
+	// No declaration: it makes the agent home and an empty settings.json when the setup made neither.
+	const bare = createSpaceRoot(dir, "bare");
+	markPending(bare);
+	assert.equal(finishPending(bare), true);
+	assert.equal(readFileSync(join(bare, "agent", "settings.json"), "utf8"), "{}\n");
+});
+
+test("finishPending refuses a marker that is not JSON, keeping it and the agent home as they are", () => {
+	const root = createSpaceRoot(join(scratch(), "spaces"), "work");
+	writeFileSync(join(root, ".pi-space-new"), "{oops");
+	assert.throws(() => finishPending(root), new SpaceError(`${join(root, ".pi-space-new")} is not valid JSON; fix or delete it and run pi-space setup again.`));
+	assert.deepEqual(readdirSync(root), [".pi-space-new"]);
+});
+
+test("declareInHome keeps every setting, declares a package once whatever its npm version, and refuses settings it cannot add to", () => {
+	const home = join(scratch(), "agent");
+	declareInHome(home, "npm:pi-spaces");
+	const read = () => JSON.parse(readFileSync(join(home, "settings.json"), "utf8"));
+	assert.deepEqual(read(), { packages: ["npm:pi-spaces"] });
+	writeFileSync(join(home, "settings.json"), JSON.stringify({ theme: "t", packages: ["npm:pi-spaces@0.16.0", { source: "npm:@scope/pkg@1.0.0" }] }));
+	declareInHome(home, "npm:pi-spaces");
+	declareInHome(home, { source: "npm:@scope/pkg" });
+	assert.deepEqual(read(), { theme: "t", packages: ["npm:pi-spaces@0.16.0", { source: "npm:@scope/pkg@1.0.0" }] });
+	// A local path is the same package only as written.
+	declareInHome(home, "../pi-spaces");
+	assert.deepEqual(read().packages, ["npm:pi-spaces@0.16.0", { source: "npm:@scope/pkg@1.0.0" }, "../pi-spaces"]);
+	for (const [content, message] of [
+		["[]", `${join(home, "settings.json")} is not a JSON object.`],
+		['{"packages":"npm:x"}', `${join(home, "settings.json")} has "packages" that is not a list.`],
+	]) {
+		writeFileSync(join(home, "settings.json"), content);
+		assert.throws(() => declareInHome(home, "npm:pi-spaces"), new SpaceError(message));
+		assert.equal(readFileSync(join(home, "settings.json"), "utf8"), content);
+	}
+});
+
+test("migrateSpace refuses a space waiting for its setup, changing nothing", () => {
+	const base = scratch();
+	const dir = join(base, "spaces");
+	const root = createSpaceRoot(dir, "work");
+	markPending(root, "x");
+	assert.throws(
+		() => migrateSpace(dir, "work", join(base, "agent"), [], base, NOW),
+		new SpaceError('Space "work" is waiting for its setup command, which makes its agent home; run pi-space setup.'),
+	);
+	assert.deepEqual(readdirSync(root), [".pi-space-new"]);
 });
